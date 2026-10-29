@@ -261,8 +261,8 @@ end
 local function AddMyselfToActiveList()
     local myName = UnitName("player")
     local level = UnitLevel("player")
-local _, classFilename = UnitClass("player")
-local guildName, rankName = GetGuildInfo("player")
+    local _, classFilename = UnitClass("player")
+    local guildName, rankName = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
 local existingIndex = GetPlayerIndex(myName)
@@ -498,7 +498,7 @@ if idx <= #guildOrder then
 local gName = guildOrder[idx] local stats = guildData[gName]
 card.nameText:SetText("|cffffffff" .. gName .. "|r")
 card.activeText:SetText("|cff00ff00● Aktywni:|r " .. stats.active)
-card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card:Show()
+card.inactiveText:SetText("|cff808080O Nieaktywni:|r " .. stats.inactive) card:Show()
 else card:Hide() end
 end
 end
@@ -753,18 +753,24 @@ if event == "ADDON_LOADED" and prefix == "jagodka" then
 JagodkiEventsDB = JagodkiEventsDB or {} eventsList = JagodkiEventsDB return
 end
 if event == "PLAYER_LOGIN" then
+-- NAPRAWIONE: Bez rejestracji prefiksu WoW blokował wymianę danych między graczami
+C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 AddMyselfToActiveList() SendStatusPacket("PING")
 table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono z kanalem Jagodka.|r") UpdateChatTabVisuals()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
-local senderName = Ambiguate(sender, "none") American = strsplit(":", text, 2)
+-- NAPRAWIONE: Usunięto błąd składniowy (słowo 'American')
+local senderName = Ambiguate(sender, "none")
 local pType, payload = strsplit(":", text, 2)
 if pType == "CHAT" and payload then
 local targetTab, msgContent = strsplit(":", payload, 2)
 if targetTab and msgContent and chatHistories[targetTab] then
+-- NAPRAWIONE: Warunek blokuje wyświetlanie własnych wiadomości z serwera (brak efektu echo/dubla)
+if senderName ~= UnitName("player") then
 local idx = GetPlayerIndex(senderName)
 local rankStr = (idx and activePlayers[idx].rank and activePlayers[idx].rank ~= "Brak") and (GetColoredRank(activePlayers[idx].rank) .. " ") or ""
 table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
 if targetTab == currentChatTab then RefreshChatDisplay() end
+end
 end
 elseif pType == "PING" or pType == "PONG" then
 if payload then
