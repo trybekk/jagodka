@@ -1,5 +1,40 @@
--- REJESTRACJA SIECIOWA WYMUSZONA NA STARCIE
+-- ============================================================================
+-- 0. IZOLACJA ŚRODOWISKA (GLOBAL SCOPE ISOLATION & UPVALUES)
+-- ============================================================================
+local addonName, addonTable = ...
+
+-- Lokalne kopie funkcji systemowych WoW (ochrona przed nadpisaniem przez inne addony)
+local _G = _G
+local CreateFrame = _G.CreateFrame
+local UnitName = _G.UnitName
+local UnitLevel = _G.UnitLevel
+local UnitClass = _G.UnitClass
+local GetGuildInfo = _G.GetGuildInfo
+local GetTime = _G.GetTime
+local Ambiguate = _G.Ambiguate
+local strsplit = _G.strsplit
+local select = _G.select
+local unpack = _G.unpack
+local wipe = _G.wipe
+local pairs = _G.pairs
+local ipairs = _G.ipairs
+local table = _G.table
+local string = _G.string
+local IsInRaid = _G.IsInRaid
+local IsInGroup = _G.IsInGroup
+local IsInGuild = _G.IsInGuild
+local C_ChatInfo = _G.C_ChatInfo
+local LibStub = _G.LibStub
+local UIParent = _G.UIParent
+local ChatFontNormal = _G.ChatFontNormal
+local UIErrorsFrame = _G.UIErrorsFrame
+local RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS
+local CLASS_ICON_TCOORDS = _G.CLASS_ICON_TCOORDS
+local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
+
+-- WYMUSZONA REJESTRACJA PREFIKSU NA SAMYM STARCIE PLIKU
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+
 -- ============================================================================
 -- 1. KONFIGURACJA GŁÓWNEGO OKNA I PODSTAWOWE FUNKCJE RYSOWANIA
 -- ============================================================================
@@ -63,14 +98,14 @@ local columns = {
     { name = "Ranga", width = 130, x = 410 }
 }
 
--- PANCERNE DEKLARACJE FUNKCJI AKTUALIZACJI
+-- PANCERNE DEKLARACJE FUNKCJI AKTUALIZACJI (LOKALNE)
 local UpdateGuildTable = function() end
 local UpdateEventsList = function() end
 local UpdateMainTable = function() end
 local UpdateScrollList = function() end
 local UpdateRosterList = function() end
 
--- FUNKCJE POMOCNICZE UI
+-- FUNKCJE POMOCNICZE UI (LOKALNE)
 local function ApplyModernStyle(frame)
     frame:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -106,7 +141,7 @@ local function CreateLabelAndInput(parentFrame, labelName, yOffset, width, heigh
 end
 
 -- ============================================================================
--- 1B. FUNKCJE SIECIOWE 
+-- 1B. FUNKCJE SIECIOWE (LOKALNE)
 -- ============================================================================
 local function SendJagodkaNetworkPacket(prefixType, dataPayload)
     local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or (IsInGuild() and "GUILD" or nil))
@@ -211,8 +246,7 @@ local chatHistories = {
     ["Szukaj grupy"] = {}
 }
 
-JagodkiEventsDB = JagodkiEventsDB or {}
-local eventsList = JagodkiEventsDB
+local eventsList = {}
 local selectedEventIndex = nil
 local currentRosterFilter = "ALL"
 
@@ -230,41 +264,38 @@ local function GetColoredName(name)
         if player.class and RAID_CLASS_COLORS[player.class] then
             local color = RAID_CLASS_COLORS[player.class]
             return color:WrapTextInColorCode(name)
-        end
-    end
-    return name
 end
-
+end
+return name
+end
 local function GetColoredRank(rank)
-    if not rank or rank == "" or rank == "Brak" then return "|cff808080Gracz|r" end
-    local lowerRank = rank:lower()
-    if lowerRank:find("master") or lowerRank:find("lider") or lowerRank:find("szef") then
-        return "|cffffd100[" .. rank .. "]|r" 
-    elseif lowerRank:find("oficer") or lowerRank:find("officer") then
-        return "|cff00ccff[" .. rank .. "]|r" 
-    elseif lowerRank:find("raider") or lowerRank:find("weteran") then
-        return "|cff9370db[" .. rank .. "]|r" 
-    else
-        return "|cffffffff[" .. rank .. "]|r" 
-    end
+if not rank or rank == "" or rank == "Brak" then return "|cff808080Gracz|r" end
+local lowerRank = rank:lower()
+if lowerRank:find("master") or lowerRank:find("lider") or lowerRank:find("szef") then
+return "|cffffd100[" .. rank .. "]|r"
+elseif lowerRank:find("oficer") or lowerRank:find("officer") then
+return "|cff00ccff[" .. rank .. "]|r"
+elseif lowerRank:find("raider") or lowerRank:find("weteran") then
+return "|cff9370db[" .. rank .. "]|r"
+else
+return "|cffffffff[" .. rank .. "]|r"
 end
-
+end
 local function IsPlayerOfficer()
-    if not IsInGuild() then return false end
-    local _, rankName, rankIndex = GetGuildInfo("player")
-    if not rankName then return false end
-    local lowerRank = rankName:lower()
-    if rankIndex == 0 or rankIndex == 1 or lowerRank:find("oficer") or lowerRank:find("officer") or lowerRank:find("master") or lowerRank:find("lider") then
-        return true
-    end
-    return false
+if not IsInGuild() then return false end
+local _, rankName, rankIndex = GetGuildInfo("player")
+if not rankName then return false end
+local lowerRank = rankName:lower()
+if rankIndex == 0 or rankIndex == 1 or lowerRank:find("oficer") or lowerRank:find("officer") or lowerRank:find("master") or lowerRank:find("lider") then
+return true
 end
-
+return false
+end
 local function AddMyselfToActiveList()
-    local myName = UnitName("player")
-    local level = UnitLevel("player")
-    local _, classFilename = UnitClass("player")
-    local guildName, rankName = GetGuildInfo("player")
+local myName = UnitName("player")
+local level = UnitLevel("player")
+local _, classFilename = UnitClass("player")
+local guildName, rankName = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
 local existingIndex = GetPlayerIndex(myName)
@@ -276,7 +307,6 @@ end
 -- ============================================================================
 -- 3. ZAKŁADKA 1: PANEL CZATU
 -- ============================================================================
--- NAPRAWIONE: Przypisano Panels[1] (Zamiast tablicy Panels)
 local ChatPanel = CreateFrame("Frame", nil, Panels[1], "BackdropTemplate")
 ChatPanel:SetSize(560, 435)
 ChatPanel:SetPoint("TOPLEFT", Panels[1], "TOPLEFT", 0, 0)
@@ -356,7 +386,6 @@ end
 -- ============================================================================
 -- 4. ZAKŁADKA 2: GŁÓWNA TABELA GRACZY + WYSZUKIWARKA
 -- ============================================================================
--- NAPRAWIONE: Przypisano Panels[2] (Zamiast tablicy Panels)
 local TableContainer = CreateFrame("Frame", nil, Panels[2], "BackdropTemplate")
 TableContainer:SetSize(560, 420)
 TableContainer:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", 0, -45)
@@ -409,7 +438,7 @@ row.rankText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 row.rankText:SetPoint("LEFT", row, "LEFT", 410, 0)
 tableRows[i] = row
 end
-function UpdateMainTable()
+UpdateMainTable = function()
 OnlineText:SetText("Online: |cff00ff00" .. #activePlayers .. "|r")
 wipe(filteredPlayers)
 local filterText = SearchEditBox:GetText():lower()
@@ -421,8 +450,8 @@ table.insert(filteredPlayers, player)
 end
 end
 end
-FauxScrollFrame_Update(mainScrollFrame, #filteredPlayers, MAX_MAIN_ROWS, MAIN_ROW_HEIGHT)
-local offset = FauxScrollFrame_GetOffset(mainScrollFrame)
+_G.FauxScrollFrame_Update(mainScrollFrame, #filteredPlayers, MAX_MAIN_ROWS, MAIN_ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(mainScrollFrame)
 for i = 1, MAX_MAIN_ROWS do
 local dataIndex = i + offset local row = tableRows[i]
 if dataIndex <= #filteredPlayers then
@@ -440,11 +469,10 @@ row:Show()
 else row:Hide() end
 end
 end
-mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScrollFrame_OnVerticalScroll(self, offset, MAIN_ROW_HEIGHT, UpdateMainTable) end)
+mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, MAIN_ROW_HEIGHT, UpdateMainTable) end)
 -- ============================================================================
 -- 5. ZAKŁADKA 3: PANEL GILDII
 -- ============================================================================
--- NAPRAWIONE: Przypisano Panels[3] (Zamiast tablicy Panels)
 local GuildContainer = CreateFrame("Frame", nil, Panels[3], "BackdropTemplate")
 GuildContainer:SetSize(560, 435)
 GuildContainer:SetPoint("TOPLEFT", Panels[3], "TOPLEFT", 0, 0)
@@ -482,7 +510,7 @@ card.inactiveText = card:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 card.inactiveText:SetPoint("RIGHT", card, "RIGHT", -25, 0)
 guildRows[i] = card
 end
-function UpdateGuildTable()
+UpdateGuildTable = function()
 local guildData, guildOrder, currentTime = {}, {}, GetTime()
 for _, player in ipairs(activePlayers) do
 local gName = player.guild
@@ -492,8 +520,8 @@ if (currentTime - (player.lastSeen or currentTime)) < 180 then guildData[gName].
 end
 end
 table.sort(guildOrder, function(a, b) return guildData[a].active > guildData[b].active end)
-FauxScrollFrame_Update(guildScrollFrame, #guildOrder, MAX_GUILD_ROWS, GUILD_ROW_HEIGHT)
-local offset = FauxScrollFrame_GetOffset(guildScrollFrame)
+_G.FauxScrollFrame_Update(guildScrollFrame, #guildOrder, MAX_GUILD_ROWS, GUILD_ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(guildScrollFrame)
 for i = 1, MAX_GUILD_ROWS do
 local idx = i + offset local card = guildRows[i]
 if idx <= #guildOrder then
@@ -504,16 +532,14 @@ card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card
 else card:Hide() end
 end
 end
-guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScrollFrame_OnVerticalScroll(self, offset, GUILD_ROW_HEIGHT, UpdateGuildTable) end)
+guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, GUILD_ROW_HEIGHT, UpdateGuildTable) end)
 -- ============================================================================
 -- 6. ZAKŁADKA 4: PANEL WYDARZEŃ
 -- ============================================================================
--- NAPRAWIONE: Przypisano Panels[4] (Zamiast tablicy Panels)
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 ListContainer:SetSize(270, 435)
 ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, 0)
 ApplyModernStyle(ListContainer)
--- NAPRAWIONE: Przypisano Panels[4] (Zamiast tablicy Panels)
 local DetailsContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 DetailsContainer:SetSize(280, 390)
 DetailsContainer:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -45)
@@ -570,7 +596,7 @@ row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") row.te
 row.roleText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall") row.roleText:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 rosterRows[i] = row
 end
-function UpdateRosterList()
+UpdateRosterList = function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 local ev = eventsList[selectedEventIndex]
 local displayList = {}
@@ -580,8 +606,8 @@ table.insert(displayList, { name = name, role = role })
 end
 end
 table.sort(displayList, function(a, b) return a.name < b.name end)
-FauxScrollFrame_Update(rosterScrollFrame, #displayList, MAX_ROSTER_ROWS, ROSTER_ROW_HEIGHT)
-local offset = FauxScrollFrame_GetOffset(rosterScrollFrame)
+_G.FauxScrollFrame_Update(rosterScrollFrame, #displayList, MAX_ROSTER_ROWS, ROSTER_ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(rosterScrollFrame)
 for i = 1, MAX_ROSTER_ROWS do
 local idx = i + offset local row = rosterRows[i]
 if idx <= #displayList then
@@ -596,7 +622,7 @@ row:Hide()
 end
 end
 end
-rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
+rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
 local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
 eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -35)
 eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 10)
@@ -639,9 +665,9 @@ TankCountText:SetText(t) HealCountText:SetText(h) DpsCountText:SetText(d) TotalC
 CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals() JoinTankBtn:Show() JoinHealBtn:Show() JoinDpsBtn:Show()
 if ev.creator == UnitName("player") or IsPlayerOfficer() then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
-function UpdateEventsList()
-FauxScrollFrame_Update(eventScrollFrame, #eventsList, MAX_EV_ROWS, EV_ROW_HEIGHT)
-local offset = FauxScrollFrame_GetOffset(eventScrollFrame)
+UpdateEventsList = function()
+_G.FauxScrollFrame_Update(eventScrollFrame, #eventsList, MAX_EV_ROWS, EV_ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(eventScrollFrame)
 for i = 1, MAX_EV_ROWS do
 local idx = i + offset local row = eventRows[i]
 if idx <= #eventsList then
@@ -656,7 +682,6 @@ row:Show()
 else row:Hide() end
 end
 end
--- NAPRAWIONE: Przypisano Panels[4] (Zamiast tablicy Panels)
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Stworz Wydarzenie")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
@@ -700,7 +725,6 @@ end)
 -- ============================================================================
 -- 6B. ZAKŁADKA 5: USTAWIENIA
 -- ============================================================================
--- NAPRAWIONE: Przypisano Panels[5] (Zamiast tablicy Panels)
 local SettingsInfo = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 SettingsInfo:SetPoint("CENTER", Panels[5], "CENTER", 0, 0)
 SettingsInfo:SetText("Modul Konfiguracji i Filtrow w przygotowaniu...")
@@ -726,10 +750,10 @@ row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") ro
 row.levelText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") row.levelText:SetPoint("RIGHT", row, "RIGHT", -8, 0)
 rows[i] = row
 end
-function UpdateScrollList()
+UpdateScrollList = function()
 HeaderText:SetText("Aktywni gracze (" .. #activePlayers .. ")")
-FauxScrollFrame_Update(scrollFrame, #activePlayers, MAX_ROWS, ROW_HEIGHT)
-local offset = FauxScrollFrame_GetOffset(scrollFrame)
+_G.FauxScrollFrame_Update(scrollFrame, #activePlayers, MAX_ROWS, ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(scrollFrame)
 for i = 1, MAX_ROWS do
 local idx = i + offset local row = rows[i]
 if idx <= #activePlayers then
@@ -745,7 +769,7 @@ row:Show()
 else row:Hide() end
 end
 end
-scrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, UpdateScrollList) end)
+scrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, UpdateScrollList) end)
 -- ============================================================================
 -- 8. ODBIORNIK SIECIOWY (LISTENERY I SYNCHRONIZACJA)
 -- ============================================================================
@@ -755,7 +779,9 @@ NetworkListener:RegisterEvent("PLAYER_LOGIN")
 NetworkListener:RegisterEvent("ADDON_LOADED")
 NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
 if event == "ADDON_LOADED" and prefix == "jagodka" then
-JagodkiEventsDB = JagodkiEventsDB or {} eventsList = JagodkiEventsDB return
+_G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
+eventsList = _G.JagodkiEventsDB
+return
 end
 if event == "PLAYER_LOGIN" then
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
@@ -833,20 +859,19 @@ if UpdateMainTable then UpdateMainTable() end
 UpdateGuildTable()
 UpdateEventsList()
 end)
--- NAPRAWIONE: Przypisano Panels[4] (Zamiast tablicy Panels)
 Panels[4]:SetScript("OnShow", function()
-if JagodkiEventsDB then eventsList = JagodkiEventsDB end
+if _G.JagodkiEventsDB then eventsList = _G.JagodkiEventsDB end
 if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
 if UpdateEventsList then UpdateEventsList() end
 SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
 end)
--- Defaultowo przy starcie pokazujemy pierwszą zakładkę
+-- Wyświetlenie pierwszej zakładki przy starcie gry
 ShowTab(1)
 -- ============================================================================
 -- 9. REJESTRACJA KOMENDY CZATU I MINIMAPY (LibDataBroker)
 -- ============================================================================
-SLASH_JAGODKI1 = "/okno"
-SlashCmdList["JAGODKI"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
+_G.SLASH_JAGODKI1 = "/okno"
+_G.SlashCmdList["JAGODKI"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
 local JagodkiLDB = LibStub("LibDataBroker-1.1"):NewDataObject("JagodkiNadina", {
 type = "data source",
 text = "Jagodki Nadina",
@@ -862,5 +887,5 @@ tooltip:AddLine("|cffffd100Kliknij, aby otworzyć okno Wspólnoty|r")
 end,
 })
 local icon = LibStub("LibDBIcon-1.0")
-JagodkiMinimapDB = JagodkiMinimapDB or { minimap = { hide = false } }
-icon:Register("JagodkiNadina", JagodkiLDB, JagodkiMinimapDB.minimap)
+_G.JagodkiMinimapDB = _G.JagodkiMinimapDB or { minimap = { hide = false } }
+icon:Register("JagodkiNadina", JagodkiLDB, _G.JagodkiMinimapDB.minimap)
