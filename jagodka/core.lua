@@ -213,6 +213,7 @@ local chatHistories = {
 JagodkiEventsDB = JagodkiEventsDB or {}
 local eventsList = JagodkiEventsDB
 local selectedEventIndex = nil
+local currentRosterFilter = "ALL"
 
 local function GetPlayerIndex(name)
     for idx, player in ipairs(activePlayers) do
@@ -262,7 +263,7 @@ local function AddMyselfToActiveList()
     local myName = UnitName("player")
     local level = UnitLevel("player")
     local _, classFilename = UnitClass("player")
-    local guildName, rankName = GetGuildInfo("player")
+local guildName, rankName = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
 local existingIndex = GetPlayerIndex(myName)
@@ -293,7 +294,6 @@ chatInput:SetFontObject(ChatFontNormal)
 local sendButton = CreateFrame("Button", nil, ChatPanel, "GameMenuButtonTemplate")
 sendButton:SetSize(75, 26)
 sendButton:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
--- NAPRAWIONE: "ś" zakodowane systemowo jako uniwersalny kod \197\155
 sendButton:SetText("Wy\197\155lij")
 local chatTabs = {"Ogolny", "Raid", "Handel", "Szukaj grupy"}
 local currentChatTab = "Ogolny"
@@ -317,7 +317,6 @@ end
 end
 RefreshChatDisplay()
 end
--- WYSYŁANIE WIADOMOŚCI
 local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
 if msg and msg ~= "" then
@@ -408,7 +407,6 @@ row.rankText:SetPoint("LEFT", row, "LEFT", 410, 0)
 tableRows[i] = row
 end
 function UpdateMainTable()
--- Dynamiczne odświeżanie licznika z czystym tekstem (bez kwadratów)
 OnlineText:SetText("Online: |cff00ff00" .. #activePlayers .. "|r")
 wipe(filteredPlayers)
 local filterText = SearchEditBox:GetText():lower()
@@ -498,7 +496,7 @@ if idx <= #guildOrder then
 local gName = guildOrder[idx] local stats = guildData[gName]
 card.nameText:SetText("|cffffffff" .. gName .. "|r")
 card.activeText:SetText("|cff00ff00● Aktywni:|r " .. stats.active)
-card.inactiveText:SetText("|cff808080O Nieaktywni:|r " .. stats.inactive) card:Show()
+card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card:Show()
 else card:Hide() end
 end
 end
@@ -695,7 +693,6 @@ end)
 -- ============================================================================
 -- 6B. ZAKŁADKA 5: USTAWIENIA
 -- ============================================================================
--- NAPRAWIONE: Tekst tworzony bezpośrednio na piątym indeksie tablicy paneli
 local SettingsInfo = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 SettingsInfo:SetPoint("CENTER", Panels[5], "CENTER", 0, 0)
 SettingsInfo:SetText("Modul Konfiguracji i Filtrow w przygotowaniu...")
@@ -749,111 +746,98 @@ NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
 NetworkListener:RegisterEvent("PLAYER_LOGIN")
 NetworkListener:RegisterEvent("ADDON_LOADED")
 NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
-    if event == "ADDON_LOADED" and prefix == "jagodka" then
-        JagodkiEventsDB = JagodkiEventsDB or {} eventsList = JagodkiEventsDB return
-    end
-    
-    if event == "PLAYER_LOGIN" then
-        C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
-        AddMyselfToActiveList() 
-        SendStatusPacket("PING")
-        table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono z kanalem Jagodka.|r") 
-        UpdateChatTabVisuals()
-        
-    elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
-        -- Ambiguate usuwa "-NazwaSerwera" z nicku nadawcy, dając czysty nick
-        local senderName = Ambiguate(sender, "none") 
-        local myName = UnitName("player")
-        
-        -- Prawidłowe parsowanie tekstu sieciowego
-        local pType, payload = strsplit(":", text, 2)
-        if not pType or not payload then return end
-        
-        if pType == "CHAT" then
-            local targetTab, msgContent = strsplit(":", payload, 2)
-            if targetTab and msgContent and chatHistories[targetTab] then
-                -- Ignoruj echo od samego siebie, ale wpuszczaj ziomka (teraz czyste nicki się zgodzą!)
-                if senderName ~= myName then
-                    local idx = GetPlayerIndex(senderName)
-                    local rankStr = (idx and activePlayers[idx].rank and activePlayers[idx].rank ~= "Brak") and (GetColoredRank(activePlayers[idx].rank) .. " ") or ""
-                    table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
-                    if targetTab == currentChatTab then RefreshChatDisplay() end
-                end
-            end
-        elseif pType == "PING" or pType == "PONG" then
-            local lvl, cls, gld, rnk = strsplit(":", payload, 4)
-            local existingIndex = GetPlayerIndex(senderName)
-            local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", lastSeen = GetTime() }
-            if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
-            UpdateScrollList() 
-            if UpdateMainTable then UpdateMainTable() end 
-            if MainFrame:IsShown() then UpdateGuildTable() end
-            if pType == "PING" then SendStatusPacket("PONG") end
-            
-        elseif pType == "EV_REQ" then
-            for _, ev in ipairs(eventsList) do 
-                if ev.creator == myName then 
-                    SendJagodkaNetworkPacket("EV_ADD", string.format("%s:%s:%s:%s:%s:%s", ev.id, ev.title, ev.date, ev.time, ev.desc, ev.creator)) 
-                end 
-            end
-        elseif pType == "EV_ADD" then
-            local evID, title, eDate, eTime, desc, creator = strsplit(":", payload, 6)
-            if evID and title then
-                local exists = false 
-                for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
-                if not exists then 
-                    table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, creator = creator, roster = {} }) 
-                    if MainFrame:IsShown() then UpdateEventsList() end 
-                end
-            end
-        elseif pType == "EV_SIGN" then
-            local evID, role = strsplit(":", payload, 2)
-            for _, ev in ipairs(eventsList) do 
-                if ev.id == evID then 
-                    ev.roster[senderName] = role 
-                    if selectedEventIndex and eventsList[selectedEventIndex].id == evID then UpdateEventDetails() end 
-                    if MainFrame:IsShown() then UpdateEventsList() end 
-                    break 
-                end 
-            end
-        elseif pType == "EV_REM" then
-            for idx, ev in ipairs(eventsList) do 
-                if ev.id == payload then 
-                    if selectedEventIndex and eventsList[selectedEventIndex].id == payload then selectedEventIndex = nil UpdateEventDetails() end 
-                    table.remove(eventsList, idx) 
-                    if MainFrame:IsShown() then UpdateEventsList() end 
-                    break 
-                end 
-            end
-        end
-    end
+if event == "ADDON_LOADED" and prefix == "jagodka" then
+JagodkiEventsDB = JagodkiEventsDB or {} eventsList = JagodkiEventsDB return
+end
+if event == "PLAYER_LOGIN" then
+C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+AddMyselfToActiveList()
+SendStatusPacket("PING")
+table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono z kanalem Jagodka.|r")
+UpdateChatTabVisuals()
+elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
+local senderName = Ambiguate(sender, "none")
+local myName = UnitName("player")
+local pType, payload = strsplit(":", text, 2)
+if not pType or not payload then return end
+if pType == "CHAT" then
+local targetTab, msgContent = strsplit(":", payload, 2)
+if targetTab and msgContent and chatHistories[targetTab] then
+if senderName ~= myName then
+local idx = GetPlayerIndex(senderName)
+local rankStr = (idx and activePlayers[idx].rank and activePlayers[idx].rank ~= "Brak") and (GetColoredRank(activePlayers[idx].rank) .. " ") or ""
+table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
+if targetTab == currentChatTab then RefreshChatDisplay() end
+end
+end
+elseif pType == "PING" or pType == "PONG" then
+local lvl, cls, gld, rnk = strsplit(":", payload, 4)
+local existingIndex = GetPlayerIndex(senderName)
+local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", lastSeen = GetTime() }
+if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
+UpdateScrollList()
+if UpdateMainTable then UpdateMainTable() end
+if MainFrame:IsShown() then UpdateGuildTable() end
+if pType == "PING" then SendStatusPacket("PONG") end
+elseif pType == "EV_REQ" then
+for _, ev in ipairs(eventsList) do
+if ev.creator == myName then
+SendJagodkaNetworkPacket("EV_ADD", string.format("%s:%s:%s:%s:%s:%s", ev.id, ev.title, ev.date, ev.time, ev.desc, ev.creator))
+end
+end
+elseif pType == "EV_ADD" then
+local evID, title, eDate, eTime, desc, creator = strsplit(":", payload, 6)
+if evID and title then
+local exists = false
+for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
+if not exists then
+table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, creator = creator, roster = {} })
+if MainFrame:IsShown() then UpdateEventsList() end
+end
+end
+elseif pType == "EV_SIGN" then
+local evID, role = strsplit(":", payload, 2)
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+ev.roster[senderName] = role
+if selectedEventIndex and eventsList[selectedEventIndex].id == evID then UpdateEventDetails() end
+if MainFrame:IsShown() then UpdateEventsList() end
+break
+end
+end
+elseif pType == "EV_REM" then
+for idx, ev in ipairs(eventsList) do
+if ev.id == payload then
+if selectedEventIndex and eventsList[selectedEventIndex].id == payload then selectedEventIndex = nil UpdateEventDetails() end
+table.remove(eventsList, idx)
+if MainFrame:IsShown() then UpdateEventsList() end
+break
+end
+end
+end
+end
 end)
-
 MainFrame:SetScript("OnShow", function()
-    AddMyselfToActiveList() 
-    SendStatusPacket("PING") 
-    UpdateScrollList() 
-    if UpdateMainTable then UpdateMainTable() end
-    UpdateGuildTable()
-    UpdateEventsList()
+AddMyselfToActiveList()
+SendStatusPacket("PING")
+UpdateScrollList()
+if UpdateMainTable then UpdateMainTable() end
+UpdateGuildTable()
+UpdateEventsList()
 end)
-
 Panels[4]:SetScript("OnShow", function()
-    if JagodkiEventsDB then eventsList = JagodkiEventsDB end
-    if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
-    if UpdateEventsList then UpdateEventsList() end
-    SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
+if JagodkiEventsDB then eventsList = JagodkiEventsDB end
+if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
+if UpdateEventsList then UpdateEventsList() end
+SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
 end)
-
 -- Defaultowo przy starcie pokazujemy pierwszą zakładkę
 ShowTab(1)
-
 -- ============================================================================
 -- 9. REJESTRACJA KOMENDY CZATU I MINIMAPY (LibDataBroker)
 -- ============================================================================
 SLASH_JAGODKI1 = "/okno"
 SlashCmdList["JAGODKI"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
--- Rejestracja obiektu danych w LibDataBroker (LDB)
 local JagodkiLDB = LibStub("LibDataBroker-1.1"):NewDataObject("JagodkiNadina", {
 type = "data source",
 text = "Jagodki Nadina",
@@ -868,7 +852,6 @@ tooltip:AddLine("Jagodki Nadina")
 tooltip:AddLine("|cffffd100Kliknij, aby otworzyć okno Wspólnoty|r")
 end,
 })
--- Rejestracja pozycji przycisku na minimapie za pomocą LibDBIcon
 local icon = LibStub("LibDBIcon-1.0")
 JagodkiMinimapDB = JagodkiMinimapDB or { minimap = { hide = false } }
 icon:Register("JagodkiNadina", JagodkiLDB, JagodkiMinimapDB.minimap)
