@@ -1,3 +1,5 @@
+-- REJESTRACJA SIECIOWA WYMUSZONA NA STARCIE
+C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 -- ============================================================================
 -- 1. KONFIGURACJA GŁÓWNEGO OKNA I PODSTAWOWE FUNKCJE RYSOWANIA
 -- ============================================================================
