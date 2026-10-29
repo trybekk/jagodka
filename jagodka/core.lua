@@ -50,7 +50,6 @@ OnlineText:SetPoint("RIGHT", CloseBtn, "LEFT", -10, 0)
 OnlineText:SetText("Online: |cff00ff000|r")
 
 local Panels = {}
--- Zabezpieczone "ł" w słowie Członkowie
 local tabNames = {"Czat", "Cz\197\130onkowie", "Gildie", "Wydarzenia", "Ustawienia"}
 
 -- Konfiguracja kolumn tabeli graczy
@@ -263,7 +262,7 @@ local function AddMyselfToActiveList()
     local myName = UnitName("player")
     local level = UnitLevel("player")
     local _, classFilename = UnitClass("player")
-local guildName, rankName = GetGuildInfo("player")
+    local guildName, rankName = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
 local existingIndex = GetPlayerIndex(myName)
@@ -275,6 +274,7 @@ end
 -- ============================================================================
 -- 3. ZAKŁADKA 1: PANEL CZATU
 -- ============================================================================
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[1])
 local ChatPanel = CreateFrame("Frame", nil, Panels[1], "BackdropTemplate")
 ChatPanel:SetSize(560, 435)
 ChatPanel:SetPoint("TOPLEFT", Panels[1], "TOPLEFT", 0, 0)
@@ -354,6 +354,7 @@ end
 -- ============================================================================
 -- 4. ZAKŁADKA 2: GŁÓWNA TABELA GRACZY + WYSZUKIWARKA
 -- ============================================================================
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[2])
 local TableContainer = CreateFrame("Frame", nil, Panels[2], "BackdropTemplate")
 TableContainer:SetSize(560, 420)
 TableContainer:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", 0, -45)
@@ -441,6 +442,7 @@ mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScrollF
 -- ============================================================================
 -- 5. ZAKŁADKA 3: PANEL GILDII
 -- ============================================================================
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[3])
 local GuildContainer = CreateFrame("Frame", nil, Panels[3], "BackdropTemplate")
 GuildContainer:SetSize(560, 435)
 GuildContainer:SetPoint("TOPLEFT", Panels[3], "TOPLEFT", 0, 0)
@@ -504,10 +506,12 @@ guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) FauxScroll
 -- ============================================================================
 -- 6. ZAKŁADKA 4: PANEL WYDARZEŃ
 -- ============================================================================
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[4])
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 ListContainer:SetSize(270, 435)
 ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, 0)
 ApplyModernStyle(ListContainer)
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[4])
 local DetailsContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 DetailsContainer:SetSize(280, 390)
 DetailsContainer:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -45)
@@ -650,6 +654,7 @@ row:Show()
 else row:Hide() end
 end
 end
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[4])
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Stworz Wydarzenie")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
@@ -693,6 +698,7 @@ end)
 -- ============================================================================
 -- 6B. ZAKŁADKA 5: USTAWIENIA
 -- ============================================================================
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[5])
 local SettingsInfo = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 SettingsInfo:SetPoint("CENTER", Panels[5], "CENTER", 0, 0)
 SettingsInfo:SetText("Modul Konfiguracji i Filtrow w przygotowaniu...")
@@ -825,6 +831,7 @@ if UpdateMainTable then UpdateMainTable() end
 UpdateGuildTable()
 UpdateEventsList()
 end)
+-- NAPRAWIONE: Zmieniono rodzica na konkretny indeks ramki (Panels[4])
 Panels[4]:SetScript("OnShow", function()
 if JagodkiEventsDB then eventsList = JagodkiEventsDB end
 if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
