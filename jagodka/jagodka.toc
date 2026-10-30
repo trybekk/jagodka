@@ -1,11 +1,19 @@
 ## Interface: 11509
 ## Title: Jagodka
-## Notes: Pokazuje okno z przyciskiem po wpisaniu /okno.
+## Notes: Guild community: shared chat, online roster and events. Command: /jagodka
 ## Author: trybekk
-## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB
+## Version: 0.7.6
+## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 
 Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
+synchro.lua
+most.lua
+wyciszenie.lua
+roster.lua
+zakladka.lua
+instancje.lua
 core.lua
