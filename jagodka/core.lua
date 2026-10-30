@@ -3,7 +3,6 @@
 -- ============================================================================
 local addonName, addonTable = ...
 
--- Lokalne kopie funkcji systemowych WoW (ochrona przed nadpisaniem przez inne addony)
 local _G = _G
 local CreateFrame = _G.CreateFrame
 local UnitName = _G.UnitName
@@ -20,9 +19,6 @@ local pairs = _G.pairs
 local ipairs = _G.ipairs
 local table = _G.table
 local string = _G.string
-local IsInRaid = _G.IsInRaid
-local IsInGroup = _G.IsInGroup
-local IsInGuild = _G.IsInGuild
 local C_ChatInfo = _G.C_ChatInfo
 local LibStub = _G.LibStub
 local UIParent = _G.UIParent
@@ -34,6 +30,21 @@ local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
 
 -- WYMUSZONA REJESTRACJA PREFIKSU NA SAMYM STARCIE PLIKU
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+
+-- ============================================================================
+-- 0B. KONFIGURACJA WSPÓLNEGO KANAŁU I BIAŁEJ LISTY GILDII
+-- ============================================================================
+local CUSTOM_COMM_CHANNEL = "Jagodka"
+
+local AllowedGuilds = {
+    ["Jagódki Nadina"] = true,  
+    ["Testowo"] = true,        
+}
+
+local function IsPlayerGuildAllowed(guildName)
+    if not guildName or guildName == "" or guildName == "Brak" then return false end
+    return AllowedGuilds[guildName] == true
+end
 
 -- ============================================================================
 -- 1. KONFIGURACJA GŁÓWNEGO OKNA I PODSTAWOWE FUNKCJE RYSOWANIA
@@ -49,7 +60,6 @@ MainFrame:RegisterForDrag("LeftButton")
 MainFrame:SetScript("OnDragStart", MainFrame.StartMoving)
 MainFrame:SetScript("OnDragStop", MainFrame.StopMovingOrSizing)
 
--- STYLIZACJA GŁÓWNEGO OKNA
 MainFrame:SetBackdrop({
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
     edgeFile = "Interface\\Buttons\\WHITE8X8", 
@@ -59,29 +69,24 @@ MainFrame:SetBackdrop({
 MainFrame:SetBackdropColor(0.05, 0.05, 0.07, 0.95) 
 MainFrame:SetBackdropBorderColor(0.15, 0.15, 0.2, 1) 
 
--- Pasek nagłówka (Górna belka okna)
 local HeaderBar = MainFrame:CreateTexture(nil, "BACKGROUND")
 HeaderBar:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 1, -1)
 HeaderBar:SetPoint("BOTTOMRIGHT", MainFrame, "TOPRIGHT", -1, -35)
 HeaderBar:SetColorTexture(0.08, 0.08, 0.11, 1)
 
 local TitleText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
--- LOGO Z JAGODAMI W OKNIE GŁÓWNYM
 local WindowLogo = MainFrame:CreateTexture(nil, "OVERLAY")
 WindowLogo:SetSize(64, 64) 
 WindowLogo:SetPoint("LEFT", HeaderBar, "LEFT", 12, 0)
 WindowLogo:SetTexture("Interface\\AddOns\\jagodka\\Media\\jagoda.tga")
 
--- Przesunięcie tytułu tekstowego, aby nie nachodził na logo
 TitleText:SetPoint("LEFT", WindowLogo, "RIGHT", 8, 0)
 TitleText:SetText("|cffffffffJag\195\179dki Nadina|r |cffdecda5-|r Wsp\195\179lnota")
 
--- Przycisk Zamknij (X) w stylu minimalistycznym
 local CloseBtn = CreateFrame("Button", nil, MainFrame, "UIPanelCloseButton")
 CloseBtn:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -2, -2)
 CloseBtn:SetSize(30, 30)
 
--- LICZNIK ONLINE 
 local OnlineText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 OnlineText:SetPoint("RIGHT", CloseBtn, "LEFT", -10, 0)
 OnlineText:SetText("Online: |cff00ff000|r")
@@ -89,7 +94,6 @@ OnlineText:SetText("Online: |cff00ff000|r")
 local Panels = {}
 local tabNames = {"Czat", "Cz\197\130onkowie", "Gildie", "Wydarzenia", "Ustawienia"}
 
--- Konfiguracja kolumn tabeli graczy
 local columns = {
     { name = "Nazwa", width = 110, x = 10 },
     { name = "Klasa", width = 90, x = 125 },
@@ -98,14 +102,12 @@ local columns = {
     { name = "Ranga", width = 130, x = 410 }
 }
 
--- PANCERNE DEKLARACJE FUNKCJI AKTUALIZACJI (LOKALNE)
 local UpdateGuildTable = function() end
 local UpdateEventsList = function() end
 local UpdateMainTable = function() end
 local UpdateScrollList = function() end
 local UpdateRosterList = function() end
 
--- FUNKCJE POMOCNICZE UI (LOKALNE)
 local function ApplyModernStyle(frame)
     frame:SetBackdrop({
         bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -141,11 +143,16 @@ local function CreateLabelAndInput(parentFrame, labelName, yOffset, width, heigh
 end
 
 -- ============================================================================
--- 1B. FUNKCJE SIECIOWE (LOKALNE)
+-- 1B. FUNKCJE SIECIOWE NA WSPÓLNY KANAŁ NIESTANDARDOWY
 -- ============================================================================
 local function SendJagodkaNetworkPacket(prefixType, dataPayload)
-    local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or (IsInGuild() and "GUILD" or nil))
-    if channel then C_ChatInfo.SendAddonMessage("JagodkaComm", prefixType .. ":" .. dataPayload, channel) end
+    local myGuild = GetGuildInfo("player")
+    if not IsPlayerGuildAllowed(myGuild) then return end
+    
+    local channelID = _G.GetChannelName(CUSTOM_COMM_CHANNEL)
+    if channelID and channelID > 0 then
+        C_ChatInfo.SendAddonMessage("JagodkaComm", prefixType .. ":" .. dataPayload, "CHANNEL", channelID)
+    end
 end
 
 local function SendStatusPacket(msgType)
@@ -155,7 +162,6 @@ local function SendStatusPacket(msgType)
     SendJagodkaNetworkPacket(msgType, UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName)
 end
 
--- Tworzenie ramek (Paneli) dla każdej zakładki
 for i, name in ipairs(tabNames) do
     local p = CreateFrame("Frame", nil, MainFrame)
     p:SetSize(560, 465)
@@ -189,7 +195,6 @@ local function ShowTab(tabIndex)
     end
 end
 
--- Tworzenie przycisków nawigacyjnych menu
 for i, name in ipairs(tabNames) do
     local btn = CreateFrame("Button", nil, MainFrame, "BackdropTemplate")
     btn:SetSize(115, 32)
@@ -263,7 +268,7 @@ local function GetColoredName(name)
         local player = activePlayers[idx]
         if player.class and RAID_CLASS_COLORS[player.class] then
             local color = RAID_CLASS_COLORS[player.class]
-            return color:WrapTextInColorCode(name)
+return color:WrapTextInColorCode(name)
 end
 end
 return name
@@ -298,6 +303,7 @@ local _, classFilename = UnitClass("player")
 local guildName, rankName = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
+if not IsPlayerGuildAllowed(guildName) then return end
 local existingIndex = GetPlayerIndex(myName)
 local playerData = {
 name = myName, level = level, class = classFilename, guild = guildName, rank = rankName, lastSeen = GetTime()
@@ -354,10 +360,12 @@ local msg = chatInput:GetText()
 if msg and msg ~= "" then
 SendJagodkaNetworkPacket("CHAT", currentChatTab .. ":" .. msg)
 local myName = UnitName("player")
-local _, rankName = GetGuildInfo("player")
+local guildName, rankName = GetGuildInfo("player")
+if IsPlayerGuildAllowed(guildName) then
 local rankStr = (rankName and rankName ~= "Brak") and (GetColoredRank(rankName) .. " ") or ""
 table.insert(chatHistories[currentChatTab], rankStr .. "[" .. GetColoredName(myName) .. "]: " .. msg)
 RefreshChatDisplay()
+end
 chatInput:SetText("")
 end
 chatInput:ClearFocus()
@@ -469,7 +477,11 @@ row:Show()
 else row:Hide() end
 end
 end
-mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, MAIN_ROW_HEIGHT, UpdateMainTable) end)
+mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+local scrollBar = _G[self:GetName().."ScrollBar"]
+if scrollBar then scrollBar:SetValue(offset) end
+UpdateMainTable()
+end)
 -- ============================================================================
 -- 5. ZAKŁADKA 3: PANEL GILDII
 -- ============================================================================
@@ -532,7 +544,11 @@ card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card
 else card:Hide() end
 end
 end
-guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, GUILD_ROW_HEIGHT, UpdateGuildTable) end)
+guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+local scrollBar = _G[self:GetName().."ScrollBar"]
+if scrollBar then scrollBar:SetValue(offset) end
+UpdateGuildTable()
+end)
 -- ============================================================================
 -- 6. ZAKŁADKA 4: PANEL WYDARZEŃ
 -- ============================================================================
@@ -622,7 +638,11 @@ row:Hide()
 end
 end
 end
-rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
+rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+local scrollBar = _G[self:GetName().."ScrollBar"]
+if scrollBar then scrollBar:SetValue(offset) end
+UpdateRosterList()
+end)
 local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
 eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -35)
 eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 10)
@@ -769,9 +789,13 @@ row:Show()
 else row:Hide() end
 end
 end
-scrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, UpdateScrollList) end)
+scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+local scrollBar = _G[self:GetName().."ScrollBar"]
+if scrollBar then scrollBar:SetValue(offset) end
+UpdateScrollList()
+end)
 -- ============================================================================
--- 8. ODBIORNIK SIECIOWY (LISTENERY I SYNCHRONIZACJA)
+-- 8. ODBIORNIK SIECIOWY (Z WERYFIKACJĄ BIAŁEJ LISTY GILDII)
 -- ============================================================================
 local NetworkListener = CreateFrame("Frame")
 NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
@@ -784,28 +808,20 @@ eventsList = _G.JagodkiEventsDB
 return
 end
 if event == "PLAYER_LOGIN" then
+_G.JoinChannelByName(CUSTOM_COMM_CHANNEL)
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 AddMyselfToActiveList()
 SendStatusPacket("PING")
-table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono z kanalem Jagodka.|r")
+table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono ze Wspolnota Jagodka.|r")
 UpdateChatTabVisuals()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 local senderName = Ambiguate(sender, "none")
 local myName = UnitName("player")
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end
-if pType == "CHAT" then
-local targetTab, msgContent = strsplit(":", payload, 2)
-if targetTab and msgContent and chatHistories[targetTab] then
-if senderName ~= myName then
-local idx = GetPlayerIndex(senderName)
-local rankStr = (idx and activePlayers[idx].rank and activePlayers[idx].rank ~= "Brak") and (GetColoredRank(activePlayers[idx].rank) .. " ") or ""
-table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
-if targetTab == currentChatTab then RefreshChatDisplay() end
-end
-end
-elseif pType == "PING" or pType == "PONG" then
+if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk = strsplit(":", payload, 4)
+if not IsPlayerGuildAllowed(gld) then return end
 local existingIndex = GetPlayerIndex(senderName)
 local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", lastSeen = GetTime() }
 if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
@@ -813,6 +829,20 @@ UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
 if MainFrame:IsShown() then UpdateGuildTable() end
 if pType == "PING" then SendStatusPacket("PONG") end
+else
+local senderIdx = GetPlayerIndex(senderName)
+if not senderIdx and senderName ~= myName then return end
+if pType == "CHAT" then
+local targetTab, msgContent = strsplit(":", payload, 2)
+if targetTab and msgContent and chatHistories[targetTab] then
+if senderName ~= myName then
+local rankStr = (activePlayers[senderIdx].rank and activePlayers[senderIdx].rank ~= "Brak") and (GetColoredRank(activePlayers[senderIdx].rank) .. " ") or ""
+table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
+if targetTab == currentChatTab then RefreshChatDisplay() end
+end
+end
+elseif pType == "PING" or pType == "PONG" then
+-- Ochrona przed przetworzeniem złego pakietu
 elseif pType == "EV_REQ" then
 for _, ev in ipairs(eventsList) do
 if ev.creator == myName then
@@ -850,6 +880,7 @@ end
 end
 end
 end
+end
 end)
 MainFrame:SetScript("OnShow", function()
 AddMyselfToActiveList()
@@ -859,13 +890,13 @@ if UpdateMainTable then UpdateMainTable() end
 UpdateGuildTable()
 UpdateEventsList()
 end)
+-- NAPRAWIONE: Zmieniono całą tablicę Panels na indeks tablicy Panels[4]
 Panels[4]:SetScript("OnShow", function()
 if _G.JagodkiEventsDB then eventsList = _G.JagodkiEventsDB end
 if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
 if UpdateEventsList then UpdateEventsList() end
 SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
 end)
--- Wyświetlenie pierwszej zakładki przy starcie gry
 ShowTab(1)
 -- ============================================================================
 -- 9. REJESTRACJA KOMENDY CZATU I MINIMAPY (LibDataBroker)
