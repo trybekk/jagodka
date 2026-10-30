@@ -335,6 +335,8 @@ end
 
 local function Ingest(e, live)
     if seenIds[e.id] then return false end
+    -- Wyciszony gracz (wyciszenie.lua): jego wiadomosci nie trafiaja do logu ani do /g innych gildii
+    if addonTable.Mute and addonTable.Mute.IsMuted(e.author) then return false end
     seenIds[e.id] = true
     -- Dotyczy biezacych i historii, wiec duplikat nie wroci tez przy synchronizacji
     if e.src == "G" and HasRecentGuildLine(e.guild, e.author, e.text, e.ts) then return false end

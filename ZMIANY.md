@@ -5,7 +5,8 @@
 | 0.7.1 | `65044cb` | wypchnięta, wstępnie przetestowana w grze |
 | 0.7.2 | `0992d28` | wypchnięta, przetestowana w grze |
 | 0.7.3 | `af508ab` | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
-| 0.7.4 | commit „feat(lasarr-1): sync bar, calendar create/invite, v0.7.4” | wypchnięta, do przetestowania w grze |
+| 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
+| 0.7.5 | commit „feat(lasarr-1): community chat mute, v0.7.5” | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -57,7 +58,7 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 - Historia obejmuje tylko 30 ostatnich wiadomości; identyczna linia od tej samej osoby wysłana 2× w ciągu 15 s pokaże się raz.
 - W `/g` innych gildii wiadomość wysyła relay, a nie autor; spóźniona linia od relaya zapasowego może tam trafić po nowszej.
 - Nie da się zweryfikować członków **innych** gildii, a właściciel kanału może banować.
-- W `core.lua` naraz aktywne są maksymalnie 184 zmienne lokalne z limitu 200 w Lua 5.1 (stan na 0.7.4, liczone razem z blokami `do ... end`). Nowe funkcje trzeba dodawać w osobnych plikach albo w osobnych funkcjach, np. `BuildCalendar`, a nie w blokach `do ... end`.
+- W `core.lua` naraz aktywne są maksymalnie 184 zmienne lokalne z limitu 200 w Lua 5.1 (stan na 0.7.4; w 0.7.5 jest ich 185, liczone razem z blokami `do ... end`). Nowe funkcje trzeba dodawać w osobnych plikach albo w osobnych funkcjach, np. `BuildCalendar`, a nie w blokach `do ... end`.
 
 ## Do przetestowania
 1. Wszyscy na wersji 0.7.1; po zalogowaniu odczekać 10 s; w zakładce Ustawienia kanał powinien być „połączony”, a relay wskazany.
@@ -162,3 +163,56 @@ Do przetestowania:
 - Poprawka techniczna (przyczyna awarii przy pierwszej wersji „Invite members”): Lua 5.1 pozwala na najwyżej **200 zmiennych lokalnych aktywnych naraz** w jednej funkcji, także w głównym pliku. Zmienne w blokach `do ... end` też się do tego liczą, dopóki blok trwa. Pierwsza wersja zaproszeń podniosła `core.lua` do ok. 203, przez co cały plik się nie kompilował i nie działało nic.
   - Kalendarz jest teraz osobną funkcją (`BuildCalendar`), która ma własny limit. Szczyt w `core.lua` spadł ze 193 do 184, a funkcja kalendarza ma 43 zmienne i ok. 26 odwołań do zmiennych spoza siebie (limit 60).
   - Nowy skrypt `luaactive.ps1` liczy najgorszy moment w każdym pliku i jest uruchamiany przed każdą zmianą.
+
+---
+
+# 0.7.5 – mute na wspólnym czacie
+
+- Nowy plik `wyciszenie.lua` z modułem `Mute`.
+- W czacie addonu nicki są teraz linkami:
+  - lewy klik otwiera szept,
+  - prawy klik otwiera menu z „Whisper”, „Invite to group”, „Mute on community chat” albo „Unmute” oraz „Cancel”.
+  - Opcje mute i unmute widzą tylko osoby, które mają do nich prawo (zasady niżej). Na własnym nicku menu się nie otwiera.
+  - Przy okazji linki przedmiotów w czacie addonu pokazują tooltip (`SetItemRef`).
+- Zakładka Blizzarda „Jagodki Nadina - General”: oficerowie mają w zwykłym menu gry na nicku (prawy klik) nową sekcję „Jagodka” z „Mute on community chat” albo „Unmute”.
+  - Menu jest rozszerzane przez `Menu.ModifyMenu("MENU_UNIT_FRIEND")`, czyli oficjalny sposób, który nie psuje menu gry.
+  - Sekcja pojawia się tylko w tej zakładce. Jeśli gra nie poda, z którego okna czatu otwarto menu, sekcja pokaże się w każdym oknie, ale nadal tylko oficerom.
+  - Jeśli klient nie ma tego API, zakładka zostaje przy zwykłym menu gry.
+- Uprawnienia (sprawdza je klient wyciszającego i każdy odbiorca pakietu):
+  - **Mute** może dać oficer, ale nie innemu oficerowi ani sobie. GM (ranga 0) może wyciszyć każdego poza sobą.
+  - **Unmute** może zrobić każdy oficer.
+  - Oficerem jest ranga 0 lub 1 albo ranga, której nazwa zawiera „oficer”, „officer”, „master” lub „lider”; to założenia do potwierdzenia.
+  - Rangę wyciszanej osoby addon bierze z jej meldunku albo z rosterów gildii, więc działa to także dla osób offline (`Roster.GetRank`). Gdy ranga jest nieznana, mute nie jest blokowany.
+- Powód: „Mute” otwiera okienko z polem na powód (do 60 znaków). Przycisk „Mute” jest aktywny dopiero po wpisaniu powodu; Enter zatwierdza, Esc anuluje. Powód jest w pakiecie, w synchronizacji, w wiadomości na czacie i w tooltipie.
+- Members: przy nicku wyciszonej osoby pojawia się czerwona ikonka (✗). Po najechaniu myszką tooltip pokazuje, kto wyciszył, od kiedy i z jakiego powodu. Tabela odświeża się po każdej zmianie wyciszenia.
+  - Prawy klik na wiersz w Members (i w panelu Online players) ma teraz także „Unmute” albo „Mute on community chat”, na tych samych zasadach co menu w czacie.
+- Co oznacza wyciszenie:
+  - Wiadomości wyciszonej osoby z okna addonu nie są wysyłane; dostaje komunikat „You are muted ... (by X)”.
+  - Jej linie z `/g` nie trafiają na kanał globalny ani do `/g` innych gildii. We własnej gildii nadal je widać, bo to zwykły czat gry.
+  - Każdy klient odrzuca jej wiadomości sam (`Ingest` w `most.lua`), więc nie ma znaczenia, który relay ma starą wersję.
+  - Jej wcześniejsze wiadomości są ukryte w oknie addonu i w zakładce Blizzarda; po odciszeniu wracają.
+  - Oficer, który wycisza albo odcisza, wysyła zwykłą wiadomość na czat wspólnoty (General), np. `[Gildia] [Oficer]: Muted X on the community chat (reason: ...)` albo `Unmuted X on the community chat`. Działa to jak „Event created by …”: relaye wklejają ją też do `/g` wszystkich gildii. Nie ma już komunikatu systemowego.
+- Synchronizacja:
+  - Pakiet `MUTE` (nick, mute lub unmute, czas, oficer, powód) jest przyjmowany tylko wtedy, gdy nadawca ma do tego prawo.
+  - Po zalogowaniu addon wysyła prośbę `MREQ` i dostaje brakujące wpisy, które wyśle jedna losowa osoba (`MCLAIM`, ten sam wzorzec co historia czatu). Dzięki temu mute działa także u osób, które były offline.
+  - Wygrywa nowszy wpis. Odciszenie też jest wpisem i jest pamiętane przez 30 dni, żeby stary mute nie wrócił z synchronizacji.
+  - Dane są w `JagodkiChatDB.mutes`.
+- Ograniczenia:
+  - Klienty 0.7.4 nie znają mute i będą dalej pokazywać takie wiadomości, dopóki ich użytkownicy nie zaktualizują addonu.
+  - Przekazany wpis jest przyjmowany od dowolnego znanego gracza z listy, tak samo jak przy wydarzeniach.
+- Limity: `core.lua` ma szczyt 185/200 aktywnych lokalnych (+1 za `local Mute`); `wyciszenie.lua` ma 39.
+
+## Do przetestowania (0.7.5)
+- [ ] Prawy klik na nick w czacie addonu otwiera menu; lewy klik otwiera szept.
+- [ ] Oficer wycisza gracza: wiadomość „Muted X … (reason: …)” od oficera pojawia się na czacie wspólnoty i w `/g` innych gildii, a wiadomości wyciszonej osoby znikają z okna addonu.
+- [ ] Wyciszony gracz pisze w addonie i dostaje komunikat; pisze w `/g` i jego linia nie trafia do innych gildii.
+- [ ] Gracz, który był offline podczas mute, po zalogowaniu ma ten mute (prośba `MREQ`).
+- [ ] Unmute: wiadomości wracają, a gracz znów może pisać.
+- [ ] Nie-oficer nie widzi opcji Mute.
+- [ ] Mute pyta o powód; bez powodu przycisk jest nieaktywny; po OK gracz jest wyciszony.
+- [ ] Members: ikonka przy wyciszonym, tooltip pokazuje kto, kiedy i powód; po unmute ikonka znika.
+- [ ] Members: prawy klik na wyciszonego daje „Unmute”, a na niewyciszonego oficerowi „Mute on community chat” z pytaniem o powód.
+- [ ] Oficer nie może wyciszyć oficera (brak opcji w menu); GM może.
+- [ ] Każdy oficer może odciszyć, także osobę wyciszoną przez GM.
+- [ ] Link przedmiotu w czacie addonu pokazuje tooltip.
+- [ ] Zakładka „Jagodki Nadina - General”: prawy klik na nick pokazuje oficerowi sekcję „Jagodka” z Mute; w innych oknach czatu tej sekcji nie ma.

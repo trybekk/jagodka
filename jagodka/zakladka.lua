@@ -60,7 +60,7 @@ local function CreateTab()
 end
 
 local function Print(e)
-    if tabFrame and e.tab == BRIDGED_TAB and e.src ~= "S" then
+    if tabFrame and e.tab == BRIDGED_TAB and e.src ~= "S" and not addonTable.Mute.IsMuted(e.author) then
         tabFrame:AddMessage(Most.FormatEntry(e, true, TEXT_COLOR))
         if not lastShownTs or e.ts > lastShownTs then lastShownTs = e.ts end
     end
@@ -94,6 +94,9 @@ local function Setup(force)
         if tabFrame then db.blizzTabCreated = true end
     end
 end
+
+-- Okno zakladki (albo nil) - np. dla menu na nicku w wyciszenie.lua
+function Zakladka.GetFrame() return tabFrame end
 
 -- "/jagodka tab": ponowne utworzenie zakladki (np. po zamknieciu)
 function Zakladka.Recreate()

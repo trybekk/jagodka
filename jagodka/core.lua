@@ -228,6 +228,7 @@ end
 -- Transport, kanal globalny i most /g sa w most.lua (wczytywany przed core.lua)
 local Most = addonTable.Most
 local Roster = addonTable.Roster
+local Mute = addonTable.Mute
 
 local function SendJagodkaNetworkPacket(prefixType, dataPayload, priority)
     local myGuild = GetGuildInfo("player")
@@ -602,7 +603,8 @@ local chatTabButtons = {}
 local function RefreshChatDisplay()
 chatDisplay:Clear()
 for _, entry in ipairs(Most.GetLog()) do
-if entry.tab == currentChatTab then chatDisplay:AddMessage(Most.FormatEntry(entry)) end
+-- Nicki jako linki (menu w wyciszenie.lua); wiadomosci wyciszonych ukryte (wracaja po odciszeniu)
+if entry.tab == currentChatTab and not Mute.IsMuted(entry.author) then chatDisplay:AddMessage(Most.FormatEntry(entry, true)) end
 end
 -- Zakres suwaka jest znany dopiero po ulozeniu linii (nastepna klatka)
 chatDisplay.SyncBar()
@@ -626,7 +628,9 @@ local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
 if msg and msg ~= "" then
 local guildName = GetGuildInfo("player")
-if IsPlayerGuildAllowed(guildName) then
+if Mute.IsMuted(UnitName("player")) then
+chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
+elseif IsPlayerGuildAllowed(guildName) then
 -- Kanal globalny raz; relaye gildii wkleja wiadomosc do swoich /g
 Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
 else
@@ -664,6 +668,14 @@ isGuildAllowed = IsPlayerGuildAllowed,
 colorName = GetColoredName,
 onChatChanged = function(tab) if tab == currentChatTab then RefreshChatDisplay() end end,
 })
+Mute.Init({
+activePlayers = activePlayers,
+isGuildAllowed = IsPlayerGuildAllowed,
+isRankOfficer = IsRankOfficer,
+isMeOfficer = IsPlayerOfficer,
+onChanged = function() RefreshChatDisplay() UpdateMainTable() end,
+})
+Mute.AttachChat(chatDisplay)
 Roster.Init({
 activePlayers = activePlayers,
 isGuildAllowed = IsPlayerGuildAllowed,
@@ -804,6 +816,14 @@ local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
 if invite then invite(target) end
 end
 _G.UIDropDownMenu_AddButton(info, level)
+-- Mute / Unmute jak w menu czatu (uprawnienia: wyciszenie.lua)
+local muted, me = Mute.IsMuted(target), UnitName("player")
+if (muted and Mute.CanUnmute(me)) or (not muted and Mute.CanMute(me, target)) then
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = muted and "Unmute" or "Mute on community chat", true
+info.func = function() if muted then Mute.Set(target, false) else Mute.AskReason(target) end end
+_G.UIDropDownMenu_AddButton(info, level)
+end
 info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.notCheckable = "Cancel", true
 info.func = function() _G.CloseDropDownMenus() end
@@ -869,6 +889,8 @@ local data = filteredPlayers[first + dataIndex]
 row.member = data
 local classColor = data.class and RAID_CLASS_COLORS[data.class]
 row.nameText:SetText(classColor and classColor:WrapTextInColorCode(data.name) or data.name)
+-- Ikonka wyciszenia za nickiem (tooltip z powodem) - wyciszenie.lua
+Mute.DecorateName(row, row.nameText, data.name)
 row.classText:SetText(classColor and classColor:WrapTextInColorCode(LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class) or "Unknown")
 row.levelText:SetText(data.level) row.rankText:SetText(GetColoredRank(data.rank))
 -- Zielona = ta sama wersja, czerwona = starsza, zolta = nowsza od mojej
@@ -1871,6 +1893,7 @@ announced = false
 TryAnnounce()
 if announced then
 Most.RequestHistory()
+Mute.Request()
 -- Wydarzenia i zapisy chwile pozniej, zeby nie wysylac wszystkiego naraz
 C_Timer.After(5, function() EventSync.Request(true) end)
 end
@@ -1903,6 +1926,8 @@ if not pType or not payload then return end
 if Most.HandlePacket(pType, payload, channel, senderName, sender) then return end
 -- Rostery gildii: roster.lua
 if Roster.HandlePacket(pType, payload, senderName) then return end
+-- Wyciszenia na czacie: wyciszenie.lua
+if Mute.HandlePacket(pType, payload, senderName, sender) then return end
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk, ver, rIdx = strsplit(":", payload, 6)
 if not IsPlayerGuildAllowed(gld) then return end

@@ -330,6 +330,15 @@ function Roster.GetGuildSummary(guild)
     return { live = live, total = total, online = online, updated = g and g.updated }
 end
 
+-- Ranga gracza z rosterow gildii z listy (nazwa, indeks) albo nil - np. uprawnienia w wyciszenie.lua
+function Roster.GetRank(name)
+    for guild, g in pairs(rosters) do
+        local m = g.members[name]
+        if m and ctx and ctx.isGuildAllowed(guild) then return g.ranks[(m.r or 0) + 1], m.r end
+    end
+    return nil, nil
+end
+
 -- ============================================================================
 -- LISTA DO ZAKLADKI CZLONKOWIE
 -- ============================================================================
