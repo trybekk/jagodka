@@ -10,7 +10,8 @@
 | 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
 | 0.7.7 | `36241cb` | wypchnięta; sync w jednej gildii działa tylko przez `GUILD`, kanał zwraca 4 na każdej postaci |
 | 0.7.8 | `64ea018` | wypchnięta; test cross-guild pokazał, że kanał nie przenosi pakietów |
-| 0.8.0 | hash w `git log` | wypchnięta, do przetestowania w grze |
+| 0.8.0 | `a41000c` | wypchnięta, do przetestowania w grze |
+| 0.8.1 | — | lokalnie, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -340,3 +341,18 @@ Do przetestowania:
 - [ ] Members, Events, Mute i Guilds widzą dane z drugiej gildii.
 - [ ] Wylogowanie relaya: bez komunikatu „No player named…”, następna osoba przejmuje relay.
 - [ ] Trzy osoby w dwóch gildiach: osoba, która nie jest relayem, też dostaje wiadomości z drugiej gildii.
+
+---
+
+# 0.8.1 – pole czatu nie traci focusa po wysłaniu
+
+- Po wysłaniu wiadomości (Enter albo przycisk Send) kursor zostaje w polu, więc można od razu pisać dalej.
+- Pole traci focus po kliknięciu poza nim oraz po Esc.
+- Shift + klik na przedmiot lub zaklęcie nie zabiera focusa, więc wstawianie linków działa jak wcześniej.
+- Limity: `core.lua` bez zmian w szczycie.
+
+## Do przetestowania (0.8.1)
+- [ ] Enter i Send: kursor zostaje w polu, kolejna wiadomość wychodzi bez klikania.
+- [ ] Klik w świat gry, w inne okno i w inną część addonu: pole traci focus.
+- [ ] Shift + klik na przedmiot: link trafia do pola, a focus zostaje.
+- [ ] Esc: pole traci focus.

@@ -649,10 +649,17 @@ chatDisplay:AddMessage("|cffff5555[System]: Your guild (" .. tostring(guildName)
 end
 chatInput:SetText("")
 end
-chatInput:ClearFocus()
 end
 sendButton:SetScript("OnClick", OriginalSubmitMessage)
 chatInput:SetScript("OnEnterPressed", OriginalSubmitMessage)
+-- Pole traci focus dopiero po kliknieciu gdzie indziej (Shift + klik wstawia link, wiec go nie liczymy)
+do
+local blurWatcher = CreateFrame("Frame")
+pcall(blurWatcher.RegisterEvent, blurWatcher, "GLOBAL_MOUSE_DOWN")
+blurWatcher:SetScript("OnEvent", function()
+if chatInput:HasFocus() and not chatInput:IsMouseOver() and not sendButton:IsMouseOver() and not IsShiftKeyDown() then chatInput:ClearFocus() end
+end)
+end
 for i, name in ipairs(chatTabs) do
 local tBtn = CreateFrame("Button", nil, ChatPanel, "BackdropTemplate")
 tBtn:SetSize(100, 22)
