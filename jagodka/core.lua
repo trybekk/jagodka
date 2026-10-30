@@ -30,6 +30,9 @@ local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
 local IsInRaid = _G.IsInRaid
 local IsInGroup = _G.IsInGroup
 local IsInGuild = _G.IsInGuild
+local C_Timer = _G.C_Timer
+local GetChannelName = _G.GetChannelName
+local JoinTemporaryChannel = _G.JoinTemporaryChannel
 
 -- WYMUSZONA REJESTRACJA PREFIKSU NA SAMYM STARCIE PLIKU
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
@@ -108,6 +111,7 @@ local UpdateEventsList = function() end
 local UpdateMainTable = function() end
 local UpdateScrollList = function() end
 local UpdateRosterList = function() end
+local UpdateEventDetails = function() end
 
 local function ApplyModernStyle(frame)
     frame:SetBackdrop({
@@ -146,14 +150,53 @@ end
 -- ============================================================================
 -- 1B. FUNKCJE SIECIOWE NA STABILNE KANAŁY BLIZZARDA
 -- ============================================================================
+-- Wspolny ukryty kanal dla wszystkich gildii z bialej listy (GUILD dociera tylko do wlasnej gildii)
+local COMM_CHANNEL = "JagodkaWspolnota"
+
+local function GetCommChannelId()
+    local id = GetChannelName(COMM_CHANNEL)
+    if id and id > 0 then return id end
+    return nil
+end
+
+local function JoinCommChannel()
+    if not GetCommChannelId() then JoinTemporaryChannel(COMM_CHANNEL) end
+    -- Ukrycie kanalu z okien czatu, zeby nie zasmiecal czatu gracza
+    if _G.ChatFrame_RemoveChannel then
+        for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+            local cf = _G["ChatFrame" .. i]
+            if cf then _G.ChatFrame_RemoveChannel(cf, COMM_CHANNEL) end
+        end
+    end
+end
+
 local function SendJagodkaNetworkPacket(prefixType, dataPayload)
     local myGuild = GetGuildInfo("player")
     if not IsPlayerGuildAllowed(myGuild) then return end
-    
-    local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or (IsInGuild() and "GUILD" or nil))
-    if channel then 
-        C_ChatInfo.SendAddonMessage("JagodkaComm", prefixType .. ":" .. dataPayload, channel) 
+
+    local msg = prefixType .. ":" .. dataPayload
+    -- GUILD zawsze (sprawdzony kanal dla wlasnej gildii), CHANNEL dodatkowo dla innych gildii z listy
+    if IsInGuild() then
+        C_ChatInfo.SendAddonMessage("JagodkaComm", msg, "GUILD")
     end
+    local channelId = GetCommChannelId()
+    if channelId then
+        C_ChatInfo.SendAddonMessage("JagodkaComm", msg, "CHANNEL", channelId)
+    end
+end
+
+-- Kodowanie pol wydarzen, zeby ":" w tekscie (np. godzina 20:00) nie psul pakietu
+local function EncodeField(s)
+    return (tostring(s or ""):gsub("%%", "%%25"):gsub(":", "%%3A"))
+end
+
+local function DecodeField(s)
+    if not s then return nil end
+    return (s:gsub("%%3A", ":"):gsub("%%25", "%%"))
+end
+
+local function BuildEventPacket(ev)
+    return table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time), EncodeField(ev.desc), EncodeField(ev.creator) }, ":")
 end
 
 local function SendStatusPacket(msgType)
@@ -251,6 +294,18 @@ local chatHistories = {
     ["Handel"] = {},
     ["Szukaj grupy"] = {}
 }
+-- Widok "Wspolny": kopia wszystkiego z kanalu wspolnego (wlasna gildia + gildie z bialej listy)
+local sharedChatHistories = {
+    ["Ogolny"] = {},
+    ["Raid"] = {},
+    ["Handel"] = {},
+    ["Szukaj grupy"] = {}
+}
+local currentChatScope = "Gildia"
+local function GetChatHistory(scope, tab)
+    if scope == "Wspolny" then return sharedChatHistories[tab] end
+    return chatHistories[tab]
+end
 
 local eventsList = {}
 local selectedEventIndex = nil
@@ -330,6 +385,8 @@ chatInput:SetSize(440, 26)
 chatInput:SetPoint("BOTTOMLEFT", ChatPanel, "BOTTOMLEFT", 12, 10)
 chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
+-- Limit 255 bajtow na pakiet addonu (prefiks + typ + zakladka + tresc)
+chatInput:SetMaxBytes(200)
 local sendButton = CreateFrame("Button", nil, ChatPanel, "GameMenuButtonTemplate")
 sendButton:SetSize(75, 26)
 sendButton:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
@@ -337,9 +394,10 @@ sendButton:SetText("Wy\197\155lij")
 local chatTabs = {"Ogolny", "Raid", "Handel", "Szukaj grupy"}
 local currentChatTab = "Ogolny"
 local chatTabButtons = {}
+local chatScopeButtons = {}
 local function RefreshChatDisplay()
 chatDisplay:Clear()
-local messages = chatHistories[currentChatTab]
+local messages = GetChatHistory(currentChatScope, currentChatTab)
 if messages then for _, msg in ipairs(messages) do chatDisplay:AddMessage(msg) end end
 end
 local function UpdateChatTabVisuals()
@@ -348,6 +406,17 @@ if name == currentChatTab then
 btn.bg:SetColorTexture(0.14, 0.14, 0.19, 1)
 btn.topLine:SetColorTexture(1, 0.82, 0, 1)
 btn.text:SetTextColor(1, 0.82, 0)
+else
+btn.bg:SetColorTexture(0.06, 0.06, 0.08, 0.8)
+btn.topLine:SetColorTexture(0.15, 0.15, 0.2, 0.5)
+btn.text:SetTextColor(0.6, 0.6, 0.6)
+end
+end
+for scope, btn in pairs(chatScopeButtons) do
+if scope == currentChatScope then
+btn.bg:SetColorTexture(0.14, 0.14, 0.19, 1)
+btn.topLine:SetColorTexture(0.75, 0.25, 1, 1)
+btn.text:SetTextColor(0.85, 0.55, 1)
 else
 btn.bg:SetColorTexture(0.06, 0.06, 0.08, 0.8)
 btn.topLine:SetColorTexture(0.15, 0.15, 0.2, 0.5)
@@ -364,8 +433,13 @@ local myName = UnitName("player")
 local guildName, rankName = GetGuildInfo("player")
 if IsPlayerGuildAllowed(guildName) then
 local rankStr = (rankName and rankName ~= "Brak") and (GetColoredRank(rankName) .. " ") or ""
-table.insert(chatHistories[currentChatTab], rankStr .. "[" .. GetColoredName(myName) .. "]: " .. msg)
+local line = rankStr .. "[" .. GetColoredName(myName) .. "]: " .. msg
+table.insert(chatHistories[currentChatTab], line)
+-- Wlasna wiadomosc idzie tez kanalem wspolnym, wiec pokazujemy ja w obu widokach
+if GetCommChannelId() then table.insert(sharedChatHistories[currentChatTab], line) end
 RefreshChatDisplay()
+else
+chatDisplay:AddMessage("|cffff5555[System]: Twoja gildia nie jest na liscie Wspolnoty - wiadomosc nie zostala wyslana.|r")
 end
 chatInput:SetText("")
 end
@@ -378,7 +452,7 @@ local tBtn = CreateFrame("Button", nil, ChatPanel, "BackdropTemplate")
 tBtn:SetSize(100, 22)
 tBtn.customXOffset = 10 + ((i-1) * 104)
 tBtn:SetPoint("BOTTOMLEFT", ChatPanel, "TOPLEFT", tBtn.customXOffset, 0)
-tBtn:SetBackdrop({ edgeFile = "Interface\Buttons\WHITE8X8", edgeSize = 1 })
+tBtn:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 tBtn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
 tBtn.bg = tBtn:CreateTexture(nil, "BACKGROUND")
 tBtn.bg:SetAllPoints()
@@ -391,6 +465,25 @@ tBtn.text:SetPoint("CENTER", tBtn, "CENTER", 0, 0)
 tBtn.text:SetText(name)
 tBtn:SetScript("OnClick", function() currentChatTab = name UpdateChatTabVisuals() end)
 chatTabButtons[name] = tBtn
+end
+-- Przelacznik widoku: "Gildia" (tylko wlasna gildia) / "Wspolny" (wszystkie gildie z bialej listy)
+for i, scope in ipairs({"Gildia", "Wspolny"}) do
+local sBtn = CreateFrame("Button", nil, ChatPanel, "BackdropTemplate")
+sBtn:SetSize(60, 22)
+sBtn:SetPoint("BOTTOMLEFT", ChatPanel, "TOPLEFT", 432 + ((i-1) * 64), 0)
+sBtn:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+sBtn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
+sBtn.bg = sBtn:CreateTexture(nil, "BACKGROUND")
+sBtn.bg:SetAllPoints()
+sBtn.topLine = sBtn:CreateTexture(nil, "OVERLAY")
+sBtn.topLine:SetPoint("TOPLEFT", sBtn, "TOPLEFT", 0, 0)
+sBtn.topLine:SetPoint("TOPRIGHT", sBtn, "TOPRIGHT", 0, 0)
+sBtn.topLine:SetHeight(2)
+sBtn.text = sBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+sBtn.text:SetPoint("CENTER", sBtn, "CENTER", 0, 0)
+sBtn.text:SetText(scope)
+sBtn:SetScript("OnClick", function() currentChatScope = scope UpdateChatTabVisuals() end)
+chatScopeButtons[scope] = sBtn
 end
 -- ============================================================================
 -- 4. ZAKŁADKA 2: GŁÓWNA TABELA GRACZY + WYSZUKIWARKA
@@ -471,18 +564,14 @@ row.classText:SetText(classColor and classColor:WrapTextInColorCode(LOCALIZED_CL
 row.levelText:SetText(data.level) row.rankText:SetText(GetColoredRank(data.rank))
 row.guildText:SetText((data.guild and data.guild ~= "Brak") and ("|cffbf40ff" .. data.guild .. "|r") or "|cff808080Brak gildii|r")
 if data.class and CLASS_ICON_TCOORDS[data.class] then
-row.classIcon:SetTexture("Interface\GLUES\CHARACTERCREATE\UI-CHARACTERCREATE-CLASSES")
+row.classIcon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
 row.classIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[data.class])) row.classIcon:Show()
 else row.classIcon:Hide() end
 row:Show()
 else row:Hide() end
 end
 end
-mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
-local scrollBar = _G[self:GetName().."ScrollBar"]
-if scrollBar then scrollBar:SetValue(offset) end
-UpdateMainTable()
-end)
+mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, MAIN_ROW_HEIGHT, UpdateMainTable) end)
 -- ============================================================================
 -- 5. ZAKŁADKA 3: PANEL GILDII
 -- ============================================================================
@@ -504,8 +593,8 @@ local card = CreateFrame("Frame", nil, GuildContainer, "BackdropTemplate")
 card:SetSize(520, GUILD_ROW_HEIGHT - 6)
 card:SetPoint("TOPLEFT", GuildContainer, "TOPLEFT", 10, -45 - ((i-1) * GUILD_ROW_HEIGHT))
 card:SetBackdrop({
-bgFile = "Interface\ChatFrame\ChatFrameBackground",
-edgeFile = "Interface\Buttons\WHITE8X8", edgeSize = 1,
+bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1,
 insets = { left = 0, right = 0, top = 0, bottom = 0 }
 })
 card:SetBackdropColor(0.09, 0.09, 0.12, 0.8)
@@ -513,7 +602,7 @@ card:SetBackdropBorderColor(0.2, 0.2, 0.25, 0.6)
 card.icon = card:CreateTexture(nil, "ARTWORK")
 card.icon:SetSize(24, 26)
 card.icon:SetPoint("LEFT", card, "LEFT", 15, 0)
-card.icon:SetTexture("Interface\GuildFrame\GuildFrame")
+card.icon:SetTexture("Interface\\GuildFrame\\GuildFrame")
 card.icon:SetTexCoord(0.63, 0.69, 0.60, 0.73)
 card.nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 15, 1)
@@ -545,11 +634,7 @@ card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card
 else card:Hide() end
 end
 end
-guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
-local scrollBar = _G[self:GetName().."ScrollBar"]
-if scrollBar then scrollBar:SetValue(offset) end
-UpdateGuildTable()
-end)
+guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, GUILD_ROW_HEIGHT, UpdateGuildTable) end)
 -- ============================================================================
 -- 6. ZAKŁADKA 4: PANEL WYDARZEŃ
 -- ============================================================================
@@ -639,11 +724,7 @@ row:Hide()
 end
 end
 end
-rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
-local scrollBar = _G[self:GetName().."ScrollBar"]
-if scrollBar then scrollBar:SetValue(offset) end
-UpdateRosterList()
-end)
+rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
 local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
 eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -35)
 eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 10)
@@ -651,7 +732,7 @@ local EV_ROW_HEIGHT, MAX_EV_ROWS, eventRows = 40, 10, {}
 for i = 1, MAX_EV_ROWS do
 local btn = CreateFrame("Button", nil, ListContainer, "BackdropTemplate")
 btn:SetSize(240, EV_ROW_HEIGHT - 4) btn:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 8, -35 - ((i-1) * EV_ROW_HEIGHT))
-btn:SetBackdrop({ bgFile = "Interface\ChatFrame\ChatFrameBackground", edgeFile = "Interface\Buttons\WHITE8X8", edgeSize = 1 })
+btn:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 btn:SetBackdropColor(0.09, 0.09, 0.12, 0.6) btn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.6)
 btn.title = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") btn.title:SetPoint("TOPLEFT", btn, "TOPLEFT", 8, -4)
 btn.time = btn:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall") btn.time:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 8, 4)
@@ -673,7 +754,7 @@ if fType == currentRosterFilter then btn.text:SetTextColor(1, 0.82, 0) else btn.
 end
 if UpdateRosterList then UpdateRosterList() end
 end
-function UpdateEventDetails()
+UpdateEventDetails = function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then
 DHeader:SetText("Szczegoly") DDesc:SetText("Wybierz wydarzenie z listy po lewej stronie.")
 CounterFrame:Hide() RosterContainer:Hide() JoinTankBtn:Hide() JoinHealBtn:Hide() JoinDpsBtn:Hide() RemoveEventBtn:Hide() return
@@ -703,6 +784,7 @@ row:Show()
 else row:Hide() end
 end
 end
+eventScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, EV_ROW_HEIGHT, UpdateEventsList) end)
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Stworz Wydarzenie")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
@@ -718,6 +800,8 @@ TimeInput:ClearAllPoints() TimeInput:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT"
 local TimeLabel = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 TimeLabel:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 165, -105) TimeLabel:SetText("Godzina:")
 local DescInput = CreateLabelAndInput(CreatorFrame, "Krotki opis:", -165, 275, 26)
+-- Limity, zeby caly pakiet EV_ADD zmiescil sie w 255 bajtach
+TitleInput:SetMaxBytes(50) DateInput:SetMaxBytes(16) TimeInput:SetMaxBytes(8) DescInput:SetMaxBytes(80)
 local SubmitBtn = CreateFrame("Button", nil, CreatorFrame, "GameMenuButtonTemplate")
 SubmitBtn:SetSize(120, 30) SubmitBtn:SetPoint("BOTTOM", CreatorFrame, "BOTTOM", 0, 20) SubmitBtn:SetText("Dodaj i Rozeslij")
 CreateEventBtn:SetScript("OnClick", function() if IsPlayerOfficer() then CreatorFrame:Show() else UIErrorsFrame:AddMessage("Blad: Brak uprawnien oficerskich!", 1.0, 0.1, 0.1, 1.0, 2) end end)
@@ -725,8 +809,9 @@ SubmitBtn:SetScript("OnClick", function()
 local title, eDate, eTime, desc = TitleInput:GetText(), DateInput:GetText(), TimeInput:GetText(), DescInput:GetText()
 if title ~= "" and eDate ~= "" and eTime ~= "" then
 local myName = UnitName("player") local eventID = myName .. "_" .. GetTime()
-table.insert(eventsList, { id = eventID, title = title, date = eDate, time = eTime, desc = desc, creator = myName, roster = {} }) UpdateEventsList()
-SendJagodkaNetworkPacket("EV_ADD", string.format("%s:%s:%s:%s:%s:%s", eventID, title, eDate, eTime, desc, myName))
+local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, creator = myName, roster = {} }
+table.insert(eventsList, newEvent) UpdateEventsList()
+SendJagodkaNetworkPacket("EV_ADD", BuildEventPacket(newEvent))
 TitleInput:SetText("") DateInput:SetText("") TimeInput:SetText("") DescInput:SetText("") CreatorFrame:Hide()
 end
 end)
@@ -783,18 +868,14 @@ if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_CO
 if data.guild and data.guild ~= "" and data.guild ~= "Brak" then displayName = displayName .. " |cffbf40ff(" .. data.guild .. ")|r" end
 row.nameText:SetText(displayName) row.levelText:SetText(data.level)
 if data.class and CLASS_ICON_TCOORDS[data.class] then
-row.classIcon:SetTexture("Interface\GLUES\CHARACTERCREATE\UI-CHARACTERCREATE-CLASSES")
+row.classIcon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
 row.classIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[data.class])) row.classIcon:Show()
 else row.classIcon:Hide() end
 row:Show()
 else row:Hide() end
 end
 end
-scrollFrame:SetScript("OnVerticalScroll", function(self, offset)
-local scrollBar = _G[self:GetName().."ScrollBar"]
-if scrollBar then scrollBar:SetValue(offset) end
-UpdateScrollList()
-end)
+scrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, UpdateScrollList) end)
 -- ============================================================================
 -- 8. ODBIORNIK SIECIOWY (STABILNE KANAŁY + BIAŁA LISTA)
 -- ============================================================================
@@ -802,24 +883,55 @@ local NetworkListener = CreateFrame("Frame")
 NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
 NetworkListener:RegisterEvent("PLAYER_LOGIN")
 NetworkListener:RegisterEvent("ADDON_LOADED")
--- POPRAWKA: Przypisanie zdarzenia bezpośrednio na ramce sieciowej, a nie tablicy!
+NetworkListener:RegisterEvent("PLAYER_GUILD_UPDATE")
+NetworkListener:RegisterEvent("GUILD_ROSTER_UPDATE")
+-- Zaraz po zalogowaniu GetGuildInfo() czesto zwraca nil, wiec PING wysylamy dopiero gdy gildia jest znana
+local announced = false
+local function TryAnnounce()
+if announced then return end
+if not IsPlayerGuildAllowed(GetGuildInfo("player")) then return end
+announced = true
+AddMyselfToActiveList()
+SendStatusPacket("PING")
+UpdateScrollList()
+end
 NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
-if event == "ADDON_LOADED" and prefix == "jagodka" then
+if event == "ADDON_LOADED" and prefix == addonName then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
 eventsList = _G.JagodkiEventsDB
 return
 end
 if event == "PLAYER_LOGIN" then
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
-AddMyselfToActiveList()
-SendStatusPacket("PING")
+if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster() elseif _G.GuildRoster then _G.GuildRoster() end
+TryAnnounce()
+-- Kanal dolaczamy z opoznieniem, zeby nie zajac numeru /1 przed kanalem General
+C_Timer.After(8, function()
+JoinCommChannel()
+C_Timer.After(2, function()
+-- Ponowny PING juz przez wspolny kanal, zeby zobaczyly nas inne gildie
+announced = false
+TryAnnounce()
+end)
+end)
 table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Wspolnota Jagodka gotowa.|r")
+table.insert(sharedChatHistories["Ogolny"], "|cff00ccff[System]: Kanal wspolny - wiadomosci ze wszystkich gildii z listy.|r")
 UpdateChatTabVisuals()
+elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+TryAnnounce()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 local senderName = Ambiguate(sender, "none")
 local myName = UnitName("player")
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end
+-- Pakiety systemowe od wlasnej gildii przychodza tez przez GUILD, wiec ich kopie z CHANNEL pomijamy.
+-- CHAT przepuszczamy, bo kopia z kanalu trafia do widoku "Wspolny".
+if channel == "CHANNEL" and pType ~= "CHAT" then
+local senderGuild
+if pType == "PING" or pType == "PONG" then senderGuild = select(3, strsplit(":", payload, 4))
+else local i = GetPlayerIndex(senderName) senderGuild = i and activePlayers[i].guild end
+if senderGuild and senderGuild == GetGuildInfo("player") then return end
+end
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk = strsplit(":", payload, 4)
 if not IsPlayerGuildAllowed(gld) then return end
@@ -829,7 +941,7 @@ if existingIndex then activePlayers[existingIndex] = playerData else table.inser
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
 if MainFrame:IsShown() then UpdateGuildTable() end
-if pType == "PING" then SendStatusPacket("PONG") end
+if pType == "PING" and senderName ~= myName then SendStatusPacket("PONG") end
 else
 local senderIdx = GetPlayerIndex(senderName)
 if not senderIdx and senderName ~= myName then return end
@@ -838,19 +950,22 @@ local targetTab, msgContent = strsplit(":", payload, 2)
 if targetTab and msgContent and chatHistories[targetTab] then
 if senderName ~= myName then
 local rankStr = (activePlayers[senderIdx].rank and activePlayers[senderIdx].rank ~= "Brak") and (GetColoredRank(activePlayers[senderIdx].rank) .. " ") or ""
-table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
-if targetTab == currentChatTab then RefreshChatDisplay() end
+-- CHANNEL -> widok "Wspolny", GUILD (i inne) -> widok "Gildia"
+local scope = (channel == "CHANNEL") and "Wspolny" or "Gildia"
+table.insert(GetChatHistory(scope, targetTab), rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
+if targetTab == currentChatTab and scope == currentChatScope then RefreshChatDisplay() end
 end
 end
 elseif pType == "EV_REQ" then
 for _, ev in ipairs(eventsList) do
 if ev.creator == myName then
-SendJagodkaNetworkPacket("EV_ADD", string.format("%s:%s:%s:%s:%s:%s", ev.id, ev.title, ev.date, ev.time, ev.desc, ev.creator))
+SendJagodkaNetworkPacket("EV_ADD", BuildEventPacket(ev))
 end
 end
 elseif pType == "EV_ADD" then
 local evID, title, eDate, eTime, desc, creator = strsplit(":", payload, 6)
-if evID and title then
+evID, title, eDate, eTime, desc, creator = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName
+if evID and title and eDate and eTime then
 local exists = false
 for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
 if not exists then
@@ -871,8 +986,10 @@ end
 elseif pType == "EV_REM" then
 for idx, ev in ipairs(eventsList) do
 if ev.id == payload then
-if selectedEventIndex and eventsList[selectedEventIndex].id == payload then selectedEventIndex = nil UpdateEventDetails() end
 table.remove(eventsList, idx)
+-- Po usunieciu indeksy sie przesuwaja, wiec poprawiamy zaznaczenie
+if selectedEventIndex == idx then selectedEventIndex = nil UpdateEventDetails()
+elseif selectedEventIndex and selectedEventIndex > idx then selectedEventIndex = selectedEventIndex - 1 end
 if MainFrame:IsShown() then UpdateEventsList() end
 break
 end
@@ -917,5 +1034,13 @@ tooltip:AddLine("|cffffd100Kliknij, aby otworzyć okno Wspólnoty|r")
 end,
 })
 local icon = LibStub("LibDBIcon-1.0")
-_G.JagodkiMinimapDB = _G.JagodkiMinimapDB or { minimap = { hide = false } }
+-- Rejestracja dopiero po ADDON_LOADED, bo wczesniej SavedVariables nie sa jeszcze wczytane
+local MinimapLoader = CreateFrame("Frame")
+MinimapLoader:RegisterEvent("ADDON_LOADED")
+MinimapLoader:SetScript("OnEvent", function(self, event, loadedName)
+if loadedName ~= addonName then return end
+_G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
+_G.JagodkiMinimapDB.minimap = _G.JagodkiMinimapDB.minimap or { hide = false }
 icon:Register("JagodkiNadina", JagodkiLDB, _G.JagodkiMinimapDB.minimap)
+self:UnregisterEvent("ADDON_LOADED")
+end)
