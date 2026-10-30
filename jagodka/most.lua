@@ -15,7 +15,6 @@ local C_ChatInfo = _G.C_ChatInfo
 local C_Timer = _G.C_Timer
 local CreateFrame = _G.CreateFrame
 local GetChannelName = _G.GetChannelName
-local JoinTemporaryChannel = _G.JoinTemporaryChannel
 local GetGuildInfo = _G.GetGuildInfo
 local GetServerTime = _G.GetServerTime
 local GetTime = _G.GetTime
@@ -30,7 +29,11 @@ local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.t
 local table, string, math = _G.table, _G.string, _G.math
 
 local PREFIX = "JagodkaComm"
-local COMM_CHANNEL = "JagodkaWspolnota"
+-- Kanal zwykly (JoinChannelByName), osobny dla kazdej frakcji. Do 0.7.6 byl "JagodkaWspolnota"
+-- dolaczany przez JoinTemporaryChannel - na kanal tymczasowy gra nie wpuszcza pakietow addonu
+-- (SendAddonMessage zwracal 4 = InvalidChatType), dlatego nic nie dochodzilo miedzy graczami.
+local COMM_CHANNEL_ALLIANCE, COMM_CHANNEL_HORDE = "JagodkaNet", "JagodkaNetH"
+local OLD_COMM_CHANNEL = "JagodkaWspolnota" -- opuszczany przy wejsciu na nowy kanal
 -- Haslo kanalu: obcy gracz nie wejdzie przez /join i nie zobaczy ani nie podrobi pakietow.
 -- Jest jawne w kodzie addonu, wiec chroni przed przypadkowymi osobami, nie przed kims, kto ma addon.
 local COMM_PASSWORD = "jgdk7Wsp0lnota"
@@ -74,6 +77,27 @@ function Most.DecodeField(s)
 end
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
+-- Tekst od innych graczy bez kodow formatowania ("|"): nikt nie wstawi nam kolorow, tekstur
+-- ani podrobionych linkow w nick, gildie, tytul wydarzenia itp.
+function Most.Plain(s)
+    return s and (s:gsub("|", ""))
+end
+
+-- Tresc wiadomosci czatu: zostaja tylko poprawne linki (przedmioty, zaklecia, profesje...),
+-- kazdy inny "|" jest usuwany
+local LINK_PATTERN = "|c%x%x%x%x%x%x%x%x|H[^|]+|h%[[^|]*%]|h|r"
+function Most.SanitizeChat(text)
+    local out, pos = {}, 1
+    while true do
+        local s, e = text:find(LINK_PATTERN, pos)
+        table.insert(out, (text:sub(pos, s and (s - 1) or #text):gsub("|", "")))
+        if not s then break end
+        table.insert(out, text:sub(s, e))
+        pos = e + 1
+    end
+    return table.concat(out)
+end
+
 -- Koduje tekst i dzieli go na kawalki o dlugosci liczonej PO zakodowaniu,
 -- nie przecinajac znakow UTF-8 (pierwszy kawalek moze miec inny limit niz kolejne)
 function Most.EncodeChunks(text, firstMax, restMax)
@@ -93,21 +117,40 @@ end
 -- ============================================================================
 -- KANAL GLOBALNY
 -- ============================================================================
+-- Horda i Przymierze maja osobne kanaly (gra i tak nie laczy frakcji)
+local function ChannelName()
+    return (_G.UnitFactionGroup("player") == "Horde") and COMM_CHANNEL_HORDE or COMM_CHANNEL_ALLIANCE
+end
+Most.ChannelName = ChannelName
+
 function Most.GetChannelId()
-    local id = GetChannelName(COMM_CHANNEL)
+    local id = GetChannelName(ChannelName())
     if id and id > 0 then return id end
     return nil
 end
 
-function Most.JoinChannel()
-    if not Most.GetChannelId() then JoinTemporaryChannel(COMM_CHANNEL, COMM_PASSWORD) end
-    -- Ukrycie kanalu z okien czatu, zeby surowe pakiety nie zasmiecaly czatu
-    if _G.ChatFrame_RemoveChannel then
-        for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
-            local cf = _G["ChatFrame" .. i]
-            if cf then _G.ChatFrame_RemoveChannel(cf, COMM_CHANNEL) end
-        end
+-- Czy pakiet z "CHANNEL" przyszedl z naszego kanalu (localID = numer kanalu u odbiorcy).
+-- Inaczej ktos z dowolnego innego kanalu moglby wyslac nam pakiety z naszym prefiksem.
+function Most.IsOurChannel(localID)
+    if type(localID) ~= "number" or localID <= 0 then return true end -- klient nie podal numeru
+    return localID == Most.GetChannelId()
+end
+
+-- Ukrycie kanalu z okien czatu, zeby nie zasmiecal czatu
+local function HideFromChat(name)
+    if not _G.ChatFrame_RemoveChannel then return end
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+        local cf = _G["ChatFrame" .. i]
+        if cf then _G.ChatFrame_RemoveChannel(cf, name) end
     end
+end
+
+function Most.JoinChannel()
+    -- Stary kanal tymczasowy (do 0.7.6) nic juz nie daje - wychodzimy z niego
+    if (GetChannelName(OLD_COMM_CHANNEL) or 0) > 0 and _G.LeaveChannelByName then _G.LeaveChannelByName(OLD_COMM_CHANNEL) end
+    local name = ChannelName()
+    if not Most.GetChannelId() then _G.JoinChannelByName(name, COMM_PASSWORD) end
+    HideFromChat(name)
 end
 
 -- ============================================================================
@@ -131,6 +174,12 @@ function Most.Whisper(target, pType, payload)
     table.insert(lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
 end
 
+-- Starsze API zwraca bool, nowsze kod Enum.SendAddonMessageResult (0 = sukces)
+local function IsOk(result) return result == nil or result == true or result == 0 end
+-- Chwilowy limit (3 = AddonMessageThrottle, 8 = ChannelThrottle; false = starsze API) - warto ponowic.
+-- Inne kody (np. 4 = InvalidChatType) sa trwale: ponawianie tylko blokowaloby kolejke.
+local function IsThrottle(result) return result == false or result == 3 or result == 8 end
+
 -- Zwraca wynik API i rodzaj kanalu (do diagnostyki)
 local function SendRaw(item)
     if item.target then
@@ -138,7 +187,12 @@ local function SendRaw(item)
     end
     local id = Most.GetChannelId()
     if id then
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "CHANNEL", id), "CHANNEL"
+        local result = C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "CHANNEL", id)
+        if IsOk(result) or IsThrottle(result) or not IsInGuild() then return result, "CHANNEL" end
+        -- Kanal odrzucil pakiet na stale: wlasna gildia dostaje go chociaz przez GUILD
+        Count(debug.sent, "CHANNEL fail")
+        debug.lastResult.CHANNEL = tostring(result)
+        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD fallback"
     elseif IsInGuild() then
         -- Zanim kanal globalny zostanie dolaczony, wysylamy chociaz do wlasnej gildii
         return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
@@ -153,12 +207,11 @@ local function PumpAddonQueue()
     local item = queue[1]
     if not item then return end
     local result, kind = SendRaw(item)
-    -- Starsze API zwraca bool, nowsze kod (0 = sukces)
-    local ok = (result == nil or result == true or result == 0)
+    local ok = IsOk(result)
     Count(debug.sent, kind .. (ok and " ok" or " fail"))
     debug.lastResult[kind] = tostring(result)
-    -- Przy ograniczeniu serwera ponawiamy dlugo (ok. 30 s), zeby wiadomosc nie przepadla
-    if ok or item.tries >= 30 then
+    -- Przy chwilowym limicie serwera ponawiamy dlugo (ok. 30 s), zeby wiadomosc nie przepadla
+    if ok or not IsThrottle(result) or item.tries >= 30 then
         table.remove(queue, 1)
         tokens = tokens - 1
     else
@@ -365,7 +418,8 @@ local function DecodeMessage(payload)
     local id, ts, guild, author, tab, src, text = strsplit(":", payload, 7)
     if not (id and ts and guild and author and tab and src and text) then return nil end
     if src ~= "G" and src ~= "A" then return nil end
-    return { id = Dec(id), ts = tonumber(ts) or 0, guild = Dec(guild), author = Dec(author), tab = Dec(tab), src = src, text = text }
+    local P = Most.Plain
+    return { id = P(Dec(id)), ts = tonumber(ts) or 0, guild = P(Dec(guild)), author = P(Dec(author)), tab = P(Dec(tab)), src = src, text = Most.SanitizeChat(text) }
 end
 
 -- Podzial tresci na czesci. Nie zalezy od nicku wysylajacego (stala dlugosc w naglowku),
@@ -479,7 +533,7 @@ end
 function Most.GetStatusText()
     local channelId = Most.GetChannelId()
     local lines = {
-        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. COMM_CHANNEL .. ", /" .. channelId .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
+        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. ChannelName() .. ", /" .. channelId .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
         "Your guild relay: " .. (Most.GetRelayName() or "-") .. (Most.IsRelay() and " |cff00ff00(you)|r" or ""),
         "Packet queue: " .. (#highQueue + #lowQueue) .. "   /g queue: " .. #guildLineQueue,
         "Messages in history: " .. #chatLog,
@@ -518,7 +572,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
     if event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- arg1 = typ komunikatu, 7. dodatkowy argument (arg9) = nazwa kanalu bez numeru
         local channelBaseName = select(7, ...)
-        if channelBaseName ~= COMM_CHANNEL then return end
+        if channelBaseName ~= ChannelName() then return end
         if arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then
             -- Ktos przejal kanal (haslo) albo nas zbanowal - nie probujemy w kolko, tylko informujemy
             channelProblem = (arg1 == "BANNED") and "banned from the channel" or "the channel has a different password"
@@ -528,6 +582,8 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             C_Timer.After(5, Most.JoinChannel)
         elseif arg1 == "YOU_JOINED" or arg1 == "YOU_CHANGED" then
             channelProblem = nil
+            -- Gra mogla dopisac kanal do okna czatu przy wejsciu
+            HideFromChat(channelBaseName)
         end
         return
     end

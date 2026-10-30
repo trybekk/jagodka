@@ -2,7 +2,7 @@
 ## Title: Jagodka
 ## Notes: Guild community: shared chat, online roster and events. Command: /jagodka
 ## Author: trybekk
-## Version: 0.7.6
+## Version: 0.7.7
 ## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 
 Libs\LibStub\LibStub.lua

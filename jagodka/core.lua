@@ -1878,7 +1878,8 @@ if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONL
 end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
 end
-NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
+-- CHAT_MSG_ADDON: prefix, text, channel, sender, target, zoneChannelID, localID (numer kanalu u nas)
+NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender, _, _, localID)
 if event == "ADDON_LOADED" and prefix == addonName then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
 eventsList = _G.JagodkiEventsDB
@@ -1923,10 +1924,14 @@ RefreshMyGuildRoster()
 TryAnnounce()
 PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
+-- Z kanalow przyjmujemy tylko nasz (ten sam prefiks na obcym kanale = ktos podszywajacy sie)
+if channel == "CHANNEL" and not Most.IsOurChannel(localID) then return end
 local senderName = Ambiguate(sender, "none")
 local myName = UnitName("player")
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end
+-- Bez kodow formatowania w danych od innych (czat: most.lua zostawia w nim poprawne linki)
+if pType ~= "GMSG" and pType ~= "HIST" then payload = Most.Plain(payload) end
 -- Wiadomosci czatu i historia: most.lua
 if Most.HandlePacket(pType, payload, channel, senderName, sender) then return end
 -- Rostery gildii: roster.lua

@@ -7,7 +7,8 @@
 | 0.7.3 | `af508ab` | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
 | 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
 | 0.7.5 | `5eda26f` | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
-| 0.7.6 | commit „feat(lasarr-1): Trade tab in game chat, item links, drop Raid tab, v0.7.6” | wypchnięta, do przetestowania w grze |
+| 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
+| 0.7.7 | commit „fix(lasarr-1): global channel via JoinChannelByName, v0.7.7” | wypchnięta, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -252,3 +253,38 @@ Do przetestowania:
 - [ ] Wiadomość w Trade nie pojawia się w `/g` żadnej gildii.
 - [ ] Shift + klik na przedmiot, zaklęcie i przepis przy aktywnym polu addonu wstawia link; po wysłaniu link jest klikalny u innych w addonie, w zakładkach gry i (dla General) w `/g`.
 - [ ] Prawy klik na nick w zakładce Trade w czacie gry pokazuje oficerowi sekcję „Jagodka”.
+
+---
+
+# 0.7.7 – naprawa kanału globalnego (pakiety addonu między graczami)
+
+**Problem znaleziony w teście:** w diagnostyce było `CHANNEL fail=127`, a ostatni wynik `CHANNEL=4` (`InvalidChatType`). Gra odrzucała wszystkie pakiety addonu wysyłane na kanał.
+- Wiadomości z addonu nie docierały do nikogo; przechodził tylko `GUILD` przez kilka sekund po zalogowaniu.
+- `/g` w oknie addonu działał, bo każdy klient czyta `/g` sam.
+- Przyczyna: kanał był dołączany przez `JoinTemporaryChannel`, czyli jako kanał tymczasowy.
+- Dla porównania przejrzany addon Olympus (ten sam klient, `Interface 11509`) wysyła na kanał bez problemu. Dołącza do niego przez `JoinChannelByName`, a poza tym ścieżka wysyłki jest taka sama.
+
+**Poprawki (`most.lua`, `core.lua`):**
+- Kanał dołączany jest przez `JoinChannelByName(nazwa, hasło)` pod **nową nazwą**, żeby powstał od nowa jako zwykły kanał, a nie dołączył do starego tymczasowego:
+  - **`JagodkaNet`** dla Przymierza,
+  - **`JagodkaNetH`** dla Hordy (frakcje i tak się nie łączą).
+- Hasło bez zmian. Stary kanał `JagodkaWspolnota` addon opuszcza sam.
+- Kanał jest chowany z okien czatu także po komunikacie „joined”, bo gra może go wtedy dopisać do okna.
+- **Kolejka:**
+  - pakiet ponawiany jest tylko przy chwilowym limicie serwera (kody 3 i 8 albo `false`);
+  - błąd trwały (np. 4) nie blokuje już kolejki przez 30 s;
+  - pakiet, którego kanał nie przyjął, idzie zastępczo przez `GUILD`, więc własna gildia działa zawsze. W diagnostyce widać to jako `GUILD fallback`.
+- **Bezpieczeństwo** (wzorowane na Olympusie):
+  - pakiety z `CHANNEL` są przyjmowane tylko z naszego kanału, sprawdzane po numerze `localID` z `CHAT_MSG_ADDON`;
+  - w danych od innych graczy usuwane są kody formatowania `|`. W treści czatu zostają tylko poprawne linki (przedmioty, zaklęcia, profesje). Nick, gildia i tytuły nie mogą zawierać kolorów ani podrobionych linków.
+  - Skutek uboczny: link wklejony w opis wydarzenia inni zobaczą jako zwykły tekst.
+- Wersja 0.7.7. Starsze wersje nadal są na starym kanale i nic przez niego nie wyślą, więc wszyscy muszą zaktualizować.
+- Limity: `most.lua` 87, `core.lua` 185/200.
+
+## Do przetestowania (0.7.7)
+- [ ] Settings: „Global channel: connected (JagodkaNet…)” albo `JagodkaNetH` na Hordzie.
+- [ ] Diagnostyka: `CHANNEL ok` rośnie, nie ma `CHANNEL fail`; u drugiej osoby w Received jest `CHANNEL GMSG`.
+- [ ] Wiadomość w addonie (General, Trade) dochodzi do drugiej osoby i z powrotem.
+- [ ] Kanał nie pojawia się w oknach czatu; stary `JagodkaWspolnota` znika z `/chatlist`.
+- [ ] Wysłany link przedmiotu działa u drugiej osoby; zwykły tekst z `|` nie robi kolorów.
+- [ ] Test z drugą gildią z listy (cross-guild).
