@@ -48,9 +48,13 @@ end
 -- 0B. KONFIGURACJA WSPÓLNEGO KANAŁU I BIAŁEJ LISTY GILDII
 -- ============================================================================
 local AllowedGuilds = {
-    ["Jagódki Nadina"] = true,  
-    ["Testowo"] = true,        
+    ["Testowo"] = true,
 }
+-- Gildie wspolnoty: "Jagódki Nadina", "Jagódki Nadina II", "... III", "... IV".
+-- Kolejna gildia = kolejny przyrostek (np. " V") i podbicie wersji addonu.
+for _, suffix in ipairs({ "", " II", " III", " IV" }) do
+    AllowedGuilds["Jagódki Nadina" .. suffix] = true
+end
 
 local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end
@@ -85,9 +89,30 @@ MainFrame:Hide()
 
 MainFrame:EnableMouse(true)
 MainFrame:SetMovable(true)
-MainFrame:RegisterForDrag("LeftButton")
-MainFrame:SetScript("OnDragStart", MainFrame.StartMoving)
-MainFrame:SetScript("OnDragStop", MainFrame.StopMovingOrSizing)
+MainFrame:SetClampedToScreen(true)
+-- Pozycja i rozmiar okna: JagodkiMinimapDB.window (wczytywane po ADDON_LOADED, sekcja 9).
+-- Przesuwanie tylko za pasek tytulu, zmiana rozmiaru uchwytem w prawym dolnym rogu.
+-- Najmniejszy rozmiar = domyslny (pod niego jest zrobiony uklad), wieksze okno = wiecej tresci.
+local WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H = 850, 620, 1600, 1100
+MainFrame:SetResizable(true)
+if MainFrame.SetResizeBounds then MainFrame:SetResizeBounds(WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H)
+else MainFrame:SetMinResize(WIN_MIN_W, WIN_MIN_H) MainFrame:SetMaxResize(WIN_MAX_W, WIN_MAX_H) end
+function MainFrame.SaveLayout()
+if not _G.JagodkiMinimapDB then return end
+_G.JagodkiMinimapDB.window = { w = MainFrame:GetWidth(), h = MainFrame:GetHeight(), left = MainFrame:GetLeft(), top = MainFrame:GetTop() }
+end
+function MainFrame.ApplyLayout(w, h, left, top)
+MainFrame:SetSize(math.min(WIN_MAX_W, math.max(WIN_MIN_W, w or WIN_MIN_W)), math.min(WIN_MAX_H, math.max(WIN_MIN_H, h or WIN_MIN_H)))
+MainFrame:ClearAllPoints()
+if left and top then MainFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+else MainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) end
+end
+-- Ile wierszy listy miesci sie w kontenerze o biezacej wysokosci (przed pierwszym ulozeniem: domyslnie)
+function MainFrame.FitRows(container, topOffset, bottomPad, rowHeight, cap, default)
+local h = container:GetHeight()
+if not h or h <= 0 then return default end
+return math.max(1, math.min(cap, math.floor((h - topOffset - bottomPad) / rowHeight)))
+end
 
 MainFrame:SetBackdrop({
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -115,13 +140,34 @@ TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community")
 local CloseBtn = CreateFrame("Button", nil, MainFrame, "UIPanelCloseButton")
 CloseBtn:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -2, -2)
 CloseBtn:SetSize(30, 30)
+do
+-- Pasek tytulu (logo + nazwa) = jedyne miejsce, za ktore mozna przesuwac okno
+local DragBar = CreateFrame("Frame", nil, MainFrame)
+DragBar:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 1, -1)
+DragBar:SetPoint("BOTTOMRIGHT", MainFrame, "TOPRIGHT", -40, -35)
+DragBar:EnableMouse(true)
+DragBar:RegisterForDrag("LeftButton")
+DragBar:SetScript("OnDragStart", function() MainFrame:StartMoving() end)
+DragBar:SetScript("OnDragStop", function() MainFrame:StopMovingOrSizing() MainFrame.SaveLayout() end)
+CloseBtn:SetFrameLevel(DragBar:GetFrameLevel() + 2)
+-- Uchwyt zmiany rozmiaru: okno robi sie wieksze (czcionki bez zmian), zakladki pokazuja wiecej tresci
+local Grip = CreateFrame("Button", nil, MainFrame)
+Grip:SetSize(16, 16)
+Grip:SetPoint("BOTTOMRIGHT", MainFrame, "BOTTOMRIGHT", -2, 2)
+Grip:SetFrameLevel(MainFrame:GetFrameLevel() + 20)
+Grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+Grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+Grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+Grip:SetScript("OnMouseDown", function() MainFrame:StartSizing("BOTTOMRIGHT") end)
+Grip:SetScript("OnMouseUp", function() MainFrame:StopMovingOrSizing() MainFrame.SaveLayout() end)
+end
 
 local OnlineText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 OnlineText:SetPoint("RIGHT", CloseBtn, "LEFT", -10, 0)
 OnlineText:SetText("Online: |cff00ff000|r")
 
 local Panels = {}
-local tabNames = {"Chat", "Members", "Guilds", "Events", "Settings"}
+local tabNames = {"Chat", "Members", "Guilds", "Events", "Calendar", "Settings"}
 
 local columns = {
     { name = "Name", width = 110, x = 10, key = "name" },
@@ -134,6 +180,7 @@ local columns = {
 
 local UpdateGuildTable = function() end
 local UpdateEventsList = function() end
+local UpdateCalendar = function() end
 local UpdateMainTable = function() end
 local UpdateScrollList = function() end
 local UpdateRosterList = function() end
@@ -180,11 +227,12 @@ end
 local Most = addonTable.Most
 local Roster = addonTable.Roster
 
-local function SendJagodkaNetworkPacket(prefixType, dataPayload)
+local function SendJagodkaNetworkPacket(prefixType, dataPayload, priority)
     local myGuild = GetGuildInfo("player")
     if not IsPlayerGuildAllowed(myGuild) then return end
     -- Jedna wysylka na kanal globalny (przed jego dolaczeniem: GUILD), przez kolejke z limitem
-    Most.Send(prefixType, dataPayload)
+    -- priority "low" = synchronizacja (czat ma pierwszenstwo)
+    Most.Send(prefixType, dataPayload, priority)
 end
 
 -- Kodowanie pol wydarzen, zeby ":" w tekscie (np. godzina 20:00) nie psul pakietu
@@ -193,15 +241,16 @@ local EncodeField, DecodeField = Most.EncodeField, Most.DecodeField
 -- Wysylka wydarzenia: EV_ADD z poczatkiem opisu, reszta opisu w kolejnych pakietach EV_DESC
 -- (pakiet addonu ma limit 255 bajtow, a opis moze miec do EVENT_DESC_MAX_BYTES)
 local EVENT_DESC_MAX_BYTES, EVENT_MAX_DESC_PARTS = 400, 10
-local function SendEvent(ev)
+-- EV_ADD:id:tytul:data:godzina:opis1:autor:instancja:liczbaCzesci:gildiaAutora
+local function SendEvent(ev, priority)
     local pre = table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time) }, ":") .. ":"
-    local post = ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":99"
+    local post = ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":99:" .. EncodeField(ev.guild)
     local descHeader = "EV_DESC:" .. EncodeField(ev.id) .. ":99:"
     local chunks = Most.EncodeChunks(ev.desc, 245 - #"EV_ADD:" - #pre - #post, 245 - #descHeader)
     while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
-    SendJagodkaNetworkPacket("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks)
+    SendJagodkaNetworkPacket("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks .. ":" .. EncodeField(ev.guild), priority)
     for i = 2, #chunks do
-        SendJagodkaNetworkPacket("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i])
+        SendJagodkaNetworkPacket("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i], priority)
     end
 end
 
@@ -215,8 +264,9 @@ end
 
 for i, name in ipairs(tabNames) do
     local p = CreateFrame("Frame", nil, MainFrame)
-    p:SetSize(560, 465)
+    -- Rozciaga sie z oknem (przy 850x620: 560x465); po prawej zostaje miejsce na panel graczy
     p:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 20, -135)
+    p:SetPoint("BOTTOMRIGHT", MainFrame, "BOTTOMRIGHT", -270, 20)
     p:Hide()
     Panels[i] = p
 end
@@ -235,6 +285,7 @@ local function ShowTab(tabIndex)
             if i == 2 and UpdateMainTable then UpdateMainTable() end
             if i == 3 and UpdateGuildTable then UpdateGuildTable() end
             if i == 4 and UpdateEventsList then UpdateEventsList() end
+            if i == 5 then UpdateCalendar() end
         else 
             panel:Hide() 
             if btn then
@@ -368,6 +419,80 @@ h, mi = tonumber(h), tonumber(mi)
 return h ~= nil and h <= 23 and mi <= 59
 end
 local function ShowEventError(text) UIErrorsFrame:AddMessage("Error: " .. text, 1.0, 0.1, 0.1, 1.0, 2) end
+-- ============================================================================
+-- SYNCHRONIZACJA WYDARZEN (Events i Calendar maja te same dane u wszystkich)
+-- ============================================================================
+--  * Po zalogowaniu (i przy otwarciu Events/Calendar, najwyzej co 5 min) leci EV_REQ.
+--  * Odpowiada JEDNA losowa osoba z addonem (nie tylko autor - autor moze byc offline):
+--    po 1-4 s wysyla EV_CLAIM, reszta rezygnuje. Wysylka na kanal, wiec korzystaja wszyscy.
+--  * Wysylane sa wydarzenia (EV_ADD/EV_DESC) i zapisy (EV_ROS), z niskim priorytetem.
+--  * Usuniete wydarzenia sa pamietane 30 dni (nie wroca od kogos, kto byl offline).
+--  * Wydarzenia starsze niz 2 dni po terminie same znikaja.
+local EventSync = { pending = {}, lastRequest = 0, lastBroadcast = 0, KEEP_DAYS = 2, TOMBSTONE_DAYS = 30 }
+-- Czas wydarzenia (poludnie danego dnia) z "DD.MM.YYYY" albo starego "DD.MM" (biezacy rok)
+function EventSync.DayTime(dateText)
+local d, m, y = (dateText or ""):match("^(%d%d?)%.(%d%d?)%.?(%d*)$")
+if not d then return nil end
+return time({ year = tonumber(y) or tonumber(date("%Y")), month = tonumber(m), day = tonumber(d), hour = 12 })
+end
+function EventSync.IsExpired(dateText)
+local t = EventSync.DayTime(dateText)
+return t ~= nil and time() - t > EventSync.KEEP_DAYS * 86400
+end
+-- Znaczniki usuniecia: JagodkiEventsDB.removed[id] = czas (pole poza czescia tablicowa, ipairs go pomija)
+function EventSync.Removed()
+local db = _G.JagodkiEventsDB
+if not db then return {} end
+db.removed = db.removed or {}
+return db.removed
+end
+function EventSync.MarkRemoved(id) if id then EventSync.Removed()[id] = time() end end
+function EventSync.Prune()
+local changed = false
+for i = #eventsList, 1, -1 do
+if EventSync.IsExpired(eventsList[i].date) then table.remove(eventsList, i) changed = true end
+end
+if changed then selectedEventIndex = nil end
+local removed, now = EventSync.Removed(), time()
+for id, t in pairs(removed) do
+if now - t > EventSync.TOMBSTONE_DAYS * 86400 then removed[id] = nil end
+end
+end
+-- EV_ROS:id:Nick=TANK,Nick2=HEAL,... (w razie potrzeby kilka pakietow)
+function EventSync.SendRoster(ev)
+local header, chunk = EncodeField(ev.id) .. ":", ""
+for name, role in pairs(ev.roster or {}) do
+local entry = name .. "=" .. role
+if chunk ~= "" and #header + #chunk + 1 + #entry > 240 then
+SendJagodkaNetworkPacket("EV_ROS", header .. chunk, "low")
+chunk = ""
+end
+chunk = (chunk == "") and entry or (chunk .. "," .. entry)
+end
+if chunk ~= "" then SendJagodkaNetworkPacket("EV_ROS", header .. chunk, "low") end
+end
+function EventSync.Request(force)
+if not force and GetTime() - EventSync.lastRequest < 300 then return end
+EventSync.lastRequest = GetTime()
+SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
+end
+function EventSync.HandleRequest(requester)
+if #eventsList == 0 then return end
+EventSync.pending[requester] = true
+C_Timer.After(1 + math.random() * 3, function()
+if not EventSync.pending[requester] then return end
+EventSync.pending[requester] = nil
+SendJagodkaNetworkPacket("EV_CLAIM", requester)
+-- Kilka logowan naraz: jedna wysylka na kanal wystarczy dla wszystkich
+if GetTime() - EventSync.lastBroadcast < 15 then return end
+EventSync.lastBroadcast = GetTime()
+EventSync.Prune()
+for _, ev in ipairs(eventsList) do
+SendEvent(ev, "low")
+EventSync.SendRoster(ev)
+end
+end)
+end
 local function AddMyselfToActiveList()
 local myName = UnitName("player")
 local level = UnitLevel("player")
@@ -386,19 +511,79 @@ end
 -- 3. ZAKŁADKA 1: PANEL CZATU
 -- ============================================================================
 local ChatPanel = CreateFrame("Frame", nil, Panels[1], "BackdropTemplate")
-ChatPanel:SetSize(560, 435)
 ChatPanel:SetPoint("TOPLEFT", Panels[1], "TOPLEFT", 0, 0)
+ChatPanel:SetPoint("BOTTOMRIGHT", Panels[1], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(ChatPanel)
 local chatDisplay = CreateFrame("ScrollingMessageFrame", nil, ChatPanel)
 chatDisplay:SetPoint("TOPLEFT", ChatPanel, "TOPLEFT", 12, -12)
-chatDisplay:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -12, 45)
+chatDisplay:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -32, 45)
 chatDisplay:SetFontObject(ChatFontNormal)
 chatDisplay:SetMaxLines(200)
 chatDisplay:SetFading(false)
 chatDisplay:SetJustifyH("LEFT")
+-- Kolko myszy: 3 linie (Shift = cala strona, Ctrl = poczatek / koniec historii)
+chatDisplay:EnableMouseWheel(true)
+chatDisplay:SetScript("OnMouseWheel", function(self, delta)
+if _G.IsControlKeyDown() then
+if delta > 0 then self:ScrollToTop() else self:ScrollToBottom() end
+elseif _G.IsShiftKeyDown() then
+if delta > 0 then self:PageUp() else self:PageDown() end
+else
+for _ = 1, 3 do if delta > 0 then self:ScrollUp() else self:ScrollDown() end end
+end
+self.SyncBar()
+end)
+-- Pasek przewijania z prawej (strzalki + suwak), zsynchronizowany z kolkiem i nowymi wiadomosciami.
+-- Offset czatu: 0 = najnowsze (dol); suwak: 0 = gora, max = dol.
+do
+local bar = CreateFrame("Slider", nil, ChatPanel)
+bar:SetWidth(16)
+bar:SetPoint("TOPRIGHT", ChatPanel, "TOPRIGHT", -9, -28)
+bar:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -9, 61)
+bar:SetOrientation("VERTICAL")
+bar:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+bar:GetThumbTexture():SetSize(18, 24)
+bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+bar.bg:SetAllPoints()
+bar.bg:SetColorTexture(0, 0, 0, 0.3)
+bar:SetMinMaxValues(0, 0)
+bar:SetValueStep(1)
+if bar.SetObeyStepOnDrag then bar:SetObeyStepOnDrag(true) end
+bar:EnableMouseWheel(true)
+bar:SetScript("OnMouseWheel", function(_, delta) chatDisplay:GetScript("OnMouseWheel")(chatDisplay, delta) end)
+local up = CreateFrame("Button", nil, ChatPanel, "UIPanelScrollUpButtonTemplate")
+up:SetPoint("BOTTOM", bar, "TOP", 0, 0)
+local down = CreateFrame("Button", nil, ChatPanel, "UIPanelScrollDownButtonTemplate")
+down:SetPoint("TOP", bar, "BOTTOM", 0, 0)
+local syncing = false
+local function MaxRange()
+if chatDisplay.GetMaxScrollRange then return chatDisplay:GetMaxScrollRange() or 0 end
+return math.max(0, chatDisplay:GetNumMessages() - 1)
+end
+chatDisplay.SyncBar = function()
+local max, offset = MaxRange(), chatDisplay:GetScrollOffset() or 0
+syncing = true
+bar:SetMinMaxValues(0, max)
+bar:SetValue(max - offset)
+syncing = false
+up:SetEnabled(offset < max)
+down:SetEnabled(offset > 0)
+end
+bar:SetScript("OnValueChanged", function(_, value)
+if syncing or not chatDisplay.SetScrollOffset then return end
+chatDisplay:SetScrollOffset(MaxRange() - math.floor(value + 0.5))
+chatDisplay.SyncBar()
+end)
+up:SetScript("OnClick", function() chatDisplay:ScrollUp() chatDisplay.SyncBar() end)
+down:SetScript("OnClick", function() chatDisplay:ScrollDown() chatDisplay.SyncBar() end)
+if chatDisplay.SetOnScrollChangedCallback then chatDisplay:SetOnScrollChangedCallback(function() chatDisplay.SyncBar() end) end
+chatDisplay:HookScript("OnSizeChanged", function() chatDisplay.SyncBar() end)
+end
 local chatInput = CreateFrame("EditBox", nil, ChatPanel, "InputBoxTemplate")
-chatInput:SetSize(440, 26)
+-- Pole wpisywania rozciaga sie z oknem, przycisk Send zostaje przy prawej krawedzi
+chatInput:SetHeight(26)
 chatInput:SetPoint("BOTTOMLEFT", ChatPanel, "BOTTOMLEFT", 12, 10)
+chatInput:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -95, 10)
 chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
 -- Dluzsze wiadomosci most.lua sam dzieli na czesci (limit 255 bajtow na pakiet)
@@ -416,6 +601,9 @@ chatDisplay:Clear()
 for _, entry in ipairs(Most.GetLog()) do
 if entry.tab == currentChatTab then chatDisplay:AddMessage(Most.FormatEntry(entry)) end
 end
+-- Zakres suwaka jest znany dopiero po ulozeniu linii (nastepna klatka)
+chatDisplay.SyncBar()
+C_Timer.After(0, chatDisplay.SyncBar)
 end
 local function UpdateChatTabVisuals()
 for name, btn in pairs(chatTabButtons) do
@@ -477,14 +665,14 @@ Roster.Init({
 activePlayers = activePlayers,
 isGuildAllowed = IsPlayerGuildAllowed,
 allowedGuilds = AllowedGuilds,
-onChanged = function() UpdateMainTable() UpdateScrollList() end,
+onChanged = function() UpdateMainTable() UpdateScrollList() if Panels[3]:IsVisible() then UpdateGuildTable() end end,
 })
 -- ============================================================================
 -- 4. ZAKŁADKA 2: GŁÓWNA TABELA GRACZY + WYSZUKIWARKA
 -- ============================================================================
 local TableContainer = CreateFrame("Frame", nil, Panels[2], "BackdropTemplate")
-TableContainer:SetSize(560, 390)
 TableContainer:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", 0, -45)
+TableContainer:SetPoint("BOTTOMRIGHT", Panels[2], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(TableContainer)
 local SearchEditBox = CreateFrame("EditBox", "JagodkiSearchEditBox", Panels[2], "InputBoxTemplate")
 SearchEditBox:SetSize(220, 26)
@@ -557,12 +745,14 @@ local mainScrollFrame = CreateFrame("ScrollFrame", "JagodkiMainTableScrollFrame"
 mainScrollFrame:SetPoint("TOPLEFT", TableContainer, "TOPLEFT", 0, -30)
 mainScrollFrame:SetPoint("BOTTOMRIGHT", TableContainer, "BOTTOMRIGHT", -26, 6)
 local MAIN_ROW_HEIGHT = 22
-local MAX_MAIN_ROWS = 16
+-- Wierszy tworzymy na zapas (najwyzsze okno); widac tyle, ile miesci sie w tabeli (TableContainer.visibleRows)
+local MAX_MAIN_ROWS = 42
 local tableRows = {}
 for i = 1, MAX_MAIN_ROWS do
 local row = CreateFrame("Button", nil, TableContainer)
-row:SetSize(530, MAIN_ROW_HEIGHT)
+row:SetHeight(MAIN_ROW_HEIGHT)
 row:SetPoint("TOPLEFT", TableContainer, "TOPLEFT", 5, -30 - ((i-1) * MAIN_ROW_HEIGHT))
+row:SetPoint("RIGHT", TableContainer, "RIGHT", -25, 0)
 local tex = row:CreateTexture(nil, "BACKGROUND")
 tex:SetAllPoints()
 tex:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.02 or 0.04)
@@ -636,8 +826,9 @@ end
 -- Rysuje wiersze z gotowej listy (scroll nie przelicza listy od nowa)
 -- Pasek stron pod tabela: "Pokazano 51-100 z 312 (48 online)   [<<] [<] Strona 2 / 7 [>] [>>]"
 local PageNav = CreateFrame("Frame", nil, Panels[2])
-PageNav:SetSize(560, 26)
+PageNav:SetHeight(26)
 PageNav:SetPoint("TOPLEFT", TableContainer, "BOTTOMLEFT", 0, -4)
+PageNav:SetPoint("TOPRIGHT", TableContainer, "BOTTOMRIGHT", 0, -4)
 PageNav.infoText = PageNav:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 PageNav.infoText:SetPoint("LEFT", PageNav, "LEFT", 8, 0)
 PageNav.buttons = {}
@@ -665,11 +856,12 @@ PageNav.infoText:SetText(total == 0 and "No players" or ("Showing " .. (first + 
 PageNav.pageText:SetText("Page " .. page .. " / " .. pages)
 PageNav.buttons[1]:SetEnabled(page > 1) PageNav.buttons[2]:SetEnabled(page > 1)
 PageNav.buttons[3]:SetEnabled(page < pages) PageNav.buttons[4]:SetEnabled(page < pages)
-_G.FauxScrollFrame_Update(mainScrollFrame, count, MAX_MAIN_ROWS, MAIN_ROW_HEIGHT)
+local visible = TableContainer.visibleRows or 16
+_G.FauxScrollFrame_Update(mainScrollFrame, count, visible, MAIN_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(mainScrollFrame)
 for i = 1, MAX_MAIN_ROWS do
 local dataIndex = i + offset local row = tableRows[i]
-if dataIndex <= count then
+if i <= visible and dataIndex <= count then
 local data = filteredPlayers[first + dataIndex]
 row.member = data
 local classColor = data.class and RAID_CLASS_COLORS[data.class]
@@ -751,12 +943,16 @@ mainTablePending = true
 C_Timer.After(0.3, RebuildMainTable)
 end
 mainScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, MAIN_ROW_HEIGHT, RenderMainTable) end)
+TableContainer:SetScript("OnSizeChanged", function(self)
+self.visibleRows = MainFrame.FitRows(self, 30, 6, MAIN_ROW_HEIGHT, MAX_MAIN_ROWS, 16)
+if self:IsVisible() then RenderMainTable() end
+end)
 -- ============================================================================
 -- 5. ZAKŁADKA 3: PANEL GILDII
 -- ============================================================================
 local GuildContainer = CreateFrame("Frame", nil, Panels[3], "BackdropTemplate")
-GuildContainer:SetSize(560, 435)
 GuildContainer:SetPoint("TOPLEFT", Panels[3], "TOPLEFT", 0, 0)
+GuildContainer:SetPoint("BOTTOMRIGHT", Panels[3], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(GuildContainer)
 local GuildTitleText = GuildContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 GuildTitleText:SetPoint("TOPLEFT", GuildContainer, "TOPLEFT", 15, -12)
@@ -765,12 +961,14 @@ local guildScrollFrame = CreateFrame("ScrollFrame", "JagodkiGuildTableScrollFram
 guildScrollFrame:SetPoint("TOPLEFT", GuildContainer, "TOPLEFT", 0, -40)
 guildScrollFrame:SetPoint("BOTTOMRIGHT", GuildContainer, "BOTTOMRIGHT", -26, 10)
 local GUILD_ROW_HEIGHT = 48
-local MAX_GUILD_ROWS = 8
+-- Kart na zapas; widac tyle, ile miesci sie w zakladce (GuildContainer.visibleRows)
+local MAX_GUILD_ROWS = 18
 local guildRows = {}
 for i = 1, MAX_GUILD_ROWS do
 local card = CreateFrame("Frame", nil, GuildContainer, "BackdropTemplate")
-card:SetSize(520, GUILD_ROW_HEIGHT - 6)
+card:SetHeight(GUILD_ROW_HEIGHT - 6)
 card:SetPoint("TOPLEFT", GuildContainer, "TOPLEFT", 10, -45 - ((i-1) * GUILD_ROW_HEIGHT))
+card:SetPoint("RIGHT", GuildContainer, "RIGHT", -30, 0)
 card:SetBackdrop({
 bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
 edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1,
@@ -793,40 +991,55 @@ guildRows[i] = card
 end
 UpdateGuildTable = function()
 local guildData, guildOrder = {}, {}
--- Wszystkie gildie z bialej listy sa widoczne zawsze, nawet gdy nikt z nich nie jest online
-for gName in pairs(AllowedGuilds) do guildData[gName] = { active = 0 } table.insert(guildOrder, gName) end
-for _, player in ipairs(activePlayers) do
-local stats = guildData[player.guild]
-if stats then stats.active = stats.active + 1 end
-end
+-- Wszystkie gildie z bialej listy sa widoczne zawsze; nieaktywne (nikt z addonem online) sa wyszarzone
+for gName in pairs(AllowedGuilds) do guildData[gName] = Roster.GetGuildSummary(gName) table.insert(guildOrder, gName) end
 table.sort(guildOrder, function(a, b)
-if guildData[a].active ~= guildData[b].active then return guildData[a].active > guildData[b].active end
+if guildData[a].live ~= guildData[b].live then return guildData[a].live end
 return a < b
 end)
-_G.FauxScrollFrame_Update(guildScrollFrame, #guildOrder, MAX_GUILD_ROWS, GUILD_ROW_HEIGHT)
+local visible = GuildContainer.visibleRows or 8
+_G.FauxScrollFrame_Update(guildScrollFrame, #guildOrder, visible, GUILD_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(guildScrollFrame)
 for i = 1, MAX_GUILD_ROWS do
 local idx = i + offset local card = guildRows[i]
-if idx <= #guildOrder then
+if i <= visible and idx <= #guildOrder then
 local gName = guildOrder[idx] local stats = guildData[gName]
-card.nameText:SetText("|cffffffff" .. gName .. "|r")
-card.activeText:SetText("|cff00ff00Online:|r " .. stats.active)
 -- Relay jest szczegolem technicznym (widac go w Ustawieniach), tu go nie pokazujemy
-card.inactiveText:SetText("") card:Show()
+if stats.live then
+card:SetAlpha(1)
+card.nameText:SetText("|cffffffff" .. gName .. "|r")
+card.activeText:SetText("|cff00ff00Online:|r " .. stats.online .. " / " .. stats.total)
+card.inactiveText:SetText("|cff00ff00Active|r")
+else
+card:SetAlpha(0.45)
+card.nameText:SetText("|cff808080" .. gName .. "|r")
+card.activeText:SetText(stats.total > 0 and ("|cff808080Members:|r " .. stats.total) or "")
+-- Kiedy ostatnio przyszly dane tej gildii (z cache), albo jeszcze nigdy
+local ago = stats.updated and (GetServerTime() - stats.updated)
+local agoText = not ago and "never synced" or (ago < 3600 and (math.floor(ago / 60) .. " min ago") or (ago < 86400 and (math.floor(ago / 3600) .. " h ago") or (math.floor(ago / 86400) .. " d ago")))
+card.inactiveText:SetText("Inactive (" .. agoText .. ")")
+end
+card:Show()
 else card:Hide() end
 end
 end
 guildScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, GUILD_ROW_HEIGHT, UpdateGuildTable) end)
+GuildContainer:SetScript("OnSizeChanged", function(self)
+self.visibleRows = MainFrame.FitRows(self, 45, 10, GUILD_ROW_HEIGHT, MAX_GUILD_ROWS, 8)
+if self:IsVisible() then UpdateGuildTable() end
+end)
 -- ============================================================================
 -- 6. ZAKŁADKA 4: PANEL WYDARZEŃ
 -- ============================================================================
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
-ListContainer:SetSize(270, 435)
+-- Lista: stala szerokosc, wysokosc z oknem. Szczegoly: reszta szerokosci, wysokosc z oknem.
+ListContainer:SetWidth(270)
 ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, 0)
+ListContainer:SetPoint("BOTTOMLEFT", Panels[4], "BOTTOMLEFT", 0, 30)
 ApplyModernStyle(ListContainer)
 local DetailsContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
-DetailsContainer:SetSize(280, 390)
-DetailsContainer:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -45)
+DetailsContainer:SetPoint("TOPLEFT", ListContainer, "TOPRIGHT", 10, -45)
+DetailsContainer:SetPoint("BOTTOMRIGHT", Panels[4], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(DetailsContainer)
 local LHeader = ListContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 LHeader:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 12, -12)
@@ -888,7 +1101,8 @@ local BtnDps = CreateRosterFilterButton("DPS", "DPS", 185)
 local rosterScrollFrame = CreateFrame("ScrollFrame", "JagodkiRosterScrollFrame", RosterContainer, "FauxScrollFrameTemplate")
 rosterScrollFrame:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 0, -5)
 rosterScrollFrame:SetPoint("BOTTOMRIGHT", RosterContainer, "BOTTOMRIGHT", -25, 5)
-local ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, rosterRows = 16, 11, {}
+-- Wierszy zapisow na zapas; widac tyle, ile miesci sie w RosterContainer (visibleRows)
+local ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, rosterRows = 16, 45, {}
 for i = 1, MAX_ROSTER_ROWS do
 local row = CreateFrame("Frame", nil, RosterContainer)
 row:SetSize(220, ROSTER_ROW_HEIGHT) row:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 10, -5 - ((i-1) * ROSTER_ROW_HEIGHT))
@@ -906,11 +1120,12 @@ table.insert(displayList, { name = name, role = role })
 end
 end
 table.sort(displayList, function(a, b) return a.name < b.name end)
-_G.FauxScrollFrame_Update(rosterScrollFrame, #displayList, MAX_ROSTER_ROWS, ROSTER_ROW_HEIGHT)
+local visible = RosterContainer.visibleRows or 11
+_G.FauxScrollFrame_Update(rosterScrollFrame, #displayList, visible, ROSTER_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(rosterScrollFrame)
 for i = 1, MAX_ROSTER_ROWS do
 local idx = i + offset local row = rosterRows[i]
-if idx <= #displayList then
+if i <= visible and idx <= #displayList then
 local data = displayList[idx]
 row.text:SetText(GetColoredName(data.name))
 if data.role == "TANK" then row.roleText:SetText("|cff00ccff[T]|r")
@@ -923,10 +1138,18 @@ end
 end
 end
 rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
+-- Wyzsze okno = dluzsza lista zapisow (przy 390 px szczegolow: 195 px, jak dotad)
+DetailsContainer:SetScript("OnSizeChanged", function(self, w, h)
+if not h or h <= 0 then return end
+RosterContainer:SetHeight(math.max(195, h - 195))
+RosterContainer.visibleRows = MainFrame.FitRows(RosterContainer, 5, 5, ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, 11)
+if self:IsVisible() then UpdateRosterList() end
+end)
 local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
 eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -35)
 eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 10)
-local EV_ROW_HEIGHT, MAX_EV_ROWS, eventRows = 40, 10, {}
+-- Wierszy na zapas; widac tyle, ile miesci sie w ListContainer (visibleRows)
+local EV_ROW_HEIGHT, MAX_EV_ROWS, eventRows = 40, 24, {}
 for i = 1, MAX_EV_ROWS do
 local btn = CreateFrame("Button", nil, ListContainer, "BackdropTemplate")
 btn:SetSize(240, EV_ROW_HEIGHT - 4) btn:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 8, -35 - ((i-1) * EV_ROW_HEIGHT))
@@ -968,23 +1191,30 @@ CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals() JoinTankBtn:Sho
 if CanRemoveEvent(ev, UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
 UpdateEventsList = function()
-_G.FauxScrollFrame_Update(eventScrollFrame, #eventsList, MAX_EV_ROWS, EV_ROW_HEIGHT)
+local visible = ListContainer.visibleRows or 10
+_G.FauxScrollFrame_Update(eventScrollFrame, #eventsList, visible, EV_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(eventScrollFrame)
 for i = 1, MAX_EV_ROWS do
 local idx = i + offset local row = eventRows[i]
-if idx <= #eventsList then
+if i <= visible and idx <= #eventsList then
 local ev = eventsList[idx]
 row.dataIndex = idx
 row.title:SetText("|cffffffff" .. ev.title .. "|r")
 row.time:SetText(ev.date .. " at " .. ev.time .. (ev.guild and ("  |cffbf40ff" .. ev.guild .. "|r") or ""))
 local totalSigned = 0
 for _ in pairs(ev.roster) do totalSigned = totalSigned + 1 end
-row.count:SetText(totalSigned .. " os.")
+row.count:SetText(totalSigned .. " signed")
 row:Show()
 else row:Hide() end
 end
+-- Kalendarz pokazuje te same wydarzenia (odswiezy sie tylko, gdy jest widoczny)
+UpdateCalendar()
 end
 eventScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, EV_ROW_HEIGHT, UpdateEventsList) end)
+ListContainer:SetScript("OnSizeChanged", function(self)
+self.visibleRows = MainFrame.FitRows(self, 35, 10, EV_ROW_HEIGHT, MAX_EV_ROWS, 10)
+if self:IsVisible() then UpdateEventsList() end
+end)
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Create Event")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
@@ -1133,6 +1363,10 @@ local eventID = myName .. "_" .. GetTime()
 local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, dungeon = EventPicker.dungeon, creator = myName, guild = myGuild, roster = {} }
 table.insert(eventsList, newEvent) UpdateEventsList()
 SendEvent(newEvent)
+-- Ogloszenie na glownym czacie (General -> kanal globalny i /g wszystkich gildii):
+-- "Event created by Nick -> Nazwa : Instancja 05.11 20:00"
+local where = newEvent.dungeon and (newEvent.dungeon .. " ") or ""
+Most.Publish("Ogolny", "Event created by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime, "A", myName, myGuild)
 TitleInput:SetText("") DescInput:SetText("") CreatorFrame:Hide()
 end)
 local function SetRosterFilter(filterType) currentRosterFilter = filterType UpdateFilterVisuals() end
@@ -1154,40 +1388,207 @@ JoinDpsBtn:SetScript("OnClick", function() SignUpForEvent("DPS") end)
 RemoveEventBtn:SetScript("OnClick", function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 if not CanRemoveEvent(eventsList[selectedEventIndex], UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("You can only remove your own events (officers: any).") return end
-SendJagodkaNetworkPacket("EV_REM", eventsList[selectedEventIndex].id)
+local removedEv = eventsList[selectedEventIndex]
+SendJagodkaNetworkPacket("EV_REM", removedEv.id)
+EventSync.MarkRemoved(removedEv.id)
+-- Ogloszenie jak przy tworzeniu: "Event removed by Nick -> Nazwa : Instancja 05.11 20:00"
+local myName = UnitName("player")
+Most.Publish("Ogolny", "Event removed by " .. myName .. " -> " .. removedEv.title .. " : " .. (removedEv.dungeon and (removedEv.dungeon .. " ") or "") .. removedEv.date .. " " .. removedEv.time, "A", myName, (GetGuildInfo("player")))
 table.remove(eventsList, selectedEventIndex) selectedEventIndex = nil UpdateEventDetails() UpdateEventsList()
 end)
 -- ============================================================================
 -- 6B. ZAKŁADKA 5: USTAWIENIA
 -- ============================================================================
-local SettingsInfo = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-SettingsInfo:SetPoint("TOPLEFT", Panels[5], "TOPLEFT", 10, -10)
+local SettingsInfo = Panels[6]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+SettingsInfo:SetPoint("TOPLEFT", Panels[6], "TOPLEFT", 10, -10)
 SettingsInfo:SetText("Bridge status (global channel <-> /g) - version " .. ADDON_VERSION)
-local SettingsStatus = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+local SettingsStatus = Panels[6]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 SettingsStatus:SetPoint("TOPLEFT", SettingsInfo, "BOTTOMLEFT", 0, -12)
 SettingsStatus:SetJustifyH("LEFT")
 -- Odswiezanie statusu co sekunde, tylko gdy zakladka jest widoczna
-C_Timer.NewTicker(1, function() if Panels[5]:IsVisible() then SettingsStatus:SetText(Most.GetStatusText()) end end)
+C_Timer.NewTicker(1, function() if Panels[6]:IsVisible() then SettingsStatus:SetText(Most.GetStatusText()) end end)
+-- ============================================================================
+-- 6C. ZAKŁADKA 5: KALENDARZ (miesiac 7x6, poniedzialek-niedziela, wydarzenia z zakladki Events)
+-- ============================================================================
+do
+local MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+local DAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+-- Rozmiar komorek i liczba linii zaleza od rozmiaru zakladki (LayoutGrid); 80x68 i 3 linie przy 850x620
+local CELL_W, CELL_H, GRID_TOP, LINES, MAX_LINES = 80, 68, -52, 3, 10
+local today = date("*t")
+local view = { year = today.year, month = today.month }
+local function DaysIn(y, m)
+if m == 2 and (y % 4 == 0 and (y % 100 ~= 0 or y % 400 == 0)) then return 29 end
+return ({31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31})[m]
+end
+-- "DD.MM.YYYY" albo stare "DD.MM" (wtedy biezacy rok) -> klucz RRRRMMDD
+local function EventKey(ev)
+local d, m, y = (ev.date or ""):match("^(%d%d?)%.(%d%d?)%.?(%d*)$")
+if not d then return nil end
+return (tonumber(y) or today.year) * 10000 + tonumber(m) * 100 + tonumber(d)
+end
+-- Klik w wydarzenie: zakladka Events z tym wydarzeniem i jego zapisami
+local function OpenEvent(ev)
+for idx, e in ipairs(eventsList) do
+if e == ev then selectedEventIndex = idx break end
+end
+ShowTab(4)
+UpdateEventDetails()
+end
+local function ShowEventTooltip(self)
+local ev = self.event
+if not ev then return end
+local t, h, d = 0, 0, 0
+for _, role in pairs(ev.roster or {}) do if role == "TANK" then t = t + 1 elseif role == "HEAL" then h = h + 1 else d = d + 1 end end
+_G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+_G.GameTooltip:AddLine(ev.title, 1, 0.82, 0)
+_G.GameTooltip:AddLine(ev.date .. " " .. ev.time, 1, 1, 1)
+if ev.dungeon then _G.GameTooltip:AddLine("Instance: " .. ev.dungeon, 0.8, 0.8, 0.8) end
+_G.GameTooltip:AddLine("By: " .. ev.creator .. (ev.guild and (" (" .. ev.guild .. ")") or ""), 0.75, 0.25, 1)
+_G.GameTooltip:AddLine("Signed up: " .. (t + h + d) .. "  (T " .. t .. " / H " .. h .. " / D " .. d .. ")", 0, 1, 0)
+if self.more then _G.GameTooltip:AddLine(self.more, 0.8, 0.8, 0.8) end
+_G.GameTooltip:AddLine("Click to open the event", 0.5, 0.5, 0.5)
+_G.GameTooltip:Show()
+end
+local Cal = Panels[5]
+-- Naglowek: [<] [>] [Today]      November 2026
+local PrevBtn = CreateFrame("Button", nil, Cal, "UIPanelButtonTemplate")
+PrevBtn:SetSize(30, 22) PrevBtn:SetPoint("TOPLEFT", Cal, "TOPLEFT", 0, -6) PrevBtn:SetText("<")
+local NextBtn = CreateFrame("Button", nil, Cal, "UIPanelButtonTemplate")
+NextBtn:SetSize(30, 22) NextBtn:SetPoint("LEFT", PrevBtn, "RIGHT", 4, 0) NextBtn:SetText(">")
+local TodayBtn = CreateFrame("Button", nil, Cal, "UIPanelButtonTemplate")
+TodayBtn:SetSize(60, 22) TodayBtn:SetPoint("LEFT", NextBtn, "RIGHT", 8, 0) TodayBtn:SetText("Today")
+local MonthText = Cal:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+MonthText:SetPoint("TOP", Cal, "TOP", 0, -9)
+local dayHeaders = {}
+for i, name in ipairs(DAYS) do
+local dayHeader = Cal:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+dayHeader:SetText(name)
+if i >= 6 then dayHeader:SetTextColor(1, 0.5, 0.5) end
+dayHeaders[i] = dayHeader
+end
+-- 42 komorki dni, w kazdej do MAX_LINES przyciskow wydarzen (widac LINES)
+local cells = {}
+for k = 1, 42 do
+local cell = CreateFrame("Frame", nil, Cal, "BackdropTemplate")
+cell:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+cell.dayText = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+cell.dayText:SetPoint("TOPLEFT", cell, "TOPLEFT", 4, -3)
+cell.lines = {}
+for l = 1, MAX_LINES do
+local b = CreateFrame("Button", nil, cell)
+b:SetHeight(14)
+b:SetPoint("TOPLEFT", cell, "TOPLEFT", 2, -2 - l * 15)
+b:SetPoint("RIGHT", cell, "RIGHT", -2, 0)
+b.bg = b:CreateTexture(nil, "BACKGROUND") b.bg:SetAllPoints()
+b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+b.text:SetPoint("LEFT", b, "LEFT", 2, 0) b.text:SetPoint("RIGHT", b, "RIGHT", -2, 0) b.text:SetJustifyH("LEFT") b.text:SetWordWrap(false)
+b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+b:SetScript("OnClick", function(self) if self.event then OpenEvent(self.event) end end)
+b:SetScript("OnEnter", ShowEventTooltip)
+b:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+cell.lines[l] = b
+end
+cells[k] = cell
+end
+-- Ulozenie siatki wg rozmiaru zakladki: szersze okno = szersze komorki (dluzsze nazwy), wyzsze = wiecej linii
+local function LayoutGrid(w, h)
+if not w or w <= 0 or not h or h <= 0 then w, h = 7 * 80, 52 + 6 * 68 end
+CELL_W, CELL_H = math.floor(w / 7), math.floor((h + GRID_TOP) / 6)
+LINES = math.max(1, math.min(MAX_LINES, math.floor((CELL_H - 20) / 15)))
+for i, dayHeader in ipairs(dayHeaders) do
+dayHeader:ClearAllPoints()
+dayHeader:SetPoint("TOP", Cal, "TOPLEFT", (i - 1) * CELL_W + CELL_W / 2, -36)
+end
+for k, cell in ipairs(cells) do
+cell:SetSize(CELL_W - 2, CELL_H - 2)
+cell:ClearAllPoints()
+cell:SetPoint("TOPLEFT", Cal, "TOPLEFT", ((k - 1) % 7) * CELL_W, GRID_TOP - math.floor((k - 1) / 7) * CELL_H)
+end
+end
+LayoutGrid()
+Cal:SetScript("OnSizeChanged", function(self, w, h) LayoutGrid(w, h) UpdateCalendar() end)
+UpdateCalendar = function()
+if not Cal:IsVisible() then return end
+today = date("*t")
+local y, m = view.year, view.month
+MonthText:SetText(MONTHS[m] .. " " .. y)
+-- Wydarzenia pogrupowane po dniu, w dniu po godzinie
+local byDay = {}
+for _, ev in ipairs(eventsList) do
+local key = EventKey(ev)
+if key then byDay[key] = byDay[key] or {} table.insert(byDay[key], ev) end
+end
+for _, list in pairs(byDay) do table.sort(list, function(a, b) return (a.time or "") < (b.time or "") end) end
+-- Kolumna 1-go dnia miesiaca (wday: 1 = niedziela -> 7, 2 = poniedzialek -> 1)
+local first = (date("*t", time({ year = y, month = m, day = 1, hour = 12 })).wday + 5) % 7
+local prevY, prevM = (m == 1) and (y - 1) or y, (m == 1) and 12 or (m - 1)
+local nextY, nextM = (m == 12) and (y + 1) or y, (m == 12) and 1 or (m + 1)
+local todayKey = today.year * 10000 + today.month * 100 + today.day
+local myName = UnitName("player")
+for k, cell in ipairs(cells) do
+local d, cy, cm, inMonth = k - first, y, m, true
+if d < 1 then cy, cm, d, inMonth = prevY, prevM, DaysIn(prevY, prevM) + d, false
+elseif d > DaysIn(y, m) then cy, cm, d, inMonth = nextY, nextM, d - DaysIn(y, m), false end
+local key = cy * 10000 + cm * 100 + d
+cell.dayText:SetText(d)
+cell:SetAlpha(inMonth and 1 or 0.35)
+-- Dzisiaj: zlota ramka; przeszle dni ciemniejsze
+if key == todayKey then
+cell:SetBackdropColor(0.2, 0.17, 0.05, 0.9) cell:SetBackdropBorderColor(1, 0.82, 0, 1)
+elseif key < todayKey then
+cell:SetBackdropColor(0.05, 0.05, 0.07, 0.8) cell:SetBackdropBorderColor(0.12, 0.12, 0.15, 0.8)
+else
+cell:SetBackdropColor(0.09, 0.09, 0.12, 0.8) cell:SetBackdropBorderColor(0.2, 0.2, 0.25, 0.6)
+end
+local list = byDay[key] or {}
+for l, b in ipairs(cell.lines) do
+local ev = (l <= LINES) and list[l]
+if ev then
+b.event = ev
+-- Wiecej wydarzen niz linii: ostatnia linia = "+N more" (tooltip i klik = to wydarzenie)
+local hidden = (l == LINES) and (#list - LINES) or 0
+b.more = hidden > 0 and ("+" .. hidden .. " more on this day") or nil
+local signed = ev.roster and ev.roster[myName]
+b.text:SetText(hidden > 0 and ("|cffffd100+" .. (hidden + 1) .. " more|r") or ((signed and "|cff00ff00" or "|cffffffff") .. ev.time .. " " .. ev.title .. "|r"))
+b.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or 0.3)
+b:Show()
+else
+b.event = nil b:Hide()
+end
+end
+end
+end
+PrevBtn:SetScript("OnClick", function() view.month = view.month - 1 if view.month < 1 then view.month, view.year = 12, view.year - 1 end UpdateCalendar() end)
+NextBtn:SetScript("OnClick", function() view.month = view.month + 1 if view.month > 12 then view.month, view.year = 1, view.year + 1 end UpdateCalendar() end)
+TodayBtn:SetScript("OnClick", function() local t = date("*t") view.year, view.month = t.year, t.month UpdateCalendar() end)
+end
 -- ============================================================================
 -- 7. PANEL BOCZNY (WIDOCZNY ZAWSZE - PRAWA STRONA)
 -- ============================================================================
 local RightPanel = CreateFrame("Frame", nil, MainFrame, "BackdropTemplate")
-RightPanel:SetSize(230, 465)
+-- Stala szerokosc, wysokosc z oknem (wiecej graczy widocznych naraz)
+RightPanel:SetWidth(230)
 RightPanel:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -20, -135)
+RightPanel:SetPoint("BOTTOMRIGHT", MainFrame, "BOTTOMRIGHT", -20, 20)
 ApplyModernStyle(RightPanel)
 local HeaderText = RightPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 HeaderText:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 12, 18)
 local scrollFrame = CreateFrame("ScrollFrame", "JagodkiRightListScrollFrame", RightPanel, "FauxScrollFrameTemplate")
 scrollFrame:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 0, -5)
 scrollFrame:SetPoint("BOTTOMRIGHT", RightPanel, "BOTTOMRIGHT", -26, 5)
-local ROW_HEIGHT, MAX_ROWS, rows = 26, 17, {}
+-- Wierszy na zapas; widac tyle, ile miesci sie w panelu (RightPanel.visibleRows)
+local ROW_HEIGHT, MAX_ROWS, rows = 26, 38, {}
 for i = 1, MAX_ROWS do
 local row = CreateFrame("Button", nil, RightPanel)
-row:SetSize(195, ROW_HEIGHT) row:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 5, -5 - ((i-1) * ROW_HEIGHT))
-local rowTex = row:CreateTexture(nil, "BACKGROUND") rowTex:SetAllPoints() rowTex:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.01 or 0.03)
-row.classIcon = row:CreateTexture(nil, "ARTWORK") row.classIcon:SetSize(18, 18) row.classIcon:SetPoint("LEFT", row, "LEFT", 8, 0)
-row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") row.nameText:SetPoint("LEFT", row.classIcon, "RIGHT", 8, 0)
-row.levelText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") row.levelText:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+-- Pasek gracza na cala szerokosc panelu (prawa krawedz ustawiana w RenderScrollList: z suwakiem / bez)
+row:SetHeight(ROW_HEIGHT) row:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 4, -5 - ((i-1) * ROW_HEIGHT))
+local rowTex = row:CreateTexture(nil, "BACKGROUND") rowTex:SetAllPoints() rowTex:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.03 or 0.06)
+row.classIcon = row:CreateTexture(nil, "ARTWORK") row.classIcon:SetSize(18, 18) row.classIcon:SetPoint("LEFT", row, "LEFT", 6, 0)
+-- Poziom wyrownany do prawej krawedzi; nick (z gildia) zajmuje reszte i jest ucinany przed poziomem
+row.levelText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") row.levelText:SetPoint("RIGHT", row, "RIGHT", -8, 0) row.levelText:SetJustifyH("RIGHT")
+row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") row.nameText:SetPoint("LEFT", row.classIcon, "RIGHT", 6, 0)
+row.nameText:SetPoint("RIGHT", row.levelText, "LEFT", -6, 0) row.nameText:SetJustifyH("LEFT") row.nameText:SetWordWrap(false)
 rows[i] = row
 end
 -- Ta sama lista co w zakladce Czlonkowie (Roster.BuildList), tylko gracze online - z addonem i bez
@@ -1196,11 +1597,16 @@ local function RenderScrollList()
 HeaderText:SetText("Online players (" .. #onlineList .. ")")
 -- Licznik w naglowku okna = ta sama lista (wszyscy online ze wszystkich gildii z listy)
 OnlineText:SetText("Online: |cff00ff00" .. #onlineList .. "|r")
-_G.FauxScrollFrame_Update(scrollFrame, #onlineList, MAX_ROWS, ROW_HEIGHT)
+local visible = RightPanel.visibleRows or 17
+_G.FauxScrollFrame_Update(scrollFrame, #onlineList, visible, ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(scrollFrame)
+-- Suwak widoczny tylko przy dluzszej liscie: wtedy paski koncza sie przed nim, inaczej przy krawedzi
+local scrollBar = _G[scrollFrame:GetName() .. "ScrollBar"]
+local rightInset = (#onlineList > visible and scrollBar and scrollBar:IsShown()) and -28 or -4
 for i = 1, MAX_ROWS do
 local idx = i + offset local row = rows[i]
-if idx <= #onlineList then
+row:SetPoint("RIGHT", RightPanel, "RIGHT", rightInset, 0)
+if i <= visible and idx <= #onlineList then
 local data = onlineList[idx] local displayName = data.name
 row.member = data
 if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_COLORS[data.class]:WrapTextInColorCode(data.name) end
@@ -1232,6 +1638,10 @@ row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 row:SetScript("OnClick", membersView.OnRowClick)
 end
 scrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, RenderScrollList) end)
+RightPanel:SetScript("OnSizeChanged", function(self)
+self.visibleRows = MainFrame.FitRows(self, 5, 5, ROW_HEIGHT, MAX_ROWS, 17)
+if self:IsVisible() then RenderScrollList() end
+end)
 -- ============================================================================
 -- 8. ODBIORNIK SIECIOWY (STABILNE KANAŁY + BIAŁA LISTA)
 -- ============================================================================
@@ -1302,6 +1712,7 @@ NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel
 if event == "ADDON_LOADED" and prefix == addonName then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
 eventsList = _G.JagodkiEventsDB
+EventSync.Prune()
 return
 end
 if event == "PLAYER_LOGIN" then
@@ -1315,7 +1726,11 @@ C_Timer.After(2, function()
 -- Ponowny PING juz przez kanal globalny, zeby zobaczyly nas inne gildie, potem prosba o historie
 announced = false
 TryAnnounce()
-if announced then Most.RequestHistory() end
+if announced then
+Most.RequestHistory()
+-- Wydarzenia i zapisy chwile pozniej, zeby nie wysylac wszystkiego naraz
+C_Timer.After(5, function() EventSync.Request(true) end)
+end
 end)
 end)
 -- Sygnal "jestem online" co minute (bez odpowiedzi) + sprzatanie wylogowanych
@@ -1373,24 +1788,41 @@ local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer
 if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsRankOfficer(senderInfo.rank, senderInfo.rankIndex) end
 if pType == "EV_REQ" then
-for _, ev in ipairs(eventsList) do
-if ev.creator == myName then
-SendEvent(ev)
-end
-end
+if senderName ~= myName then EventSync.HandleRequest(senderName) end
+elseif pType == "EV_CLAIM" then
+-- Ktos inny juz odpowiada na te prosbe
+if senderName ~= myName then EventSync.pending[payload] = nil end
 elseif pType == "EV_ADD" then
-local evID, title, eDate, eTime, desc, creator, dungeon, parts = strsplit(":", payload, 8)
-evID, title, eDate, eTime, desc, creator, dungeon = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName, DecodeField(dungeon)
+local evID, title, eDate, eTime, desc, creator, dungeon, parts, evGuild = strsplit(":", payload, 9)
+evID, title, eDate, eTime, desc, creator, dungeon, evGuild = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName, DecodeField(dungeon), DecodeField(evGuild)
 if dungeon == "" then dungeon = nil end
--- Wydarzenie moze rozeslac tylko jego autor, bedacy oficerem, z limitem wydarzen na osobe
-if evID and title and eDate and eTime and creator == senderName and senderIsOfficer and CountEventsBy(creator) < MAX_EVENTS_PER_CREATOR then
+-- Od autora: musi byc oficerem. Przekazane dalej (synchronizacja, autor moze byc offline):
+-- od znanego gracza z bialej listy. Zawsze: limit na autora, bez usunietych i przeterminowanych.
+local forwarded = creator ~= senderName
+local allowed = (not forwarded and senderIsOfficer) or (forwarded and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+if evID and title and eDate and eTime and allowed and not EventSync.Removed()[evID] and not EventSync.IsExpired(eDate) and CountEventsBy(creator) < MAX_EVENTS_PER_CREATOR then
 local exists = false
 for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
 if not exists then
--- descParts: kolejne czesci opisu dochodza w pakietach EV_DESC
+-- descParts: kolejne czesci opisu dochodza w pakietach EV_DESC (od tego samego nadawcy)
 local total = math.min(tonumber(parts) or 1, EVENT_MAX_DESC_PARTS)
-table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, descParts = { desc }, descTotal = total, dungeon = dungeon, creator = creator, guild = senderGuild, roster = {} })
+local guild = (not forwarded and senderGuild) or (IsPlayerGuildAllowed(evGuild) and evGuild) or nil
+table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, descParts = { desc }, descTotal = total, descFrom = senderName, dungeon = dungeon, creator = creator, guild = guild, roster = {} })
 if MainFrame:IsShown() then UpdateEventsList() end
+end
+end
+elseif pType == "EV_ROS" then
+-- Zapisy z synchronizacji: dopisujemy tylko brakujace osoby (wlasny zapis kazdy wysyla sam przez EV_SIGN)
+local evID, list = strsplit(":", payload, 2)
+evID = DecodeField(evID)
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+for name, role in (list or ""):gmatch("([^,=]+)=(%u+)") do
+if VALID_ROLES[role] and not ev.roster[name] then ev.roster[name] = role end
+end
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+if MainFrame:IsShown() then UpdateEventsList() end
+break
 end
 end
 elseif pType == "EV_DESC" then
@@ -1398,7 +1830,7 @@ local evID, partIdx, chunk = strsplit(":", payload, 3)
 evID, partIdx = DecodeField(evID), tonumber(partIdx)
 for _, ev in ipairs(eventsList) do
 -- Czesc opisu przyjmujemy tylko od autora i tylko dla zapowiedzianej liczby czesci
-if ev.id == evID and ev.creator == senderName and ev.descParts and partIdx and partIdx >= 2 and partIdx <= (ev.descTotal or 1) then
+if ev.id == evID and (ev.creator == senderName or ev.descFrom == senderName) and ev.descParts and partIdx and partIdx >= 2 and partIdx <= (ev.descTotal or 1) then
 ev.descParts[partIdx] = DecodeField(chunk) or ""
 local full = {}
 for i = 1, ev.descTotal do if ev.descParts[i] then table.insert(full, ev.descParts[i]) end end
@@ -1420,10 +1852,15 @@ break
 end
 end
 elseif pType == "EV_REM" then
+-- Nieznane wydarzenie usuniete przez oficera: zapamietujemy, zeby nie przyszlo pozniej z synchronizacji
+local known = false
+for _, ev in ipairs(eventsList) do if ev.id == payload then known = true break end end
+if not known and senderIsOfficer and IsPlayerGuildAllowed(senderGuild) then EventSync.MarkRemoved(payload) end
 for idx, ev in ipairs(eventsList) do
 if ev.id == payload then
 -- Usunac moze autor albo oficer gildii z bialej listy; inne prosby ignorujemy
 if not CanRemoveEvent(ev, senderName, senderGuild, senderIsOfficer) then break end
+EventSync.MarkRemoved(ev.id)
 table.remove(eventsList, idx)
 -- Po usunieciu indeksy sie przesuwaja, wiec poprawiamy zaznaczenie
 if selectedEventIndex == idx then selectedEventIndex = nil UpdateEventDetails()
@@ -1449,8 +1886,10 @@ Panels[4]:SetScript("OnShow", function()
 if _G.JagodkiEventsDB then eventsList = _G.JagodkiEventsDB end
 if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
 if UpdateEventsList then UpdateEventsList() end
-SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
+EventSync.Request()
 end)
+-- Kalendarz korzysta z tych samych wydarzen - tez dociaga brakujace (najwyzej co 5 min)
+Panels[5]:HookScript("OnShow", function() EventSync.Request() end)
 ShowTab(1)
 -- ============================================================================
 -- 9. REJESTRACJA KOMENDY CZATU I MINIMAPY (LibDataBroker)
@@ -1458,7 +1897,23 @@ ShowTab(1)
 -- "/okno" to popularne slowo i moze go zajac inny addon, wiec glowna komenda to /jagodka
 _G.SLASH_JAGODKANADINA1 = "/jagodka"
 _G.SLASH_JAGODKANADINA2 = "/okno"
-_G.SlashCmdList["JAGODKANADINA"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
+-- "/jagodka reset" = domyslny rozmiar i okno na srodku ekranu
+_G.SlashCmdList["JAGODKANADINA"] = function(msg)
+if msg and msg:lower():match("^%s*reset%s*$") then
+if _G.JagodkiMinimapDB then _G.JagodkiMinimapDB.window = nil end
+MainFrame.ApplyLayout()
+MainFrame:Show()
+return
+end
+-- "/jagodka tab" = ponownie utworz zakladke "Jagodki Nadina" w czacie gry (zakladka.lua)
+if msg and msg:lower():match("^%s*tab%s*$") then
+if not addonTable.Zakladka.Recreate() and _G.DEFAULT_CHAT_FRAME then
+_G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555Could not create the chat tab (chat window limit reached?).|r")
+end
+return
+end
+if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end
+end
 local JagodkiLDB = LibStub("LibDataBroker-1.1"):NewDataObject("JagodkiNadina", {
 type = "data source",
 text = "Jagodki Nadina",
@@ -1481,6 +1936,9 @@ MinimapLoader:SetScript("OnEvent", function(self, event, loadedName)
 if loadedName ~= addonName then return end
 _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
 _G.JagodkiMinimapDB.minimap = _G.JagodkiMinimapDB.minimap or { hide = false }
+-- Zapisana pozycja i skala glownego okna
+local win = _G.JagodkiMinimapDB.window
+if win and tonumber(win.w) then MainFrame.ApplyLayout(win.w, win.h, win.left, win.top) end
 icon:Register("JagodkiNadina", JagodkiLDB, _G.JagodkiMinimapDB.minimap)
 self:UnregisterEvent("ADDON_LOADED")
 end)

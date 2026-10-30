@@ -250,12 +250,22 @@ function Most.AddSystem(text)
     NotifyChat("Ogolny")
 end
 
-function Most.FormatEntry(e)
+-- linkName: nick jako link gracza (klik = szept, prawy klik = menu) - dla okien czatu Blizzarda
+-- textColor: kolor tresci, np. "ff3cb43c" (po linkach przedmiotow kolor jest przywracany)
+function Most.FormatEntry(e, linkName, textColor)
     if e.src == "S" then return "|cff00ccff[System]: " .. e.text .. "|r" end
     local name = (ctx and ctx.colorName) and ctx.colorName(e.author) or e.author
     local via = (e.src == "G") and "|cff40c040/g|r " or ""
-    return string.format("|cff808080%s|r |cffbf40ff[%s]|r %s[%s]: %s", date("%H:%M", e.ts), e.guild, via, name, e.text)
+    local shown = "[" .. name .. "]"
+    if linkName then shown = "|Hplayer:" .. e.author .. "|h" .. shown .. "|h" end
+    local text = e.text
+    if textColor then text = "|c" .. textColor .. text:gsub("|r", "|r|c" .. textColor) .. "|r" end
+    return string.format("|cff808080%s|r |cffbf40ff[%s]|r %s%s: %s", date("%H:%M", e.ts), e.guild, via, shown, text)
 end
+
+-- Sluchacze nowych wiadomosci (np. zakladka w czacie Blizzarda): fn(entry, live)
+local entryListeners = {}
+function Most.OnNewEntry(fn) table.insert(entryListeners, fn) end
 
 -- ============================================================================
 -- RELAY: jedna osoba z addonem na gildie przenosi wiadomosci /g <-> kanal
@@ -334,6 +344,7 @@ local function Ingest(e, live)
     -- Historia nigdy nie trafia ponownie do /g, tylko biezace wiadomosci
     if live then BridgeToGuild(e) end
     NotifyChat(e.tab)
+    for _, fn in ipairs(entryListeners) do fn(e, live) end
     return true
 end
 
@@ -359,7 +370,8 @@ end
 -- Publikacja nowej wiadomosci na kanal globalny (z addonu lub z /g przez relaya)
 function Most.Publish(tab, text, src, author, guild, ts)
     if not text or text == "" or not guild then return end
-    ts = ts or GetServerTime()
+    -- Czas musi byc liczba (sortowanie logu); cokolwiek innego = teraz
+    ts = tonumber(ts) or GetServerTime()
     for _, part in ipairs(SplitForPublish(text, guild, author, tab, src)) do
         local e = { id = NewMessageId(), ts = ts, guild = guild, author = author, tab = tab, src = src, text = part }
         -- Gdy ta sama linia jest juz w logu (przekazal ja ktos inny), nie wysylamy jej drugi raz

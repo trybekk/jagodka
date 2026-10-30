@@ -1,6 +1,16 @@
-# Jagodka – zmiany na `feature/lasarr-1` (wersja 0.7.1)
+# Jagodka – zmiany na `feature/lasarr-1`
 
-Wszystko niżej leży niezacommitowane, na bazie commita `5b4b160`. Nic nie było jeszcze testowane w grze; sprawdzono tylko strukturę kodu (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych).
+| Wersja | Commit | Stan |
+|---|---|---|
+| 0.7.1 | `65044cb` | wypchnięta, wstępnie przetestowana w grze |
+| 0.7.2 | `0992d28` | wypchnięta, przetestowana w grze |
+| 0.7.3 | commit „feat(lasarr-1): ... v0.7.3” | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
+
+Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
+
+---
+
+# 0.7.1 – wspólny czat, wydarzenia, wersje (na bazie `5b4b160`)
 
 ## Pliki
 | Plik | Co |
@@ -46,7 +56,7 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 - Historia obejmuje tylko 30 ostatnich wiadomości; identyczna linia od tej samej osoby wysłana 2× w ciągu 15 s pokaże się raz.
 - W `/g` innych gildii wiadomość wysyła relay, a nie autor; spóźniona linia od relaya zapasowego może tam trafić po nowszej.
 - Nie da się zweryfikować członków **innych** gildii, a właściciel kanału może banować.
-- `core.lua` ma 165 zmiennych lokalnych z limitu 200 w Lua 5.1, więc nowe funkcje lepiej dodawać w osobnych plikach.
+- `core.lua` ma 179 zmiennych lokalnych z limitu 200 w Lua 5.1 (stan na 0.7.3), więc nowe funkcje lepiej dodawać w osobnych plikach albo w blokach `do ... end`.
 
 ## Do przetestowania
 1. Wszyscy na wersji 0.7.1; po zalogowaniu odczekać 10 s; w zakładce Ustawienia kanał powinien być „połączony”, a relay wskazany.
@@ -73,7 +83,8 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 - Zakładka Gildie nie pokazuje już relaya; jest on widoczny tylko w Ustawieniach.
 - Członkowie: sortowanie po kliknięciu w nagłówek kolumny (rosnąco ^, malejąco v, trzecie kliknięcie wraca do domyślnej kolejności: online, gildia, nick) oraz strony po 50 osób z paskiem pod tabelą: `Pokazano 51-100 z 312 (48 online)  [<<] [<] Strona 2 / 7 [>] [>>]`.
 - Członkowie: przycisk Reset (wyszukiwarka, „Pokaż offline”, sortowanie, strona 1). Prawy klik na wierszu otwiera menu z „Whisper” i „Invite to group”, a Shift + lewy klik od razu otwiera szept (tylko do graczy online).
-- Panel „Aktywni gracze” korzysta z tej samej listy co Członkowie, tylko z graczami online (także bez addonu). Ma te same kliknięcia (menu z „Szepnij”, Shift + lewy klik) i jest odświeżany najwyżej raz na 0,3 s, tylko przy otwartym oknie.
+- Panel „Aktywni gracze” korzysta z tej samej listy co Członkowie, tylko z graczami online (także bez addonu). Ma te same kliknięcia (menu z „Whisper” i „Invite to group”, Shift + lewy klik) i jest odświeżany najwyżej raz na 0,3 s, tylko przy otwartym oknie.
+- Licznik „Online: N” w nagłówku okna liczy to samo co panel: wszystkich online ze wszystkich gildii z whitelisty, z addonem i bez.
 - Kanał `JagodkaWspolnota` jest zahasłowany (`COMM_PASSWORD` w `most.lua`). Wszyscy muszą mieć 0.7.2: z hasłem założonego kanału 0.7.1 nie dołączy (WRONG_PASSWORD).
 - Interfejs po angielsku, bez polskich liter (zakładki, przyciski, komunikaty, status, ostrzeżenia, `.toc`). Wewnętrzne nazwy w protokole (zakładki czatu `Ogolny`/`Handel`, `Brak`) zostały bez zmian, więc pakiety pozostają zgodne.
 - Wydajność: lista członków jest przeliczana tylko przy widocznej zakładce i najwyżej raz na 0,3 s, scroll tylko przerysowuje wiersze, a roster własnej gildii jest odczytywany najwyżej raz na 2 s.
@@ -81,3 +92,52 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 Do przetestowania:
 - Lista członków drugiej gildii pojawia się po ok. 15–60 s od zalogowania.
 - Wylogowanie gracza z drugiej gildii zostaje zauważone w ciągu ok. 40 s.
+
+---
+
+# 0.7.3 – whitelista, Guilds, Calendar, synchronizacja wydarzeń, okno
+
+- Whitelista: `Jagódki Nadina`, `Jagódki Nadina II`, `III`, `IV` (bazowa nazwa + przyrostki w `core.lua`) oraz `Testowo`. Każda nowa gildia wymaga podbicia wersji.
+- Zakładka Guilds pokazuje wszystkie gildie z whitelisty:
+  - **aktywne** (ktoś z addonem jest online): `Online: 12 / 87`, „Active”, na górze listy;
+  - **nieaktywne**: wyszarzone, z liczbą członków z cache i czasem ostatniej synchronizacji („Inactive (2 h ago)” albo „never synced”).
+- Zakładka odświeża się sama, gdy dojdzie roster.
+- Po utworzeniu wydarzenia na czat General (kanał globalny i `/g` wszystkich gildii) idzie ogłoszenie: `Event created by Nick -> Nazwa : Instancja 05.11 20:00`.
+- Nowa zakładka **Calendar** (między Events a Settings):
+  - Siatka miesiąca 7×6 od poniedziałku do niedzieli, przyciski `<` `>` i `Today`. Dzisiejszy dzień ma złotą ramkę, przeszłe dni są ciemniejsze, a dni z sąsiednich miesięcy przygaszone.
+  - W każdym dniu mieszczą się 3 wydarzenia `20:00 Nazwa`. Wydarzenia, na które jesteś zapisany, są zielone. Gdy wydarzeń jest więcej, ostatnia linia pokazuje „+N more”.
+  - Tooltip pokazuje nazwę, czas, instancję, autora z gildią i liczbę zapisów T/H/D.
+  - Kliknięcie otwiera zakładkę Events z tym wydarzeniem i jego zapisami.
+- Po usunięciu wydarzenia idzie ogłoszenie na General: `Event removed by Nick -> Nazwa : Instancja 05.11 20:00`.
+- **Synchronizacja wydarzeń** (Events i Calendar mają te same dane u wszystkich):
+  - Prośba `EV_REQ` idzie po zalogowaniu (ok. 15 s) oraz przy otwarciu Events lub Calendar, nie częściej niż co 5 min.
+  - Odpowiada **jedna losowa osoba z addonem**, nie tylko autor. Po 1–4 s wysyła `EV_CLAIM`, a reszta rezygnuje. Wysyłka idzie na kanał z niskim priorytetem, więc korzystają z niej wszyscy.
+  - Synchronizowane są też zapisy (`EV_ROS`): dopisywane są tylko brakujące osoby.
+  - `EV_ADD` zawiera gildię autora, więc przekazane wydarzenie pokazuje właściwą gildię.
+  - Usunięte wydarzenia są pamiętane przez 30 dni, więc nie wracają od kogoś, kto był offline. Wydarzenia starsze niż 2 dni po terminie znikają same.
+  - Przekazane wydarzenie (gdy autor jest offline) przyjmujemy od dowolnego znanego gracza z whitelisty. Od samego autora nadal wymagana jest ranga oficera.
+- Główne okno:
+  - przesuwa się tylko za pasek tytułu (logo i nazwa);
+  - uchwytem w prawym dolnym rogu zmienia się rozmiar okna (od 850×620 do 1600×1100), a czcionki zostają bez zmian. Większe okno pokazuje więcej treści: więcej linii czatu i dłuższe pole wpisywania, więcej wierszy w Members, Guilds, na liście wydarzeń, w zapisach i w panelu Online players, a w kalendarzu większe komórki z większą liczbą wydarzeń w dniu;
+  - pozycja i rozmiar zapisują się w `JagodkiMinimapDB.window`;
+  - `/jagodka reset` przywraca domyślny rozmiar i środek ekranu.
+- Na liście wydarzeń „os.” zastąpiono „signed”.
+- Panel Online players: paski graczy zajmują całą szerokość panelu (bez suwaka aż do krawędzi), poziom jest wyrównany do prawej, a długi nick z gildią jest ucinany przed poziomem.
+- Czat przewija się kółkiem myszy (3 linie, z Shift o stronę, a z Ctrl na początek albo koniec historii) albo paskiem przewijania z prawej (suwak i strzałki). Pasek jest zsynchronizowany z kółkiem i nowymi wiadomościami.
+- Nowy plik `zakladka.lua`: dodatkowa zakładka **„Jagodki Nadina - General” w czacie gry**, z tymi samymi wiadomościami co czat General w addonie. Treść wiadomości jest ciemnozielona (`3cb43c`), żeby odróżniała się od `/g`; zakładka utworzona wcześniej jako „Jagodki Nadina” zostaje przemianowana.
+  - Tworzy się raz, przy pierwszym zalogowaniu z addonem. Przy domyślnym układzie (General i Combat Log) jest trzecia, a gra sama pamięta ją później.
+  - Po zalogowaniu pokazuje ostatnie 30 wiadomości, potem nowe na bieżąco. Nicki są linkami (klik to szept, prawy klik to menu).
+  - Służy tylko do czytania: pisze się przez `/g` (relay przenosi to do wszystkich gildii) albo w oknie addonu.
+  - Zamknięta przez gracza nie wraca sama; `/jagodka tab` tworzy ją ponownie.
+
+Poprawki błędów:
+- Kliknięcie Remove wywoływało błąd `most.lua:240: attempt to compare string with number`. Przyczyna: `GetGuildInfo("player")` jako ostatni argument `Most.Publish` przekazywało też nazwę rangi, która wpadała na miejsce czasu wiadomości. Wywołanie jest teraz w nawiasach, a `Most.Publish` przyjmuje czas tylko jako liczbę (inaczej bierze bieżący czas serwera).
+
+Zgodność: `EV_ADD` ma nowe, 9. pole (gildia autora), doszły pakiety `EV_ROS` i `EV_CLAIM`, a whitelista się zmieniła. Wszyscy muszą mieć 0.7.3.
+
+Do przetestowania:
+- Guilds: gildie bez nikogo online są wyszarzone i przechodzą na „Active”, gdy ktoś z nich wejdzie.
+- Wydarzenie utworzone, gdy druga osoba jest offline: po jej zalogowaniu pojawia się w Events i Calendar, razem z zapisami, nawet gdy autor jest już offline.
+- Usunięcie wydarzenia: znika u wszystkich, wysyła ogłoszenie i nie wraca po synchronizacji.
+- Calendar: klik w wydarzenie otwiera Events z jego szczegółami; nawigacja `<` `>` `Today`.
+- Okno: przesuwanie tylko za pasek tytułu, uchwyt rozmiaru, zapamiętanie po `/reload`, `/jagodka reset`.

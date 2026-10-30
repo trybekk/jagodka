@@ -301,6 +301,32 @@ function Roster.HandlePacket(pType, payload, senderName)
 end
 
 -- ============================================================================
+-- PODSUMOWANIE GILDII (zakladka Guilds)
+-- ============================================================================
+-- live = ktos z addonem z tej gildii jest teraz online (albo to moja gildia) - tylko wtedy status jest aktualny
+function Roster.GetGuildSummary(guild)
+    local g = rosters[guild]
+    local live = (guild == MyGuild()) or Most.GetRelayName(guild) ~= nil
+    local total, online, seen = 0, 0, {}
+    if g then
+        for name, m in pairs(g.members) do
+            seen[name] = true
+            total = total + 1
+            if live and m.o then online = online + 1 end
+        end
+    end
+    -- Gracze z addonem, ktorych roster jeszcze nie doszedl
+    if ctx then
+        for _, p in ipairs(ctx.activePlayers) do
+            if p.guild == guild and not seen[p.name] then
+                total, online = total + 1, online + 1
+            end
+        end
+    end
+    return { live = live, total = total, online = online, updated = g and g.updated }
+end
+
+-- ============================================================================
 -- LISTA DO ZAKLADKI CZLONKOWIE
 -- ============================================================================
 -- Gracze z addonem (activePlayers) + roster wszystkich gildii z listy. Status online gildii,
