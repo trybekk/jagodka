@@ -10,8 +10,11 @@
 | 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
 | 0.7.7 | `36241cb` | wypchnięta; sync w jednej gildii działa tylko przez `GUILD`, kanał zwraca 4 na każdej postaci |
 | 0.7.8 | `64ea018` | wypchnięta; test cross-guild pokazał, że kanał nie przenosi pakietów |
-| 0.8.0 | `a41000c` | wypchnięta, do przetestowania w grze |
-| 0.8.1 | — | lokalnie, do przetestowania w grze |
+| 0.8.0 | `a41000c` | wypchnięta, przetestowana w grze: działa, czasem długa synchronizacja przy przelogowaniu |
+| 0.8.1 | `7919b2b` | wypchnięta, przetestowana w grze |
+| 0.8.2 | — | lokalnie, do przetestowania w grze |
+
+**Łączność między gildiami:** sekcje do 0.7.8 opisują wysyłkę pakietów przez kanał globalny, która w Classic nie działa. Od 0.8.0 pakiety idą przez `GUILD` i szepty między relayami (patrz 0.8.0), a stare sekcje zostają jako historia.
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -264,8 +267,8 @@ Do przetestowania:
 **Problem znaleziony w teście:** w diagnostyce było `CHANNEL fail=127`, a ostatni wynik `CHANNEL=4` (`InvalidChatType`). Gra odrzucała wszystkie pakiety addonu wysyłane na kanał.
 - Wiadomości z addonu nie docierały do nikogo; przechodził tylko `GUILD` przez kilka sekund po zalogowaniu.
 - `/g` w oknie addonu działał, bo każdy klient czyta `/g` sam.
-- Przyczyna: kanał był dołączany przez `JoinTemporaryChannel`, czyli jako kanał tymczasowy.
-- Dla porównania przejrzany addon Olympus (ten sam klient, `Interface 11509`) wysyła na kanał bez problemu. Dołącza do niego przez `JoinChannelByName`, a poza tym ścieżka wysyłki jest taka sama.
+- Założona wtedy przyczyna: kanał był dołączany przez `JoinTemporaryChannel`, czyli jako kanał tymczasowy. **Była błędna:** kod 4 został także po tej zmianie, a prawdziwą przyczynę opisuje 0.8.0.
+- Założenie, że Olympus (ten sam klient, `Interface 11509`) wysyła na kanał bez problemu, nie zostało sprawdzone. Dołącza do niego przez `JoinChannelByName`, a poza tym ścieżka wysyłki jest taka sama.
 
 **Poprawki (`most.lua`, `core.lua`):**
 - Kanał dołączany jest przez `JoinChannelByName(nazwa, hasło)` pod **nową nazwą**, żeby powstał od nowa jako zwykły kanał, a nie dołączył do starego tymczasowego:
@@ -286,7 +289,7 @@ Do przetestowania:
 
 ## Do przetestowania (0.7.7)
 - [ ] Settings: „Global channel: connected (JagodkaNet…)” albo `JagodkaNetH` na Hordzie.
-- [ ] Diagnostyka: `CHANNEL ok` rośnie, nie ma `CHANNEL fail`; u drugiej osoby w Received jest `CHANNEL GMSG`.
+- Nieaktualne od 0.8.0: `CHANNEL ok` w diagnostyce, bo Classic odrzuca pakiety na kanale.
 - [ ] Wiadomość w addonie (General, Trade) dochodzi do drugiej osoby i z powrotem.
 - [ ] Kanał nie pojawia się w oknach czatu; stary `JagodkaWspolnota` znika z `/chatlist`.
 - [ ] Wysłany link przedmiotu działa u drugiej osoby; zwykły tekst z `|` nie robi kolorów.
@@ -331,7 +334,14 @@ Do przetestowania:
 - Szept do wylogowanego gracza: komunikat „No player named…” jest chowany, a gracz od razu znika z listy online, więc relayem jego gildii zostaje następna osoba.
 - Pakiety mają teraz najwyżej 225 bajtów (zapas na nagłówek `FW:nick:`).
 - Settings: nowa linia **Linked guilds** (gildia i jej relay) oraz **members seen** przy kanale. W diagnostyce pakiety z innych gildii mają przedrostek `FW`, np. `FW GMSG=3`.
+- Usunięte z 0.7.7: wysyłka pakietów na kanał, `GUILD fallback` w diagnostyce oraz sprawdzanie numeru kanału przy odbiorze (`IsOurChannel`).
 - Wszyscy muszą zaktualizować addon; starsze wersje nie rozumieją `FW`.
+- Limity: `most.lua` 100, `core.lua` 186/200.
+
+**Ograniczenia:**
+- Pakiety wysłane do relaya w chwili jego wylogowania mogą przepaść.
+- Hasło kanału nie chroni już pakietów, bo nie idą przez kanał. Szept przyjmowany jest od nadawcy mówiącego za siebie albo od znanego gracza z gildii z listy.
+- Kolejka wysyła około 1 pakietu na sekundę (do 10 naraz), a każda dodatkowa gildia to kolejny szept relaya. Przy większym ruchu może pojawić się opóźnienie.
 
 ## Do przetestowania (0.8.0)
 - [ ] Znaczek w Settings -> Global Channels wyłączony: po relogu Settings pokazuje `members seen` większe od 0, a `/chatlist` działa normalnie.
@@ -356,3 +366,49 @@ Do przetestowania:
 - [ ] Klik w świat gry, w inne okno i w inną część addonu: pole traci focus.
 - [ ] Shift + klik na przedmiot: link trafia do pola, a focus zostaje.
 - [ ] Esc: pole traci focus.
+
+---
+
+# 0.8.2 – szybsza synchronizacja po logowaniu, szybkie przelogowania
+
+**Powód:** test 0.8.0 i 0.8.1 w grze wypadł dobrze, ale przy przelogowaniach synchronizacja czasem trwała długo.
+
+**Czasy po zalogowaniu (od pierwszego PING-u):**
+
+| Co | Było | Jest |
+|---|---|---|
+| Historia czatu i mute | 10 s | 2 s |
+| Wydarzenia | 15 s | 4 s |
+| Prośba o rostery innych gildii | 14 s | 6 s |
+| Odpowiedź na prośbę (losowo) | 1–4 s | 0,5–2,5 s |
+| Gracz może być relayem | po wejściu na kanał (ok. 10 s) | po 5 s |
+| Gracz może wysyłać roster gildii | 40 s | 15 s |
+
+- Wejście na kanał zostaje po 8 s (żeby nie zająć `/1` przed General), a szukanie innych gildii po 10 s. Po 14 s relay, który znalazł inne gildie, ponawia prośby; dzięki temu działa to też u kogoś, kto jest sam online w swojej gildii.
+- Relay i nadawca rostera nie zależą już od kanału, bo pakiety przez niego nie idą.
+
+**Mniej ruchu:**
+- Jeden PING przy logowaniu zamiast dwóch.
+- Odpowiedź PONG idzie szeptem tylko do witającego, z losowym opóźnieniem 0,2–1,5 s, a kilka PING-ów tej samej osoby daje jedną odpowiedź. Wcześniej każdy odpowiadał całej gildii i wszystkim relayom.
+- Wydarzenia i zapisy idą szeptem tylko do proszącego. Wcześniej każde logowanie mogło co 15 s wysyłać wszystkie wydarzenia do wszystkich.
+
+**Szybkie przelogowania (np. main i alt):**
+- Komunikat „X has gone offline” od razu usuwa gracza z listy online, więc relayem zostaje następna osoba. Wcześniej gildia mogła być odcięta od innych nawet przez 20 s.
+- Poprawiony błąd: po szybkim powrocie roster gildii mógł jeszcze mówić „offline”, przez co gracz znikał z listy nawet na minutę. Sygnał z ostatnich 30 s wygrywa teraz z rosterem.
+- Nowo zalogowany przez pierwsze 5 s nie uważa się za relaya, więc nie dubluje linii w `/g`.
+
+**Poprawiony błąd z 0.8.0:** pakiety z zapisami na wydarzenia (`EV_ROS`) mogły być za długie i nie przechodziły do innych gildii. Limit zmniejszony z 240 do 215 bajtów.
+
+**Ograniczenia:**
+- Pakiety czekające w kolejce w chwili wylogowania przepadają, bo gra nie daje czasu na ich wysłanie. Ostatnia wiadomość wysłana tuż przed wylogowaniem może nie dojść do innych.
+- Limit gry na pakiety (około 1 na sekundę, do 10 naraz) zostaje bez zmian, żeby gra nie odrzucała pakietów.
+- Czat, wydarzenia i rostery są zapisane wspólnie dla całego konta, więc alt widzi dane maina, także z innej frakcji.
+- Limity: `most.lua` 104, `core.lua` 186/200.
+
+## Do przetestowania (0.8.2)
+- [ ] Logowanie: historia, mute i wydarzenia są widoczne w ciągu kilku sekund, a pasek Syncing kończy się szybciej.
+- [ ] Relay przełącza się na alta: następna osoba przejmuje relay od razu, a wiadomość z drugiej gildii dochodzi.
+- [ ] Szybki powrót na tę samą postać: gracz zostaje na liście online u innych.
+- [ ] Po zalogowaniu linia z `/g` nie pojawia się dwa razy w `/g` innej gildii.
+- [ ] Sam online w gildii, druga gildia online: po ok. 15–20 s masz jej dane.
+- [ ] Wydarzenie z długą listą zapisów przechodzi do drugiej gildii.

@@ -204,7 +204,7 @@ local function HandleRequest(sender, rawSender, since)
     end
     if #list == 0 then return end
     pendingRequests[sender] = true
-    C_Timer.After(1 + math.random() * 3, function()
+    C_Timer.After(0.5 + math.random() * 2, function()
         if not pendingRequests[sender] then return end
         pendingRequests[sender] = nil
         Most.Send("MCLAIM", sender, "low")

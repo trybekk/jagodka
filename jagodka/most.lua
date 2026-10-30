@@ -1,5 +1,5 @@
 -- ============================================================================
--- MOST: wspolny kanal globalny <-> czaty gildyjne (/g) wszystkich gildii z listy
+-- MOST: wspolny czat addonu <-> czaty gildyjne (/g) wszystkich gildii z listy
 -- ============================================================================
 -- Zasady:
 --  * Kazda wiadomosc ma unikalne ID, wiec duplikaty sa odrzucane u odbiorcy.
@@ -35,7 +35,7 @@ local PREFIX = "JagodkaComm"
 -- znajdowania graczy z innych gildii. Pakiety ida przez GUILD i szepty miedzy relayami (Route).
 local COMM_CHANNEL_ALLIANCE, COMM_CHANNEL_HORDE = "JagodkaNet", "JagodkaNetH"
 local OLD_COMM_CHANNEL = "JagodkaWspolnota" -- opuszczany przy wejsciu na nowy kanal
--- Haslo kanalu: obcy gracz nie wejdzie przez /join i nie zobaczy ani nie podrobi pakietow.
+-- Haslo kanalu: obcy gracz nie wejdzie przez /join i nie trafi na liste, z ktorej relaye sie znajduja.
 -- Jest jawne w kodzie addonu, wiec chroni przed przypadkowymi osobami, nie przed kims, kto ma addon.
 local COMM_PASSWORD = "jgdk7Wsp0lnota"
 local ONLINE_TIMEOUT = 150            -- sekundy bez sygnalu, po ktorych gracz jest offline
@@ -46,6 +46,7 @@ local CONTENT_DEDUP_WINDOW = 15       -- okno (s): ta sama linia z /g od dwoch p
 local BACKUP_MIN_DELAY, BACKUP_MAX_DELAY = 2, 5 -- relay zapasowy czeka losowo tyle sekund na glownego
 local MAX_ADDON_BYTES = 225           -- limit pakietu addonu to 255 bajtow, zapas na naglowek "FW:nick:"
 local DISCOVER_INTERVAL, HELLO_RETRY = 30, 120 -- co ile relay czyta liste kanalu i ponawia powitanie (s)
+local RELAY_READY_DELAY = 5           -- po zalogowaniu czekamy na odpowiedzi innych, zanim uznamy sie za relaya
 local MAX_GUILD_LINE_BYTES = 250      -- limit linii /g to 255 bajtow
 
 local Most = {}
@@ -328,7 +329,7 @@ local entryListeners = {}
 function Most.OnNewEntry(fn) table.insert(entryListeners, fn) end
 
 -- ============================================================================
--- RELAY: jedna osoba z addonem na gildie przenosi wiadomosci /g <-> kanal
+-- RELAY: jedna osoba z addonem na gildie przenosi wiadomosci /g <-> addon
 -- ============================================================================
 -- Relay dowolnej gildii (ta sama regula liczona u kazdego, wiec wszyscy widza to samo)
 function Most.GetRelayName(guild)
@@ -347,10 +348,12 @@ function Most.GetRelayName(guild)
     return best
 end
 
--- Czy moge przekazywac wiadomosci (jestem w gildii z listy i na kanale globalnym)
+-- Czy moge przekazywac wiadomosci (jestem w gildii z listy i minela chwila od zalogowania).
+-- Bez tej chwili nowo zalogowany nie zna jeszcze innych, uwaza sie za relaya i dubluje linie w /g.
+local relayReadyAt = math.huge
 local function CanForward()
-    if not ctx or not IsInGuild() or not ctx.isGuildAllowed(MyGuild()) then return false end
-    return Most.GetChannelId() ~= nil
+    if not ctx or GetTime() < relayReadyAt or not IsInGuild() then return false end
+    return ctx.isGuildAllowed(MyGuild())
 end
 
 function Most.IsRelay()
@@ -361,7 +364,7 @@ local function BridgePrefix(guild, author)
     return "[" .. guild .. "] " .. author .. ": "
 end
 
--- Wiadomosc z kanalu -> /g mojej gildii (tylko relay, tylko mostkowane zakladki)
+-- Wiadomosc ze wspolnego czatu -> /g mojej gildii (tylko relay, tylko mostkowane zakladki)
 local function BridgeToGuild(e)
     if not BRIDGED_TABS[e.tab] or not Most.IsRelay() then return end
     -- Wiadomosc z /g mojej gildii juz tam jest
@@ -430,7 +433,7 @@ local function SplitForPublish(text, guild, author, tab, src)
     return SplitText(text, maxText)
 end
 
--- Publikacja nowej wiadomosci na kanal globalny (z addonu lub z /g przez relaya)
+-- Publikacja nowej wiadomosci na wspolny czat (z addonu lub z /g przez relaya)
 function Most.Publish(tab, text, src, author, guild, ts)
     if not text or text == "" or not guild then return end
     -- Czas musi byc liczba (sortowanie logu); cokolwiek innego = teraz
@@ -474,7 +477,7 @@ local function HandleHistoryRequest(sender, rawSender, since)
     while #list > HISTORY_SYNC_MAX do table.remove(list, 1) end
     pendingHistory[sender] = true
     -- Losowe opoznienie: odpowiada jedna osoba, reszta widzi HCLAIM i rezygnuje
-    C_Timer.After(1 + math.random() * 3, function()
+    C_Timer.After(0.5 + math.random() * 2, function()
         if not pendingHistory[sender] then return end
         pendingHistory[sender] = nil
         Most.Send("HCLAIM", sender, "high")
@@ -586,8 +589,12 @@ end
 -- Powitany gracz wkleja PING do swojej gildii, a jej relay od tej chwili zna nas i przesyla pakiety.
 local listAskedAt, helloAt, channelMembers = 0, {}, 0
 
+function Most.HasLinkedGuilds()
+    return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
+end
+
 function Most.Discover()
-    if not _G.ListChannelByName or not Most.IsRelay() then return end
+    if not _G.ListChannelByName or not Most.GetChannelId() or not Most.IsRelay() then return end
     listAskedAt = GetTime()
     _G.ListChannelByName(ChannelName())
 end
@@ -616,16 +623,23 @@ local function HandleChannelList(list)
     channelMembers = count
 end
 
--- Szept do wylogowanego gracza daje komunikat systemowy: chowamy go i od razu usuwamy gracza
--- z listy online, dzieki czemu relayem tej gildii zostaje nastepna osoba
-local function HandlePlayerNotFound(message)
-    local pattern = _G.ERR_CHAT_PLAYER_NOT_FOUND_S
-    if not pattern or not ctx then return false end
-    local name = message:match("^" .. pattern:gsub("%%s", "(.+)") .. "$")
-    if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
+local function NameFromSystemMessage(pattern, message)
+    return pattern and message:match("^" .. pattern:gsub("%%s", "(.+)") .. "$")
+end
+
+local function RemoveActivePlayer(name)
     for i = #ctx.activePlayers, 1, -1 do
         if ctx.activePlayers[i].name == name then table.remove(ctx.activePlayers, i) end
     end
+end
+
+-- Szept do wylogowanego gracza daje komunikat systemowy: chowamy go i od razu usuwamy gracza
+-- z listy online, dzieki czemu relayem tej gildii zostaje nastepna osoba
+local function HandlePlayerNotFound(message)
+    if not ctx then return false end
+    local name = NameFromSystemMessage(_G.ERR_CHAT_PLAYER_NOT_FOUND_S, message)
+    if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
+    RemoveActivePlayer(name)
     return true
 end
 
@@ -686,7 +700,19 @@ Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("CHAT_MSG_GUILD")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
+Listener:RegisterEvent("CHAT_MSG_SYSTEM")
+Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
+    if event == "PLAYER_LOGIN" then
+        relayReadyAt = GetTime() + RELAY_READY_DELAY
+        return
+    end
+    if event == "CHAT_MSG_SYSTEM" then
+        -- "X has gone offline": wylogowany (np. przelaczenie na inna postac) od razu traci role relaya
+        local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")
+        if name and ctx then RemoveActivePlayer(Ambiguate(name, "none")) end
+        return
+    end
     if event == "CHAT_MSG_CHANNEL_LIST" then
         if select(7, ...) == ChannelName() then HandleChannelList(arg1) end
         return

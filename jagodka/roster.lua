@@ -31,7 +31,7 @@ local MAX_ADDON_BYTES = 225
 local FULL_INTERVAL = 1800   -- pelny roster co 30 min
 local FULL_COOLDOWN = 60     -- nie czesciej niz raz na minute (kilka logowan naraz = jedna wysylka)
 local STALE_AFTER = 600      -- po zalogowaniu prosimy o roster gildii, ktorej dane maja > 10 min
-local READY_DELAY = 40       -- po zalogowaniu czekamy, az poznamy pozostalych (inaczej kazdy mysli, ze jest nadawca)
+local READY_DELAY = 15       -- po zalogowaniu czekamy, az poznamy pozostalych (inaczej kazdy mysli, ze jest nadawca)
 local SENDER_ROTATION = 300  -- co tyle sekund nadawca rostera sie zmienia
 
 local Roster = {}
@@ -114,7 +114,7 @@ end
 local function IsSender()
     local guild = MyGuild()
     local g = guild and rosters[guild]
-    if not g or not ctx or not Most.GetChannelId() then return false end
+    if not g or not ctx then return false end
     local myName, now = UnitName("player"), GetTime()
     local candidates = { myName }
     for _, p in ipairs(ctx.activePlayers) do
@@ -215,6 +215,7 @@ local function RequestStale()
         addonTable.Sync.Start("rosters") -- pasek synchronizacji (synchro.lua)
     end
 end
+Roster.RequestStale = RequestStale
 
 -- ============================================================================
 -- ODBIOR
@@ -386,8 +387,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         rosters = _G.JagodkiRosterDB
     elseif event == "PLAYER_LOGIN" then
         readyAt = GetTime() + READY_DELAY
-        -- Kanal globalny jest dolaczany po ok. 10 s (core.lua)
-        C_Timer.After(14, RequestStale)
+        -- Prosbe o rostery wysyla core.lua (EventSync.LoginSync)
         C_Timer.NewTicker(20, Tick)
     elseif event == "GUILD_ROSTER_UPDATE" then
         -- Blizzard potrafi wyslac to zdarzenie wiele razy pod rzad - przeliczamy raz na 2 s

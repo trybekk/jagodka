@@ -244,15 +244,19 @@ local EncodeField, DecodeField = Most.EncodeField, Most.DecodeField
 -- (pakiet addonu ma limit 255 bajtow, a opis moze miec do EVENT_DESC_MAX_BYTES)
 local EVENT_DESC_MAX_BYTES, EVENT_MAX_DESC_PARTS = 400, 10
 -- EV_ADD:id:tytul:data:godzina:opis1:autor:instancja:liczbaCzesci:gildiaAutora
-local function SendEvent(ev, priority)
+-- target: wysylka szeptem do jednej osoby (odpowiedz na EV_REQ) zamiast do wszystkich
+local function SendEvent(ev, priority, target)
+    local function Out(pType, data)
+        if target then Most.Whisper(target, pType, data, priority) else SendJagodkaNetworkPacket(pType, data, priority) end
+    end
     local pre = table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time) }, ":") .. ":"
     local post = ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":99:" .. EncodeField(ev.guild)
     local descHeader = "EV_DESC:" .. EncodeField(ev.id) .. ":99:"
     local chunks = Most.EncodeChunks(ev.desc, 225 - #"EV_ADD:" - #pre - #post, 225 - #descHeader)
     while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
-    SendJagodkaNetworkPacket("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks .. ":" .. EncodeField(ev.guild), priority)
+    Out("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks .. ":" .. EncodeField(ev.guild))
     for i = 2, #chunks do
-        SendJagodkaNetworkPacket("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i], priority)
+        Out("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i])
     end
 end
 
@@ -263,8 +267,10 @@ local function SendStatusPacket(msgType, target)
     rankName = rankName or "Brak"
     -- Indeks rangi pozwala innym sprawdzic uprawnienia oficerskie (tworzenie/usuwanie wydarzen)
     local payload = UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName .. ":" .. ADDON_VERSION .. ":" .. (rankIndex or -1)
-    if target then
+    if target and msgType == "PING" then
         Most.Whisper(target, "FW", UnitName("player") .. ":" .. msgType .. ":" .. payload, "high")
+    elseif target then
+        Most.Whisper(target, msgType, payload, "high")
     else
         SendJagodkaNetworkPacket(msgType, payload)
     end
@@ -436,7 +442,7 @@ local function ShowEventError(text) UIErrorsFrame:AddMessage("Error: " .. text, 
 --  * Wysylane sa wydarzenia (EV_ADD/EV_DESC) i zapisy (EV_ROS), z niskim priorytetem.
 --  * Usuniete wydarzenia sa pamietane 30 dni (nie wroca od kogos, kto byl offline).
 --  * Wydarzenia starsze niz 2 dni po terminie same znikaja.
-local EventSync = { pending = {}, lastRequest = 0, lastBroadcast = 0, KEEP_DAYS = 2, TOMBSTONE_DAYS = 30 }
+local EventSync = { pending = {}, pongPending = {}, lastRequest = 0, KEEP_DAYS = 2, TOMBSTONE_DAYS = 30 }
 -- Czas wydarzenia (poludnie danego dnia) z "DD.MM.YYYY" albo starego "DD.MM" (biezacy rok)
 function EventSync.DayTime(dateText)
 local d, m, y = (dateText or ""):match("^(%d%d?)%.(%d%d?)%.?(%d*)$")
@@ -467,17 +473,20 @@ if now - t > EventSync.TOMBSTONE_DAYS * 86400 then removed[id] = nil end
 end
 end
 -- EV_ROS:id:Nick=TANK,Nick2=HEAL,... (w razie potrzeby kilka pakietow)
-function EventSync.SendRoster(ev)
+function EventSync.SendRoster(ev, target)
+local function Out(data)
+if target then Most.Whisper(target, "EV_ROS", data, "low") else SendJagodkaNetworkPacket("EV_ROS", data, "low") end
+end
 local header, chunk = EncodeField(ev.id) .. ":", ""
 for name, role in pairs(ev.roster or {}) do
 local entry = name .. "=" .. role
-if chunk ~= "" and #header + #chunk + 1 + #entry > 240 then
-SendJagodkaNetworkPacket("EV_ROS", header .. chunk, "low")
+if chunk ~= "" and #header + #chunk + 1 + #entry > 215 then
+Out(header .. chunk)
 chunk = ""
 end
 chunk = (chunk == "") and entry or (chunk .. "," .. entry)
 end
-if chunk ~= "" then SendJagodkaNetworkPacket("EV_ROS", header .. chunk, "low") end
+if chunk ~= "" then Out(header .. chunk) end
 end
 function EventSync.Request(force)
 if not force and GetTime() - EventSync.lastRequest < 300 then return end
@@ -488,17 +497,15 @@ end
 function EventSync.HandleRequest(requester)
 if #eventsList == 0 then return end
 EventSync.pending[requester] = true
-C_Timer.After(1 + math.random() * 3, function()
+C_Timer.After(0.5 + math.random() * 2, function()
 if not EventSync.pending[requester] then return end
 EventSync.pending[requester] = nil
 SendJagodkaNetworkPacket("EV_CLAIM", requester)
--- Kilka logowan naraz: jedna wysylka na kanal wystarczy dla wszystkich
-if GetTime() - EventSync.lastBroadcast < 15 then return end
-EventSync.lastBroadcast = GetTime()
+-- Szeptem tylko do proszacego: przelogowania nie zalewaja wszystkich wszystkimi wydarzeniami
 EventSync.Prune()
 for _, ev in ipairs(eventsList) do
-SendEvent(ev, "low")
-EventSync.SendRoster(ev)
+SendEvent(ev, "low", requester)
+EventSync.SendRoster(ev, requester)
 end
 end)
 end
@@ -639,7 +646,7 @@ local guildName = Most.MyGuild()
 if Mute.IsMuted(UnitName("player")) then
 chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
--- Kanal globalny raz; relaye gildii wkleja wiadomosc do swoich /g
+-- Wysylka przez GUILD i relaye innych gildii; relaye wkleja wiadomosc do swoich /g
 Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
 elseif not guildName and IsInGuild() then
 chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
@@ -1839,6 +1846,22 @@ NetworkListener:RegisterEvent("PLAYER_GUILD_UPDATE")
 NetworkListener:RegisterEvent("GUILD_ROSTER_UPDATE")
 -- Zaraz po zalogowaniu GetGuildInfo() czesto zwraca nil, wiec PING wysylamy dopiero gdy gildia jest znana
 local announced, announcedGuild = false, nil
+-- Synchronizacja po zalogowaniu, raz na sesje, zaraz po pierwszym PING-u (kolejno, zeby nie wysylac wszystkiego naraz).
+-- Po 14 s powtorka dla kogos, kto jest relayem i dopiero znalazl inne gildie (np. sam online w swojej gildii).
+function EventSync.LoginSync()
+if EventSync.loginSynced then return end
+EventSync.loginSynced = true
+local function SyncAll()
+Most.RequestHistory()
+Mute.Request()
+C_Timer.After(2, function() EventSync.Request(true) end)
+C_Timer.After(4, Roster.RequestStale)
+end
+C_Timer.After(2, SyncAll)
+C_Timer.After(14, function()
+if Most.IsRelay() and Most.HasLinkedGuilds() then SyncAll() end
+end)
+end
 local function TryAnnounce()
 if announced then return end
 if not IsPlayerGuildAllowed(GetGuildInfo("player")) then return end
@@ -1846,6 +1869,7 @@ announced, announcedGuild = true, GetGuildInfo("player")
 AddMyselfToActiveList()
 SendStatusPacket("PING")
 UpdateScrollList()
+EventSync.LoginSync()
 end
 -- Czlonkowie mojej gildii wg rostera Blizzarda: nick -> true (online) / false (offline).
 -- Nikt spoza rostera nie podszyje sie pod moja gildie, a wylogowany relay jest od razu pomijany.
@@ -1889,7 +1913,8 @@ local myGuild = GetGuildInfo("player")
 for i = #activePlayers, 1, -1 do
 local p = activePlayers[i]
 -- Gildiowicza wylogowanego wg rostera usuwamy od razu, reszte po braku sygnalu
-local offlineInRoster = p.guild == myGuild and myGuildRosterLoaded and myGuildRoster[p.name] ~= true
+-- Swiezy sygnal wygrywa z rosterem: po szybkim przelogowaniu roster moze jeszcze mowic "offline"
+local offlineInRoster = p.guild == myGuild and myGuildRosterLoaded and myGuildRoster[p.name] ~= true and now - (p.lastSeen or 0) > 30
 if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONLINE_TIMEOUT) then table.remove(activePlayers, i) changed = true end
 end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
@@ -1909,18 +1934,8 @@ TryAnnounce()
 -- Kanal dolaczamy z opoznieniem, zeby nie zajac numeru /1 przed kanalem General
 C_Timer.After(8, function()
 Most.JoinChannel()
-C_Timer.After(2, function()
--- Ponowny PING juz po wejsciu na kanal, potem szukanie innych gildii i prosba o historie
-announced = false
-TryAnnounce()
-if announced then
-Most.Discover()
-Most.RequestHistory()
-Mute.Request()
--- Wydarzenia i zapisy chwile pozniej, zeby nie wysylac wszystkiego naraz
-C_Timer.After(5, function() EventSync.Request(true) end)
-end
-end)
+-- Kanal sluzy tylko do szukania innych gildii
+C_Timer.After(2, Most.Discover)
 end)
 -- Sygnal "jestem online" co minute (bez odpowiedzi) + sprzatanie wylogowanych
 C_Timer.NewTicker(60, function()
@@ -1979,7 +1994,15 @@ if existingIndex then activePlayers[existingIndex] = playerData else table.inser
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
 if MainFrame:IsShown() then UpdateGuildTable() end
-if pType == "PING" and senderName ~= myName then SendStatusPacket("PONG") end
+-- Odpowiedz szeptem tylko do witajacego (kilka PING-ow przy przelogowaniu = jedna odpowiedz),
+-- z losowym opoznieniem, zeby wszyscy nie odpowiadali w tej samej chwili
+if pType == "PING" and senderName ~= myName and not EventSync.pongPending[senderName] then
+EventSync.pongPending[senderName] = true
+C_Timer.After(0.2 + math.random() * 1.3, function()
+EventSync.pongPending[senderName] = nil
+SendStatusPacket("PONG", senderName)
+end)
+end
 else
 local senderIdx = GetPlayerIndex(senderName)
 if not senderIdx and senderName ~= myName then return end
