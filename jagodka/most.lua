@@ -113,6 +113,10 @@ end
 -- ============================================================================
 -- KOLEJKA WYSYLKI (zachowuje kolejnosc i nie przekracza limitow Blizzarda)
 -- ============================================================================
+-- DIAGNOSTYKA (zakladka Settings): wyniki wysylania, odebrane pakiety, odrzucone wiadomosci
+local debug = { sent = {}, recv = {}, rejected = {}, senders = {}, lastResult = {} }
+local function Count(t, key) t[key] = (t[key] or 0) + 1 end
+
 local highQueue, lowQueue = {}, {}  -- high: biezace wiadomosci, low: historia
 local guildLineQueue = {}           -- linie do wklejenia w /g (tylko relay)
 local postedLines = {}              -- linie wklejone przez nas w /g -> czas (ochrona przed petla)
@@ -127,18 +131,19 @@ function Most.Whisper(target, pType, payload)
     table.insert(lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
 end
 
+-- Zwraca wynik API i rodzaj kanalu (do diagnostyki)
 local function SendRaw(item)
     if item.target then
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", item.target)
+        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", item.target), "WHISPER"
     end
     local id = Most.GetChannelId()
     if id then
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "CHANNEL", id)
+        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "CHANNEL", id), "CHANNEL"
     elseif IsInGuild() then
         -- Zanim kanal globalny zostanie dolaczony, wysylamy chociaz do wlasnej gildii
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD")
+        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
     end
-    return true
+    return true, "NONE"
 end
 
 local function PumpAddonQueue()
@@ -147,9 +152,11 @@ local function PumpAddonQueue()
     local queue = (#highQueue > 0) and highQueue or lowQueue
     local item = queue[1]
     if not item then return end
-    local result = SendRaw(item)
+    local result, kind = SendRaw(item)
     -- Starsze API zwraca bool, nowsze kod (0 = sukces)
     local ok = (result == nil or result == true or result == 0)
+    Count(debug.sent, kind .. (ok and " ok" or " fail"))
+    debug.lastResult[kind] = tostring(result)
     -- Przy ograniczeniu serwera ponawiamy dlugo (ok. 30 s), zeby wiadomosc nie przepadla
     if ok or item.tries >= 30 then
         table.remove(queue, 1)
@@ -425,27 +432,34 @@ end
 -- OBSLUGA PAKIETOW (wywolywane z core.lua); zwraca true, jesli pakiet obsluzony
 -- ============================================================================
 function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
+    -- Diagnostyka: kazdy odebrany pakiet (rodzaj kanalu + typ) i ostatni nadawcy
+    Count(debug.recv, tostring(channel) .. " " .. pType)
+    debug.senders[senderName] = GetTime()
     if pType == "GMSG" or pType == "HIST" then
         if pType == "HIST" then addonTable.Sync.Activity("history") end
         local senderInfo = IsKnownAllowedSender(senderName)
         local e = DecodeMessage(payload)
-        if not e or not ctx.isGuildAllowed(e.guild) then return true end
+        if not e then Count(debug.rejected, "bad format") return true end
+        if not ctx.isGuildAllowed(e.guild) then Count(debug.rejected, "guild not listed: " .. tostring(e.guild)) return true end
         if pType == "GMSG" then
             -- Z addonu pisze tylko autor; z /g przekazuje tylko ktos z tej samej gildii
-            if e.src == "A" and e.author ~= senderName then return true end
-            if senderInfo and senderInfo.guild ~= e.guild then return true end
+            if e.src == "A" and e.author ~= senderName then Count(debug.rejected, "author ~= sender") return true end
+            if senderInfo and senderInfo.guild ~= e.guild then Count(debug.rejected, "sender guild mismatch") return true end
             -- Nadawca jeszcze nieznany (jego meldunek nie doszedl): wiadomosci NIE gubimy.
             -- Ufamy mu tak samo jak meldunkowi - podaje gildie z listy; jesli twierdzi, ze jest
             -- z mojej gildii, musi byc w rosterze.
             if not senderInfo and senderName ~= MyName() and e.guild == MyGuild()
                 and guildmateOnlineCheck ~= nil and guildmateOnlineCheck(senderName) == false then
+                Count(debug.rejected, "not in guild roster")
                 return true
             end
         elseif not senderInfo and senderName ~= MyName() then
             -- Historie przyjmujemy tylko od znanego gracza (odpowiedzial na nasz meldunek)
+            Count(debug.rejected, "history from unknown")
             return true
         end
-        Ingest(e, pType == "GMSG")
+        -- Wlasne wiadomosci wracaja z kanalu i tez tu trafiaja (to dobry znak: kanal dziala)
+        if not Ingest(e, pType == "GMSG") then Count(debug.rejected, "duplicate / own echo / muted") end
         return true
     elseif pType == "HREQ" then
         if senderName ~= MyName() and IsKnownAllowedSender(senderName) then
@@ -470,6 +484,22 @@ function Most.GetStatusText()
         "Packet queue: " .. (#highQueue + #lowQueue) .. "   /g queue: " .. #guildLineQueue,
         "Messages in history: " .. #chatLog,
     }
+    -- Diagnostyka: "klucz=liczba" posortowane, nadawcy z ostatnich 5 minut
+    local function Pairs(t)
+        local out = {}
+        for k, v in pairs(t) do table.insert(out, k .. "=" .. v) end
+        table.sort(out)
+        return #out > 0 and table.concat(out, ", ") or "-"
+    end
+    local recent, now = {}, GetTime()
+    for name, t in pairs(debug.senders) do
+        if now - t < 300 then table.insert(recent, name) end
+    end
+    table.sort(recent)
+    table.insert(lines, "|cffffd100Debug|r  sent: " .. Pairs(debug.sent) .. "  (last result: " .. Pairs(debug.lastResult) .. ")")
+    table.insert(lines, "Received: " .. Pairs(debug.recv))
+    table.insert(lines, "Packets from (5 min): " .. (#recent > 0 and table.concat(recent, ", ") or "-"))
+    table.insert(lines, "Chat rejected: " .. Pairs(debug.rejected))
     return table.concat(lines, "\n")
 end
 

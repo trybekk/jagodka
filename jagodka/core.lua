@@ -1440,6 +1440,8 @@ SettingsInfo:SetText("Bridge status (global channel <-> /g) - version " .. ADDON
 local SettingsStatus = Panels[6]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 SettingsStatus:SetPoint("TOPLEFT", SettingsInfo, "BOTTOMLEFT", 0, -12)
 SettingsStatus:SetJustifyH("LEFT")
+-- Szerokosc panelu: dlugie linie diagnostyki zawijaja sie zamiast wychodzic poza okno
+SettingsStatus:SetPoint("RIGHT", Panels[6], "RIGHT", -10, 0)
 -- Odswiezanie statusu co sekunde, tylko gdy zakladka jest widoczna
 C_Timer.NewTicker(1, function() if Panels[6]:IsVisible() then SettingsStatus:SetText(Most.GetStatusText()) end end)
 -- ============================================================================

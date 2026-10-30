@@ -239,6 +239,13 @@ Do przetestowania:
   - Linki przechodzą przez kanał globalny i relay do `/g` bez zmian. Dzielenie długich wiadomości nigdy nie tnie linku.
 - Limity: szczyt w `core.lua` bez zmian, 185/200.
 
+- Diagnostyka w Settings (dodana po 0.7.6, przy szukaniu błędu „wiadomości z addonu nie dochodzą, a z `/g` tak”):
+  - **sent**: liczba wysłanych pakietów wg kanału, osobno udane i nieudane (`CHANNEL ok/fail`, `GUILD …`, `WHISPER …`), oraz ostatni wynik API;
+  - **Received**: odebrane pakiety wg kanału i typu, np. `CHANNEL GMSG=3`;
+  - **Packets from (5 min)**: kto przysłał jakikolwiek pakiet w ostatnich 5 minutach;
+  - **Chat rejected**: dlaczego wiadomość czatu została odrzucona. `duplicate / own echo / muted` jest normalne, bo własne wiadomości wracają z kanału.
+  - Status zawija się do szerokości panelu.
+
 ## Do przetestowania (0.7.6)
 - [ ] Zakładki w oknie addonu: General, Trade, LFG (bez Raid).
 - [ ] W czacie gry pojawia się „Jagodki Nadina - Trade”, a wiadomości z Trade w addonie są tam w innym kolorze.
