@@ -4,7 +4,8 @@
 |---|---|---|
 | 0.7.1 | `65044cb` | wypchnięta, wstępnie przetestowana w grze |
 | 0.7.2 | `0992d28` | wypchnięta, przetestowana w grze |
-| 0.7.3 | commit „feat(lasarr-1): ... v0.7.3” | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
+| 0.7.3 | `af508ab` | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
+| 0.7.4 | commit „feat(lasarr-1): sync bar, calendar create/invite, v0.7.4” | wypchnięta, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -56,7 +57,7 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 - Historia obejmuje tylko 30 ostatnich wiadomości; identyczna linia od tej samej osoby wysłana 2× w ciągu 15 s pokaże się raz.
 - W `/g` innych gildii wiadomość wysyła relay, a nie autor; spóźniona linia od relaya zapasowego może tam trafić po nowszej.
 - Nie da się zweryfikować członków **innych** gildii, a właściciel kanału może banować.
-- `core.lua` ma 179 zmiennych lokalnych z limitu 200 w Lua 5.1 (stan na 0.7.3), więc nowe funkcje lepiej dodawać w osobnych plikach albo w blokach `do ... end`.
+- W `core.lua` naraz aktywne są maksymalnie 184 zmienne lokalne z limitu 200 w Lua 5.1 (stan na 0.7.4, liczone razem z blokami `do ... end`). Nowe funkcje trzeba dodawać w osobnych plikach albo w osobnych funkcjach, np. `BuildCalendar`, a nie w blokach `do ... end`.
 
 ## Do przetestowania
 1. Wszyscy na wersji 0.7.1; po zalogowaniu odczekać 10 s; w zakładce Ustawienia kanał powinien być „połączony”, a relay wskazany.
@@ -141,3 +142,23 @@ Do przetestowania:
 - Usunięcie wydarzenia: znika u wszystkich, wysyła ogłoszenie i nie wraca po synchronizacji.
 - Calendar: klik w wydarzenie otwiera Events z jego szczegółami; nawigacja `<` `>` `Today`.
 - Okno: przesuwanie tylko za pasek tytułu, uchwyt rozmiaru, zapamiętanie po `/reload`, `/jagodka reset`.
+
+---
+
+# 0.7.4 – pasek synchronizacji
+
+- Nowy plik `synchro.lua`: w nagłówku głównego okna, na lewo od „Online: N”, pojawia się pasek postępu `Syncing: ✓ Channel  ⌛ Chat  ⌛ Events  ✓ Rosters`.
+  - Widać go tylko przy otwartym oknie i tylko wtedy, gdy coś się synchronizuje: po zalogowaniu albo przy otwarciu Events lub Calendar, gdy addon prosi o brakujące wydarzenia.
+  - Etapy: wejście na kanał, historia czatu, wydarzenia i zapisy, rostery innych gildii. Etap rosterów pojawia się tylko wtedy, gdy cache ma ponad 10 min.
+  - Etap kończy się, gdy przez chwilę nic nie przychodzi (3–4 s po ostatnim pakiecie), gdy nikt nie odpowie (ok. 7 s) albo po twardym limicie czasu.
+  - Na koniec pasek pokazuje „Synced” przez 4 s i znika.
+- Synchronizacja nie została zmieniona; pasek tylko pokazuje, co się dzieje, a dane z cache są dostępne od razu, jak dotąd.
+- Members: „Show offline” jest domyślnie **odznaczone**, więc widać tylko graczy online. Reset też wraca do tego ustawienia.
+- Calendar: kliknięcie w wolne miejsce dnia (poza wydarzeniem) otwiera menu z „Create event”, które otwiera okno tworzenia z ustawioną datą tego dnia. Opcja jest aktywna tylko dla oficerów i tylko dla dnia dzisiejszego oraz przyszłych; dla przeszłych dni jest wyszarzona.
+- Calendar: **prawy klik na wydarzeniu** otwiera menu z „Invite members (N)”, „Open event” i „Cancel”. Lewy klik działa jak dotąd i otwiera wydarzenie.
+  - „Invite members” wysyła zaproszenia do grupy wszystkim zapisanym. Pomija ciebie, osoby już w grupie i offline. Na końcu w czacie pojawia się podsumowanie, np. `MC: inviting 12 (already in group: 3, offline: 2)`.
+  - Zapraszać może tylko lider grupy, asystent raidu albo ktoś bez grupy.
+  - Gdy chętnych jest więcej niż miejsc w party, addon zamienia grupę na raid (od razu albo po pierwszym przyjętym zaproszeniu) i zaprasza resztę, maksymalnie do 40 osób.
+- Poprawka techniczna (przyczyna awarii przy pierwszej wersji „Invite members”): Lua 5.1 pozwala na najwyżej **200 zmiennych lokalnych aktywnych naraz** w jednej funkcji, także w głównym pliku. Zmienne w blokach `do ... end` też się do tego liczą, dopóki blok trwa. Pierwsza wersja zaproszeń podniosła `core.lua` do ok. 203, przez co cały plik się nie kompilował i nie działało nic.
+  - Kalendarz jest teraz osobną funkcją (`BuildCalendar`), która ma własny limit. Szczyt w `core.lua` spadł ze 193 do 184, a funkcja kalendarza ma 43 zmienne i ok. 26 odwołań do zmiennych spoza siebie (limit 60).
+  - Nowy skrypt `luaactive.ps1` liczy najgorszy moment w każdym pliku i jest uruchamiany przed każdą zmianą.

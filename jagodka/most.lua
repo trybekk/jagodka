@@ -398,6 +398,7 @@ function Most.RequestHistory()
         if e.src ~= "S" and e.ts > newest then newest = e.ts end
     end
     Most.Send("HREQ", tostring(newest), "high")
+    addonTable.Sync.Start("history") -- pasek synchronizacji (synchro.lua)
 end
 
 local function HandleHistoryRequest(sender, rawSender, since)
@@ -423,6 +424,7 @@ end
 -- ============================================================================
 function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
     if pType == "GMSG" or pType == "HIST" then
+        if pType == "HIST" then addonTable.Sync.Activity("history") end
         local senderInfo = IsKnownAllowedSender(senderName)
         local e = DecodeMessage(payload)
         if not e or not ctx.isGuildAllowed(e.guild) then return true end

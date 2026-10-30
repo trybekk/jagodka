@@ -165,6 +165,8 @@ end
 local OnlineText = MainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 OnlineText:SetPoint("RIGHT", CloseBtn, "LEFT", -10, 0)
 OnlineText:SetText("Online: |cff00ff000|r")
+-- Pasek synchronizacji w naglowku, na lewo od licznika (synchro.lua; widoczny tylko, gdy cos sie dzieje)
+addonTable.Sync.Attach(MainFrame, OnlineText)
 
 local Panels = {}
 local tabNames = {"Chat", "Members", "Guilds", "Events", "Calendar", "Settings"}
@@ -475,6 +477,7 @@ function EventSync.Request(force)
 if not force and GetTime() - EventSync.lastRequest < 300 then return end
 EventSync.lastRequest = GetTime()
 SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
+addonTable.Sync.Start("events")
 end
 function EventSync.HandleRequest(requester)
 if #eventsList == 0 then return end
@@ -685,11 +688,11 @@ SearchLabel:SetText("Search:")
 SearchEditBox.Instructions = SearchEditBox:CreateFontString(nil, "ARTWORK", "GameFontDisable")
 SearchEditBox.Instructions:SetPoint("LEFT", SearchEditBox, "LEFT", 5, 0)
 SearchEditBox.Instructions:SetText("Name, class, guild or rank...")
--- Domyslnie wszyscy czlonkowie gildii z listy; odznaczone = tylko online
+-- Domyslnie tylko online; zaznaczone = wszyscy czlonkowie gildii z listy (takze offline)
 local ShowOfflineCheck = CreateFrame("CheckButton", nil, Panels[2], "UICheckButtonTemplate")
 ShowOfflineCheck:SetSize(24, 24)
 ShowOfflineCheck:SetPoint("LEFT", SearchEditBox, "RIGHT", 15, 0)
-ShowOfflineCheck:SetChecked(true)
+ShowOfflineCheck:SetChecked(false)
 ShowOfflineCheck.label = ShowOfflineCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 ShowOfflineCheck.label:SetPoint("LEFT", ShowOfflineCheck, "RIGHT", 2, 0)
 ShowOfflineCheck.label:SetText("Show offline")
@@ -726,7 +729,7 @@ end)
 col.header = h
 end
 UpdateSortHeaders()
--- Reset: czysci wyszukiwarke, wlacza "Pokaz offline", przywraca domyslne sortowanie i strone 1
+-- Reset: czysci wyszukiwarke, wylacza "Pokaz offline" (domyslnie), przywraca domyslne sortowanie i strone 1
 do
 local ResetViewBtn = CreateFrame("Button", nil, Panels[2], "UIPanelButtonTemplate")
 ResetViewBtn:SetSize(70, 22)
@@ -735,7 +738,7 @@ ResetViewBtn:SetText("Reset")
 ResetViewBtn:SetScript("OnClick", function()
 SearchEditBox:SetText("")
 SearchEditBox:ClearFocus()
-ShowOfflineCheck:SetChecked(true)
+ShowOfflineCheck:SetChecked(false)
 membersView.sortKey, membersView.desc, membersView.page = nil, false, 1
 UpdateSortHeaders()
 UpdateMainTable()
@@ -1300,12 +1303,14 @@ info.func = function() EventPicker.minute = m _G.UIDropDownMenu_SetText(MinuteDD
 _G.UIDropDownMenu_AddButton(info, level)
 end
 end)
--- Domyslnie: dzisiaj o 20:00 (ustawiane przy kazdym otwarciu okna)
+-- Domyslnie: dzisiaj o 20:00 (ustawiane przy kazdym otwarciu okna).
+-- EventPicker.presetDay (czas dnia, np. z klikniecia w kalendarzu) = ten dzien zamiast dzisiaj, jednorazowo.
 function EventPicker.Reset()
-local now = time()
-EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = date("%d.%m.%Y", now), 20, 0, nil
+local day = EventPicker.presetDay or time()
+EventPicker.presetDay = nil
+EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = date("%d.%m.%Y", day), 20, 0, nil
 _G.UIDropDownMenu_SetText(DungeonDD, "(none / other)")
-_G.UIDropDownMenu_SetText(DateDD, DayLabel(now))
+_G.UIDropDownMenu_SetText(DateDD, DayLabel(day))
 _G.UIDropDownMenu_SetText(HourDD, "20")
 _G.UIDropDownMenu_SetText(MinuteDD, "00")
 end
@@ -1315,6 +1320,11 @@ local CreatorCloseBtn = CreateFrame("Button", nil, CreatorFrame, "UIPanelCloseBu
 CreatorCloseBtn:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -2, -2)
 table.insert(_G.UISpecialFrames, "JagodkiCreatorFrame")
 CreatorFrame:SetScript("OnShow", function() EventPicker.Reset() end)
+-- Otwarcie okna tworzenia z gotowa data (kalendarz); okno juz otwarte = tylko zmiana daty
+function EventPicker.OpenFor(dayTime)
+EventPicker.presetDay = dayTime
+if CreatorFrame:IsShown() then EventPicker.Reset() else CreatorFrame:Show() end
+end
 -- OPIS: pole wieloliniowe z przewijaniem i licznikiem bajtow
 local DescInput = CreateFrame("EditBox", nil, CreatorFrame)
 do
@@ -1410,7 +1420,8 @@ C_Timer.NewTicker(1, function() if Panels[6]:IsVisible() then SettingsStatus:Set
 -- ============================================================================
 -- 6C. ZAKŁADKA 5: KALENDARZ (miesiac 7x6, poniedzialek-niedziela, wydarzenia z zakladki Events)
 -- ============================================================================
-do
+-- Osobna funkcja (nie blok do-end): jej zmienne lokalne nie licza sie do limitu 200 glownego pliku
+local function BuildCalendar()
 local MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
 local DAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 -- Rozmiar komorek i liczba linii zaleza od rozmiaru zakladki (LayoutGrid); 80x68 i 3 linie przy 850x620
@@ -1468,9 +1479,127 @@ if i >= 6 then dayHeader:SetTextColor(1, 0.5, 0.5) end
 dayHeaders[i] = dayHeader
 end
 -- 42 komorki dni, w kazdej do MAX_LINES przyciskow wydarzen (widac LINES)
+-- Prawy klik w wydarzenie: menu "Invite members" = zaproszenia do grupy dla wszystkich zapisanych.
+-- Pomijamy siebie, osoby juz w grupie i offline. Party ma 5 miejsc: gdy chetnych jest wiecej,
+-- grupa jest zamieniana na raid (od razu albo po pierwszym przyjetym zaproszeniu), potem zaproszenia dla reszty.
+local EventMenu = CreateFrame("Frame", "JagodkiCalendarEventMenu", UIParent, "UIDropDownMenuTemplate")
+local menuEvent, pendingInvites = nil, nil
+local function Report(text) if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end end
+local function InviteName(name)
+local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
+if invite then invite(name) end
+end
+local function MakeRaid()
+local convert = (_G.C_PartyInfo and _G.C_PartyInfo.ConvertToRaid) or _G.ConvertToRaid
+if convert then convert() end
+end
+local function InGroup(name) return _G.UnitInParty(name) or _G.UnitInRaid(name) end
+local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
+local function SignedUpOthers(ev)
+local n, me = 0, UnitName("player")
+for name in pairs(ev.roster or {}) do if name ~= me then n = n + 1 end end
+return n
+end
+local function InviteSignedUp(ev)
+if _G.IsInGroup() and not IsLeader() then Report("|cffff5555Only the group leader (or a raid assistant) can invite.|r") return end
+-- Kto jest online: ta sama lista co w Members (gracze z addonem + rostery gildii)
+local online = {}
+for _, p in ipairs(Roster.BuildList(false)) do online[p.name] = true end
+local me, toInvite, already, offline = UnitName("player"), {}, 0, 0
+for name in pairs(ev.roster or {}) do
+if name ~= me then
+if InGroup(name) then already = already + 1
+elseif not online[name] then offline = offline + 1
+else table.insert(toInvite, name) end
+end
+end
+table.sort(toInvite)
+local summary = "(already in group: " .. already .. ", offline: " .. offline .. ")"
+if #toInvite == 0 then Report(ev.title .. ": nobody to invite " .. summary) return end
+-- Wolne miejsca: raid 40, party / brak grupy 5 (lacznie ze mna)
+local size = _G.IsInGroup() and _G.GetNumGroupMembers() or 1
+local limit = _G.IsInRaid() and 40 or 5
+local rest = {}
+for _, name in ipairs(toInvite) do
+if size < limit then InviteName(name) size = size + 1 else table.insert(rest, name) end
+end
+if #rest > 0 and not _G.IsInRaid() then
+-- Reszta po zamianie na raid (GROUP_ROSTER_UPDATE ponizej); bez grupy - po pierwszym przyjetym zaproszeniu
+pendingInvites = { names = rest, expires = GetTime() + 90 }
+if _G.IsInGroup() and _G.UnitIsGroupLeader("player") then MakeRaid() end
+Report(ev.title .. ": inviting " .. (#toInvite - #rest) .. " now, " .. #rest .. " more after converting to raid " .. summary)
+else
+Report(ev.title .. ": inviting " .. #toInvite .. " " .. summary)
+end
+end
+local GroupWatcher = CreateFrame("Frame")
+GroupWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+GroupWatcher:SetScript("OnEvent", function()
+if not pendingInvites then return end
+if GetTime() > pendingInvites.expires then pendingInvites = nil return end
+if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
+if not _G.IsInRaid() then MakeRaid() return end
+local names = pendingInvites.names
+pendingInvites = nil
+local sent = 0
+for _, name in ipairs(names) do
+if not InGroup(name) and _G.GetNumGroupMembers() + sent < 40 then InviteName(name) sent = sent + 1 end
+end
+Report("Converted to raid - invited " .. sent .. " more.")
+end)
+_G.UIDropDownMenu_Initialize(EventMenu, function(self, level)
+if not menuEvent then return end
+local ev = menuEvent
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.isTitle, info.notCheckable = ev.title .. "  " .. ev.date .. " " .. ev.time, true, true
+_G.UIDropDownMenu_AddButton(info, level)
+local n = SignedUpOthers(ev)
+info = _G.UIDropDownMenu_CreateInfo()
+info.text = (n > 0) and ("Invite members (" .. n .. ")") or "Invite members (no sign-ups)"
+info.disabled = (n == 0)
+info.notCheckable = true
+info.func = function() InviteSignedUp(ev) end
+_G.UIDropDownMenu_AddButton(info, level)
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Open event", true
+info.func = function() OpenEvent(ev) end
+_G.UIDropDownMenu_AddButton(info, level)
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Cancel", true
+info.func = function() _G.CloseDropDownMenus() end
+_G.UIDropDownMenu_AddButton(info, level)
+end, "MENU")
 local cells = {}
+-- Klik w wolne miejsce dnia (nie w wydarzenie): menu "Create event" z gotowa data.
+-- Tylko oficer (jak przycisk Create Event) i tylko dzisiaj / przyszle dni.
+local DayMenu = CreateFrame("Frame", "JagodkiCalendarDayMenu", UIParent, "UIDropDownMenuTemplate")
+local menuCell = nil
+_G.UIDropDownMenu_Initialize(DayMenu, function(self, level)
+if not menuCell then return end
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.isTitle, info.notCheckable = date("%A %d.%m.%Y", menuCell.dayTime), true, true
+_G.UIDropDownMenu_AddButton(info, level)
+local canCreate = IsPlayerOfficer() and not menuCell.isPast
+info = _G.UIDropDownMenu_CreateInfo()
+info.text = canCreate and "Create event" or (menuCell.isPast and "Create event (past day)" or "Create event (officers only)")
+info.disabled = not canCreate
+info.notCheckable = true
+local dayTime = menuCell.dayTime
+info.func = function() EventPicker.OpenFor(dayTime) end
+_G.UIDropDownMenu_AddButton(info, level)
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Cancel", true
+info.func = function() _G.CloseDropDownMenus() end
+_G.UIDropDownMenu_AddButton(info, level)
+end, "MENU")
 for k = 1, 42 do
 local cell = CreateFrame("Frame", nil, Cal, "BackdropTemplate")
+cell:EnableMouse(true)
+cell:SetScript("OnMouseUp", function(self)
+if not self.dayTime then return end
+menuCell = self
+_G.ToggleDropDownMenu(1, nil, DayMenu, "cursor", 0, 0)
+end)
 cell:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 cell.dayText = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 cell.dayText:SetPoint("TOPLEFT", cell, "TOPLEFT", 4, -3)
@@ -1484,7 +1613,17 @@ b.bg = b:CreateTexture(nil, "BACKGROUND") b.bg:SetAllPoints()
 b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 b.text:SetPoint("LEFT", b, "LEFT", 2, 0) b.text:SetPoint("RIGHT", b, "RIGHT", -2, 0) b.text:SetJustifyH("LEFT") b.text:SetWordWrap(false)
 b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-b:SetScript("OnClick", function(self) if self.event then OpenEvent(self.event) end end)
+-- Lewy = otworz wydarzenie, prawy = menu (Invite members / Open event)
+b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+b:SetScript("OnClick", function(self, button)
+if not self.event then return end
+if button == "RightButton" then
+menuEvent = self.event
+_G.ToggleDropDownMenu(1, nil, EventMenu, "cursor", 0, 0)
+else
+OpenEvent(self.event)
+end
+end)
 b:SetScript("OnEnter", ShowEventTooltip)
 b:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 cell.lines[l] = b
@@ -1531,6 +1670,9 @@ local d, cy, cm, inMonth = k - first, y, m, true
 if d < 1 then cy, cm, d, inMonth = prevY, prevM, DaysIn(prevY, prevM) + d, false
 elseif d > DaysIn(y, m) then cy, cm, d, inMonth = nextY, nextM, d - DaysIn(y, m), false end
 local key = cy * 10000 + cm * 100 + d
+-- Dla menu "Create event": dzien tej komorki i czy juz minal
+cell.dayTime = time({ year = cy, month = cm, day = d, hour = 12 })
+cell.isPast = key < todayKey
 cell.dayText:SetText(d)
 cell:SetAlpha(inMonth and 1 or 0.35)
 -- Dzisiaj: zlota ramka; przeszle dni ciemniejsze
@@ -1563,6 +1705,7 @@ PrevBtn:SetScript("OnClick", function() view.month = view.month - 1 if view.mont
 NextBtn:SetScript("OnClick", function() view.month = view.month + 1 if view.month > 12 then view.month, view.year = 1, view.year + 1 end UpdateCalendar() end)
 TodayBtn:SetScript("OnClick", function() local t = date("*t") view.year, view.month = t.year, t.month UpdateCalendar() end)
 end
+BuildCalendar()
 -- ============================================================================
 -- 7. PANEL BOCZNY (WIDOCZNY ZAWSZE - PRAWA STRONA)
 -- ============================================================================
@@ -1790,9 +1933,11 @@ if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOf
 if pType == "EV_REQ" then
 if senderName ~= myName then EventSync.HandleRequest(senderName) end
 elseif pType == "EV_CLAIM" then
+addonTable.Sync.Activity("events")
 -- Ktos inny juz odpowiada na te prosbe
 if senderName ~= myName then EventSync.pending[payload] = nil end
 elseif pType == "EV_ADD" then
+addonTable.Sync.Activity("events")
 local evID, title, eDate, eTime, desc, creator, dungeon, parts, evGuild = strsplit(":", payload, 9)
 evID, title, eDate, eTime, desc, creator, dungeon, evGuild = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName, DecodeField(dungeon), DecodeField(evGuild)
 if dungeon == "" then dungeon = nil end
@@ -1812,6 +1957,7 @@ if MainFrame:IsShown() then UpdateEventsList() end
 end
 end
 elseif pType == "EV_ROS" then
+addonTable.Sync.Activity("events")
 -- Zapisy z synchronizacji: dopisujemy tylko brakujace osoby (wlasny zapis kazdy wysyla sam przez EV_SIGN)
 local evID, list = strsplit(":", payload, 2)
 evID = DecodeField(evID)

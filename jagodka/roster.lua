@@ -210,7 +210,10 @@ local function RequestStale()
         local g = rosters[guild]
         if guild ~= MyGuild() and (not g or now - (g.updated or 0) > STALE_AFTER) then table.insert(list, Enc(guild)) end
     end
-    if #list > 0 then Most.Send("RQ", table.concat(list, ","), "low") end
+    if #list > 0 then
+        Most.Send("RQ", table.concat(list, ","), "low")
+        addonTable.Sync.Start("rosters") -- pasek synchronizacji (synchro.lua)
+    end
 end
 
 -- ============================================================================
@@ -240,6 +243,7 @@ local function Upsert(g, list, snap)
 end
 
 function Roster.HandlePacket(pType, payload, senderName)
+    if pType == "RF" or pType == "RD" then addonTable.Sync.Activity("rosters") end
     if pType == "RF" then
         local gEnc, snap, idx, total, complete, ranks, list = strsplit(":", payload, 7)
         local guild = Dec(gEnc)
