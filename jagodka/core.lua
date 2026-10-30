@@ -232,7 +232,7 @@ local Mute = addonTable.Mute
 local function SendJagodkaNetworkPacket(prefixType, dataPayload, priority)
     local myGuild = GetGuildInfo("player")
     if not IsPlayerGuildAllowed(myGuild) then return end
-    -- Jedna wysylka na kanal globalny (przed jego dolaczeniem: GUILD), przez kolejke z limitem
+    -- Wysylka przez GUILD (relay przekaze pakiet innym gildiom), przez kolejke z limitem
     -- priority "low" = synchronizacja (czat ma pierwszenstwo)
     Most.Send(prefixType, dataPayload, priority)
 end
@@ -248,7 +248,7 @@ local function SendEvent(ev, priority)
     local pre = table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time) }, ":") .. ":"
     local post = ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":99:" .. EncodeField(ev.guild)
     local descHeader = "EV_DESC:" .. EncodeField(ev.id) .. ":99:"
-    local chunks = Most.EncodeChunks(ev.desc, 245 - #"EV_ADD:" - #pre - #post, 245 - #descHeader)
+    local chunks = Most.EncodeChunks(ev.desc, 225 - #"EV_ADD:" - #pre - #post, 225 - #descHeader)
     while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
     SendJagodkaNetworkPacket("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks .. ":" .. EncodeField(ev.guild), priority)
     for i = 2, #chunks do
@@ -256,12 +256,18 @@ local function SendEvent(ev, priority)
     end
 end
 
-local function SendStatusPacket(msgType)
+-- target: powitanie szeptem gracza z innej gildii (znalezionego na liscie kanalu)
+local function SendStatusPacket(msgType, target)
     local guildName, rankName, rankIndex = GetGuildInfo("player")
     guildName = guildName or "Brak"
     rankName = rankName or "Brak"
     -- Indeks rangi pozwala innym sprawdzic uprawnienia oficerskie (tworzenie/usuwanie wydarzen)
-    SendJagodkaNetworkPacket(msgType, UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName .. ":" .. ADDON_VERSION .. ":" .. (rankIndex or -1))
+    local payload = UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName .. ":" .. ADDON_VERSION .. ":" .. (rankIndex or -1)
+    if target then
+        Most.Whisper(target, "FW", UnitName("player") .. ":" .. msgType .. ":" .. payload, "high")
+    else
+        SendJagodkaNetworkPacket(msgType, payload)
+    end
 end
 
 for i, name in ipairs(tabNames) do
@@ -672,6 +678,7 @@ activePlayers = activePlayers,
 isGuildAllowed = IsPlayerGuildAllowed,
 colorName = GetColoredName,
 onChatChanged = function(tab) if tab == currentChatTab then RefreshChatDisplay() end end,
+sendHello = function(target) SendStatusPacket("PING", target) end,
 })
 Mute.Init({
 activePlayers = activePlayers,
@@ -1880,8 +1887,8 @@ if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONL
 end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
 end
--- CHAT_MSG_ADDON: prefix, text, channel, sender, target, zoneChannelID, localID (numer kanalu u nas)
-NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender, _, _, localID)
+-- CHAT_MSG_ADDON: prefix, text, channel, sender
+NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
 if event == "ADDON_LOADED" and prefix == addonName then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
 eventsList = _G.JagodkiEventsDB
@@ -1896,10 +1903,11 @@ TryAnnounce()
 C_Timer.After(8, function()
 Most.JoinChannel()
 C_Timer.After(2, function()
--- Ponowny PING juz przez kanal globalny, zeby zobaczyly nas inne gildie, potem prosba o historie
+-- Ponowny PING juz po wejsciu na kanal, potem szukanie innych gildii i prosba o historie
 announced = false
 TryAnnounce()
 if announced then
+Most.Discover()
 Most.RequestHistory()
 Mute.Request()
 -- Wydarzenia i zapisy chwile pozniej, zeby nie wysylac wszystkiego naraz
@@ -1930,9 +1938,11 @@ RefreshMyGuildRoster()
 TryAnnounce()
 PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
--- Z kanalow przyjmujemy tylko nasz (ten sam prefiks na obcym kanale = ktos podszywajacy sie)
-if channel == "CHANNEL" and not Most.IsOurChannel(localID) then return end
+-- Most przekazuje pakiet do innych gildii, a z przekazanego wyjmuje prawdziwego nadawce
 local senderName = Ambiguate(sender, "none")
+text, channel, senderName = Most.Route(text, channel, senderName)
+if not text then return end
+sender = senderName
 local myName = UnitName("player")
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end

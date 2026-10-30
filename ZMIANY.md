@@ -8,8 +8,9 @@
 | 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
 | 0.7.5 | `5eda26f` | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
 | 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
-| 0.7.7 | `36241cb` | wypchnięta; na postaciach z wyższym levelem sync w jednej gildii działa (kanał na postaciach lvl 1 zwraca 4) |
-| 0.7.8 | — | lokalnie, do przetestowania w grze |
+| 0.7.7 | `36241cb` | wypchnięta; sync w jednej gildii działa tylko przez `GUILD`, kanał zwraca 4 na każdej postaci |
+| 0.7.8 | `64ea018` | wypchnięta; test cross-guild pokazał, że kanał nie przenosi pakietów |
+| 0.8.0 | hash w `git log` | wypchnięta, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -309,4 +310,33 @@ Do przetestowania:
 - [ ] Wyjście z gildii, od razu `/ginvite` do `Testowo` i wysyłka: wiadomość z addonu wychodzi albo pojawia się „Guild info not loaded yet”, a nie „not on the Community list”.
 - [ ] Gracz spoza listy widzi w komunikacie nazwę swojej gildii.
 - [ ] Po zmianie gildii inni od razu widzą gracza w nowej gildii (Members, nazwa gildii przy wiadomościach).
-- [ ] Test cross-guild na postaciach z wyższym levelem (lvl 1 nie może wysyłać na kanał – kod 4).
+- [ ] Test cross-guild na postaciach z wyższym levelem (lvl 1 nie może wysyłać na kanał – kod 4). **Sprostowanie:** poziom nie ma znaczenia, patrz 0.8.0.
+
+---
+
+# 0.8.0 – nowa łączność między gildiami (relaye i szepty)
+
+**Problem znaleziony w teście:** kod 4 (`InvalidChatType`) wracał na każdej postaci, także z wysokim poziomem.
+- Przyczyna: Classic od patcha 1.13.3 blokuje addonom wysyłanie pakietów na własne kanały graczy. Na zrzutach wszystkie odebrane pakiety były z `GUILD`, więc działała tylko własna gildia.
+- **Sprostowanie:** wyjaśnienia z 0.7.7 (kanał tymczasowy) i 0.7.8 (poziom 1) były błędne.
+- Testy przed przebudową: na `/chatlist JagodkaNetH` wszyscy się widzą, a ręczne wiadomości na kanale dochodzą.
+
+**Nowy transport (`most.lua`, `core.lua`):**
+- Każdy wysyła pakiet przez `GUILD`.
+- Relay gildii opakowuje każdy pakiet z `GUILD` w `FW:nadawca:pakiet` i szepcze go relayom innych gildii.
+- Odbiorca obsługuje pakiet jako wysłany przez pierwotnego nadawcę i wkleja go do swojego `GUILD`. Opakowanych pakietów nikt nie przekazuje dalej, więc nie ma pętli.
+- **Czat też idzie tą drogą**, a nie jako zwykła wiadomość na kanale, jak zakładał pierwszy plan. Linie z `/g` i tak muszą iść szeptem, bo addon nie może sam pisać na kanale bez wciśnięcia klawisza przez gracza. Jedna droga dla wszystkiego to mniej kodu i brak filtrów czatu.
+- **Kanał służy tylko do szukania innych gildii:** relay co 30 s czyta listę członków (`ListChannelByName`) i wita szeptem nieznanych graczy. Wynik tego odczytu nie pojawia się w oknie czatu.
+- Szept do wylogowanego gracza: komunikat „No player named…” jest chowany, a gracz od razu znika z listy online, więc relayem jego gildii zostaje następna osoba.
+- Pakiety mają teraz najwyżej 225 bajtów (zapas na nagłówek `FW:nick:`).
+- Settings: nowa linia **Linked guilds** (gildia i jej relay) oraz **members seen** przy kanale. W diagnostyce pakiety z innych gildii mają przedrostek `FW`, np. `FW GMSG=3`.
+- Wszyscy muszą zaktualizować addon; starsze wersje nie rozumieją `FW`.
+
+## Do przetestowania (0.8.0)
+- [ ] Znaczek w Settings -> Global Channels wyłączony: po relogu Settings pokazuje `members seen` większe od 0, a `/chatlist` działa normalnie.
+- [ ] Do 30 s po wejściu obu gildii: **Linked guilds** pokazuje drugą gildię u obu osób.
+- [ ] General i Trade: wiadomość dochodzi do drugiej gildii i z powrotem (`FW GMSG` w Received).
+- [ ] Wiadomość z `/g` trafia do `/g` drugiej gildii tylko raz.
+- [ ] Members, Events, Mute i Guilds widzą dane z drugiej gildii.
+- [ ] Wylogowanie relaya: bez komunikatu „No player named…”, następna osoba przejmuje relay.
+- [ ] Trzy osoby w dwóch gildiach: osoba, która nie jest relayem, też dostaje wiadomości z drugiej gildii.

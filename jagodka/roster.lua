@@ -27,7 +27,7 @@ local table, math, wipe = _G.table, _G.math, _G.wipe
 local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
-local MAX_ADDON_BYTES = 250
+local MAX_ADDON_BYTES = 225
 local FULL_INTERVAL = 1800   -- pelny roster co 30 min
 local FULL_COOLDOWN = 60     -- nie czesciej niz raz na minute (kilka logowan naraz = jedna wysylka)
 local STALE_AFTER = 600      -- po zalogowaniu prosimy o roster gildii, ktorej dane maja > 10 min

@@ -2,10 +2,11 @@
 -- MOST: wspolny kanal globalny <-> czaty gildyjne (/g) wszystkich gildii z listy
 -- ============================================================================
 -- Zasady:
---  * Kazda wiadomosc trafia na kanal globalny dokladnie raz (ma unikalne ID).
+--  * Kazda wiadomosc ma unikalne ID, wiec duplikaty sa odrzucane u odbiorcy.
 --  * W kazdej gildii jedna osoba z addonem jest RELAYEM (alfabetycznie pierwszy nick
---    sposrod graczy online z addonem). Tylko relay przenosi wiadomosci /g <-> kanal.
---  * Wiadomosci z kanalu relay wkleja do /g swojej gildii (z kolejki, po kolei).
+--    sposrod graczy online z addonem). Relay przenosi /g <-> addon i laczy gildie:
+--    pakiety z GUILD szepcze relayom innych gildii, a oni wklejaja je do swoich GUILD.
+--  * Wiadomosci z innych gildii relay wkleja do /g swojej gildii (z kolejki, po kolei).
 --  * Nowy gracz po zalogowaniu dostaje historie od kogos, kto jest online.
 -- ============================================================================
 local addonName, addonTable = ...
@@ -29,9 +30,9 @@ local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.t
 local table, string, math = _G.table, _G.string, _G.math
 
 local PREFIX = "JagodkaComm"
--- Kanal zwykly (JoinChannelByName), osobny dla kazdej frakcji. Do 0.7.6 byl "JagodkaWspolnota"
--- dolaczany przez JoinTemporaryChannel - na kanal tymczasowy gra nie wpuszcza pakietow addonu
--- (SendAddonMessage zwracal 4 = InvalidChatType), dlatego nic nie dochodzilo miedzy graczami.
+-- Kanal zwykly (JoinChannelByName), osobny dla kazdej frakcji. Classic nie wpuszcza pakietow addonu
+-- na kanaly graczy (SendAddonMessage zwraca 4 = InvalidChatType), wiec kanal sluzy tylko do
+-- znajdowania graczy z innych gildii. Pakiety ida przez GUILD i szepty miedzy relayami (Route).
 local COMM_CHANNEL_ALLIANCE, COMM_CHANNEL_HORDE = "JagodkaNet", "JagodkaNetH"
 local OLD_COMM_CHANNEL = "JagodkaWspolnota" -- opuszczany przy wejsciu na nowy kanal
 -- Haslo kanalu: obcy gracz nie wejdzie przez /join i nie zobaczy ani nie podrobi pakietow.
@@ -43,7 +44,8 @@ local MAX_LOG = 300                   -- ile wiadomosci trzymamy (pamiec + Saved
 local HISTORY_SYNC_MAX = 30           -- ile ostatnich wiadomosci wysylamy nowemu graczowi
 local CONTENT_DEDUP_WINDOW = 15       -- okno (s): ta sama linia z /g od dwoch przekazujacych = jedna wiadomosc
 local BACKUP_MIN_DELAY, BACKUP_MAX_DELAY = 2, 5 -- relay zapasowy czeka losowo tyle sekund na glownego
-local MAX_ADDON_BYTES = 250           -- limit pakietu addonu to 255 bajtow
+local MAX_ADDON_BYTES = 225           -- limit pakietu addonu to 255 bajtow, zapas na naglowek "FW:nick:"
+local DISCOVER_INTERVAL, HELLO_RETRY = 30, 120 -- co ile relay czyta liste kanalu i ponawia powitanie (s)
 local MAX_GUILD_LINE_BYTES = 250      -- limit linii /g to 255 bajtow
 
 local Most = {}
@@ -141,13 +143,6 @@ function Most.GetChannelId()
     return nil
 end
 
--- Czy pakiet z "CHANNEL" przyszedl z naszego kanalu (localID = numer kanalu u odbiorcy).
--- Inaczej ktos z dowolnego innego kanalu moglby wyslac nam pakiety z naszym prefiksem.
-function Most.IsOurChannel(localID)
-    if type(localID) ~= "number" or localID <= 0 then return true end -- klient nie podal numeru
-    return localID == Most.GetChannelId()
-end
-
 -- Ukrycie kanalu z okien czatu, zeby nie zasmiecal czatu
 local function HideFromChat(name)
     if not _G.ChatFrame_RemoveChannel then return end
@@ -176,14 +171,15 @@ local highQueue, lowQueue = {}, {}  -- high: biezace wiadomosci, low: historia
 local guildLineQueue = {}           -- linie do wklejenia w /g (tylko relay)
 local postedLines = {}              -- linie wklejone przez nas w /g -> czas (ochrona przed petla)
 local tokens, MAX_TOKENS, TOKENS_PER_SEC = 10, 10, 1
+local whisperedAt = {}              -- nick -> czas ostatniego szeptu addonu (rozpoznanie "gracz offline")
 
 function Most.Send(pType, payload, priority)
     local item = { msg = pType .. ":" .. payload, tries = 0 }
     table.insert(priority == "low" and lowQueue or highQueue, item)
 end
 
-function Most.Whisper(target, pType, payload)
-    table.insert(lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
+function Most.Whisper(target, pType, payload, priority)
+    table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
 end
 
 -- Starsze API zwraca bool, nowsze kod Enum.SendAddonMessageResult (0 = sukces)
@@ -195,18 +191,10 @@ local function IsThrottle(result) return result == false or result == 3 or resul
 -- Zwraca wynik API i rodzaj kanalu (do diagnostyki)
 local function SendRaw(item)
     if item.target then
+        whisperedAt[item.target] = GetTime()
         return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", item.target), "WHISPER"
     end
-    local id = Most.GetChannelId()
-    if id then
-        local result = C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "CHANNEL", id)
-        if IsOk(result) or IsThrottle(result) or not IsInGuild() then return result, "CHANNEL" end
-        -- Kanal odrzucil pakiet na stale: wlasna gildia dostaje go chociaz przez GUILD
-        Count(debug.sent, "CHANNEL fail")
-        debug.lastResult.CHANNEL = tostring(result)
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD fallback"
-    elseif IsInGuild() then
-        -- Zanim kanal globalny zostanie dolaczony, wysylamy chociaz do wlasnej gildii
+    if IsInGuild() then
         return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
     end
     return true, "NONE"
@@ -524,7 +512,7 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
             Count(debug.rejected, "history from unknown")
             return true
         end
-        -- Wlasne wiadomosci wracaja z kanalu i tez tu trafiaja (to dobry znak: kanal dziala)
+        -- Wlasne wiadomosci wracaja z GUILD i tez tu trafiaja
         if not Ingest(e, pType == "GMSG") then Count(debug.rejected, "duplicate / own echo / muted") end
         return true
     elseif pType == "HREQ" then
@@ -540,13 +528,130 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
 end
 
 -- ============================================================================
+-- LACZNOSC MIEDZY GILDIAMI: relay gildii <-> relaye innych gildii (szept addonu)
+-- ============================================================================
+-- Pakiet z GUILD relay opakowuje w "FW:nadawca:pakiet" i szepcze relayom innych gildii.
+-- Odbiorca wkleja go do GUILD swojej gildii bez zmian. Opakowanych nikt nie przekazuje dalej.
+local function ForwardPriority(text)
+    return text:sub(1, 5) == "GMSG:" and "high" or "low"
+end
+
+-- Relaye innych gildii wg listy graczy online: gildia -> nick
+local function OtherGuildRelays()
+    local relays, mine = {}, MyGuild()
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild ~= mine and not relays[p.guild] and ctx.isGuildAllowed(p.guild) then
+            relays[p.guild] = Most.GetRelayName(p.guild)
+        end
+    end
+    return relays
+end
+
+local function ForwardToOtherGuilds(origin, text)
+    local payload = origin .. ":" .. text
+    if #payload + #"FW:" > 255 then Count(debug.rejected, "too long to forward") return end
+    for _, relay in pairs(OtherGuildRelays()) do
+        Most.Whisper(relay, "FW", payload, ForwardPriority(text))
+    end
+end
+
+-- Wywolywane dla kazdego pakietu przed jego obsluga. Zwraca tresc, rodzaj kanalu i prawdziwego
+-- nadawce albo nil, gdy pakietu nie nalezy obslugiwac.
+function Most.Route(text, channel, senderName)
+    local pType, rest = strsplit(":", text, 2)
+    if pType ~= "FW" then
+        -- Tez wlasne pakiety: gra odsyla nam je z GUILD, wiec jest jedna droga dla wszystkich
+        if channel == "GUILD" and Most.IsRelay() then ForwardToOtherGuilds(senderName, text) end
+        return text, channel, senderName
+    end
+    -- Nasz wlasny pakiet wklejony do GUILD: juz go obsluzylismy przy odbiorze szeptu
+    if senderName == MyName() then return nil end
+    local origin, inner = strsplit(":", rest or "", 2)
+    origin = Most.Plain(origin)
+    if not origin or origin == "" or not inner or origin == MyName() then return nil end
+    if channel == "WHISPER" then
+        -- Za innych moze mowic tylko znany gracz z gildii z listy, za siebie kazdy (powitanie)
+        if origin ~= senderName and not IsKnownAllowedSender(senderName) then
+            Count(debug.rejected, "forward from unknown")
+            return nil
+        end
+        table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0 })
+    elseif channel ~= "GUILD" then
+        return nil
+    end
+    return inner, "FW", origin
+end
+
+-- Szukanie innych gildii: relay czyta liste czlonkow kanalu i wita sie z nieznanymi graczami.
+-- Powitany gracz wkleja PING do swojej gildii, a jej relay od tej chwili zna nas i przesyla pakiety.
+local listAskedAt, helloAt, channelMembers = 0, {}, 0
+
+function Most.Discover()
+    if not _G.ListChannelByName or not Most.IsRelay() then return end
+    listAskedAt = GetTime()
+    _G.ListChannelByName(ChannelName())
+end
+
+local function IsActivePlayer(name)
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.name == name then return true end
+    end
+    return false
+end
+
+local function HandleChannelList(list)
+    if not ctx or not Most.IsRelay() then return end
+    local now, count = GetTime(), 0
+    for raw in tostring(list or ""):gmatch("[^,]+") do
+        -- Na liscie wlasciciel ma "*", a moderator "@"
+        local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
+        count = count + 1
+        local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
+        if name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
+            and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello then
+            helloAt[name] = now
+            ctx.sendHello(name)
+        end
+    end
+    channelMembers = count
+end
+
+-- Szept do wylogowanego gracza daje komunikat systemowy: chowamy go i od razu usuwamy gracza
+-- z listy online, dzieki czemu relayem tej gildii zostaje nastepna osoba
+local function HandlePlayerNotFound(message)
+    local pattern = _G.ERR_CHAT_PLAYER_NOT_FOUND_S
+    if not pattern or not ctx then return false end
+    local name = message:match("^" .. pattern:gsub("%%s", "(.+)") .. "$")
+    if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
+    for i = #ctx.activePlayers, 1, -1 do
+        if ctx.activePlayers[i].name == name then table.remove(ctx.activePlayers, i) end
+    end
+    return true
+end
+
+if _G.ChatFrame_AddMessageEventFilter then
+    _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
+        if select(9, ...) == ChannelName() and GetTime() - listAskedAt < 2 then return true end
+    end)
+    _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
+        if HandlePlayerNotFound(message) then return true end
+    end)
+end
+
+-- ============================================================================
 -- STATUS (zakladka Ustawienia)
 -- ============================================================================
 function Most.GetStatusText()
     local channelId = Most.GetChannelId()
+    local linked = {}
+    if ctx then
+        for guild, relay in pairs(OtherGuildRelays()) do table.insert(linked, guild .. " (" .. relay .. ")") end
+        table.sort(linked)
+    end
     local lines = {
-        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. ChannelName() .. ", /" .. channelId .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
+        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. ChannelName() .. ", /" .. channelId .. ", members seen: " .. channelMembers .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
         "Your guild relay: " .. (Most.GetRelayName() or "-") .. (Most.IsRelay() and " |cff00ff00(you)|r" or ""),
+        "Linked guilds: " .. (#linked > 0 and table.concat(linked, ", ") or "-"),
         "Packet queue: " .. (#highQueue + #lowQueue) .. "   /g queue: " .. #guildLineQueue,
         "Messages in history: " .. #chatLog,
     }
@@ -580,7 +685,12 @@ local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("CHAT_MSG_GUILD")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
 Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
+    if event == "CHAT_MSG_CHANNEL_LIST" then
+        if select(7, ...) == ChannelName() then HandleChannelList(arg1) end
+        return
+    end
     if event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- arg1 = typ komunikatu, 7. dodatkowy argument (arg9) = nazwa kanalu bez numeru
         local channelBaseName = select(7, ...)
@@ -642,6 +752,7 @@ end)
 
 C_Timer.NewTicker(0.2, PumpAddonQueue)
 C_Timer.NewTicker(0.8, PumpGuildLines)
+C_Timer.NewTicker(DISCOVER_INTERVAL, Most.Discover)
 C_Timer.NewTicker(10, function()
     local now = GetTime()
     for k, t in pairs(postedLines) do
