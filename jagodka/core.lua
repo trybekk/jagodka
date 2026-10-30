@@ -31,11 +31,18 @@ local IsInRaid = _G.IsInRaid
 local IsInGroup = _G.IsInGroup
 local IsInGuild = _G.IsInGuild
 local C_Timer = _G.C_Timer
-local GetChannelName = _G.GetChannelName
-local JoinTemporaryChannel = _G.JoinTemporaryChannel
 
 -- WYMUSZONA REJESTRACJA PREFIKSU NA SAMYM STARCIE PLIKU
-C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+-- Klient ma limit zarejestrowanych prefiksow; przy wielu addonach rejestracja moze sie nie udac
+do
+local result = C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+-- Starsze API zwraca bool, nowsze kod: 0 = OK, 1 = juz zarejestrowany (tez OK), 2+ = blad
+if result == false or (type(result) == "number" and result >= 2) then
+C_Timer.After(5, function()
+if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555Nie udalo sie zarejestrowac kanalu addonu (za duzo addonow?) - komunikacja nie bedzie dzialac.|r") end
+end)
+end
+end
 
 -- ============================================================================
 -- 0B. KONFIGURACJA WSPÓLNEGO KANAŁU I BIAŁEJ LISTY GILDII
@@ -48,6 +55,24 @@ local AllowedGuilds = {
 local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end
     return AllowedGuilds[guildName] == true
+end
+
+-- ============================================================================
+-- 0C. WERSJA ADDONU (z pola "## Version" w .toc, wysylana w kazdym meldunku)
+-- ============================================================================
+local GetAddOnMetadata = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+local ADDON_VERSION = GetAddOnMetadata(addonName, "Version") or "0"
+
+-- Porownanie "1.2.10" z "1.2.9": -1 gdy a starsza, 0 gdy ta sama, 1 gdy a nowsza
+local function CompareVersions(a, b)
+    local pa, pb = {}, {}
+    for n in tostring(a):gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
+    for n in tostring(b):gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return (x < y) and -1 or 1 end
+    end
+    return 0
 end
 
 -- ============================================================================
@@ -103,7 +128,8 @@ local columns = {
     { name = "Klasa", width = 90, x = 125 },
     { name = "Poz.", width = 40, x = 220 },
     { name = "Gildia", width = 140, x = 265 },
-    { name = "Ranga", width = 130, x = 410 }
+    { name = "Ranga", width = 65, x = 410 },
+    { name = "Wersja", width = 50, x = 480 }
 }
 
 local UpdateGuildTable = function() end
@@ -150,60 +176,40 @@ end
 -- ============================================================================
 -- 1B. FUNKCJE SIECIOWE NA STABILNE KANAŁY BLIZZARDA
 -- ============================================================================
--- Wspolny ukryty kanal dla wszystkich gildii z bialej listy (GUILD dociera tylko do wlasnej gildii)
-local COMM_CHANNEL = "JagodkaWspolnota"
-
-local function GetCommChannelId()
-    local id = GetChannelName(COMM_CHANNEL)
-    if id and id > 0 then return id end
-    return nil
-end
-
-local function JoinCommChannel()
-    if not GetCommChannelId() then JoinTemporaryChannel(COMM_CHANNEL) end
-    -- Ukrycie kanalu z okien czatu, zeby nie zasmiecal czatu gracza
-    if _G.ChatFrame_RemoveChannel then
-        for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
-            local cf = _G["ChatFrame" .. i]
-            if cf then _G.ChatFrame_RemoveChannel(cf, COMM_CHANNEL) end
-        end
-    end
-end
+-- Transport, kanal globalny i most /g sa w most.lua (wczytywany przed core.lua)
+local Most = addonTable.Most
 
 local function SendJagodkaNetworkPacket(prefixType, dataPayload)
     local myGuild = GetGuildInfo("player")
     if not IsPlayerGuildAllowed(myGuild) then return end
-
-    local msg = prefixType .. ":" .. dataPayload
-    -- GUILD zawsze (sprawdzony kanal dla wlasnej gildii), CHANNEL dodatkowo dla innych gildii z listy
-    if IsInGuild() then
-        C_ChatInfo.SendAddonMessage("JagodkaComm", msg, "GUILD")
-    end
-    local channelId = GetCommChannelId()
-    if channelId then
-        C_ChatInfo.SendAddonMessage("JagodkaComm", msg, "CHANNEL", channelId)
-    end
+    -- Jedna wysylka na kanal globalny (przed jego dolaczeniem: GUILD), przez kolejke z limitem
+    Most.Send(prefixType, dataPayload)
 end
 
 -- Kodowanie pol wydarzen, zeby ":" w tekscie (np. godzina 20:00) nie psul pakietu
-local function EncodeField(s)
-    return (tostring(s or ""):gsub("%%", "%%25"):gsub(":", "%%3A"))
-end
+local EncodeField, DecodeField = Most.EncodeField, Most.DecodeField
 
-local function DecodeField(s)
-    if not s then return nil end
-    return (s:gsub("%%3A", ":"):gsub("%%25", "%%"))
-end
-
-local function BuildEventPacket(ev)
-    return table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time), EncodeField(ev.desc), EncodeField(ev.creator) }, ":")
+-- Wysylka wydarzenia: EV_ADD z poczatkiem opisu, reszta opisu w kolejnych pakietach EV_DESC
+-- (pakiet addonu ma limit 255 bajtow, a opis moze miec do EVENT_DESC_MAX_BYTES)
+local EVENT_DESC_MAX_BYTES, EVENT_MAX_DESC_PARTS = 400, 10
+local function SendEvent(ev)
+    local pre = table.concat({ EncodeField(ev.id), EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time) }, ":") .. ":"
+    local post = ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":99"
+    local descHeader = "EV_DESC:" .. EncodeField(ev.id) .. ":99:"
+    local chunks = Most.EncodeChunks(ev.desc, 245 - #"EV_ADD:" - #pre - #post, 245 - #descHeader)
+    while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
+    SendJagodkaNetworkPacket("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks)
+    for i = 2, #chunks do
+        SendJagodkaNetworkPacket("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i])
+    end
 end
 
 local function SendStatusPacket(msgType)
-    local guildName, rankName = GetGuildInfo("player")
+    local guildName, rankName, rankIndex = GetGuildInfo("player")
     guildName = guildName or "Brak"
     rankName = rankName or "Brak"
-    SendJagodkaNetworkPacket(msgType, UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName)
+    -- Indeks rangi pozwala innym sprawdzic uprawnienia oficerskie (tworzenie/usuwanie wydarzen)
+    SendJagodkaNetworkPacket(msgType, UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName .. ":" .. ADDON_VERSION .. ":" .. (rankIndex or -1))
 end
 
 for i, name in ipairs(tabNames) do
@@ -288,24 +294,6 @@ end
 -- ============================================================================
 local activePlayers = {}
 local filteredPlayers = {} 
-local chatHistories = {
-    ["Ogolny"] = {},
-    ["Raid"] = {},
-    ["Handel"] = {},
-    ["Szukaj grupy"] = {}
-}
--- Widok "Wspolny": kopia wszystkiego z kanalu wspolnego (wlasna gildia + gildie z bialej listy)
-local sharedChatHistories = {
-    ["Ogolny"] = {},
-    ["Raid"] = {},
-    ["Handel"] = {},
-    ["Szukaj grupy"] = {}
-}
-local currentChatScope = "Gildia"
-local function GetChatHistory(scope, tab)
-    if scope == "Wspolny" then return sharedChatHistories[tab] end
-    return chatHistories[tab]
-end
 
 local eventsList = {}
 local selectedEventIndex = nil
@@ -342,27 +330,54 @@ else
 return "|cffffffff[" .. rank .. "]|r"
 end
 end
+-- Oficer = ranga 0/1 w gildii albo nazwa rangi wskazujaca na oficera/lidera (dziala tez dla innych graczy)
+local function IsRankOfficer(rankName, rankIndex)
+if rankIndex == 0 or rankIndex == 1 then return true end
+if not rankName then return false end
+local lowerRank = rankName:lower()
+return (lowerRank:find("oficer") or lowerRank:find("officer") or lowerRank:find("master") or lowerRank:find("lider")) ~= nil
+end
 local function IsPlayerOfficer()
 if not IsInGuild() then return false end
 local _, rankName, rankIndex = GetGuildInfo("player")
-if not rankName then return false end
-local lowerRank = rankName:lower()
-if rankIndex == 0 or rankIndex == 1 or lowerRank:find("oficer") or lowerRank:find("officer") or lowerRank:find("master") or lowerRank:find("lider") then
-return true
+return IsRankOfficer(rankName, rankIndex)
 end
-return false
+-- ZASADY WYDARZEN (sprawdzane lokalnie i u kazdego odbiorcy pakietu)
+local MAX_EVENTS_PER_CREATOR = 10
+local VALID_ROLES = { TANK = true, HEAL = true, DPS = true }
+-- Usunac moze autor albo oficer dowolnej gildii z bialej listy
+local function CanRemoveEvent(ev, name, guild, isOfficer)
+if ev.creator == name then return true end
+return isOfficer and IsPlayerGuildAllowed(guild)
 end
+local function CountEventsBy(creator)
+local n = 0
+for _, ev in ipairs(eventsList) do if ev.creator == creator then n = n + 1 end end
+return n
+end
+-- Data: DD.MM lub DD.MM.RRRR, godzina: GG:MM
+local function IsValidEventDate(s)
+local d, m, y = s:match("^(%d%d?)%.(%d%d?)%.?(%d*)$")
+d, m = tonumber(d), tonumber(m)
+return d ~= nil and d >= 1 and d <= 31 and m >= 1 and m <= 12 and (y == "" or #y == 4)
+end
+local function IsValidEventTime(s)
+local h, mi = s:match("^(%d%d?):(%d%d)$")
+h, mi = tonumber(h), tonumber(mi)
+return h ~= nil and h <= 23 and mi <= 59
+end
+local function ShowEventError(text) UIErrorsFrame:AddMessage("Blad: " .. text, 1.0, 0.1, 0.1, 1.0, 2) end
 local function AddMyselfToActiveList()
 local myName = UnitName("player")
 local level = UnitLevel("player")
 local _, classFilename = UnitClass("player")
-local guildName, rankName = GetGuildInfo("player")
+local guildName, rankName, rankIndex = GetGuildInfo("player")
 guildName = guildName or "Brak"
 rankName = rankName or "Brak"
 if not IsPlayerGuildAllowed(guildName) then return end
 local existingIndex = GetPlayerIndex(myName)
 local playerData = {
-name = myName, level = level, class = classFilename, guild = guildName, rank = rankName, lastSeen = GetTime()
+name = myName, level = level, class = classFilename, guild = guildName, rank = rankName, rankIndex = rankIndex, version = ADDON_VERSION, lastSeen = GetTime()
 }
 if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
 end
@@ -385,8 +400,8 @@ chatInput:SetSize(440, 26)
 chatInput:SetPoint("BOTTOMLEFT", ChatPanel, "BOTTOMLEFT", 12, 10)
 chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
--- Limit 255 bajtow na pakiet addonu (prefiks + typ + zakladka + tresc)
-chatInput:SetMaxBytes(200)
+-- Dluzsze wiadomosci most.lua sam dzieli na czesci (limit 255 bajtow na pakiet)
+chatInput:SetMaxBytes(255)
 local sendButton = CreateFrame("Button", nil, ChatPanel, "GameMenuButtonTemplate")
 sendButton:SetSize(75, 26)
 sendButton:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
@@ -394,11 +409,12 @@ sendButton:SetText("Wy\197\155lij")
 local chatTabs = {"Ogolny", "Raid", "Handel", "Szukaj grupy"}
 local currentChatTab = "Ogolny"
 local chatTabButtons = {}
-local chatScopeButtons = {}
+-- Czat pokazuje jeden wspolny log z most.lua (wszystkie gildie, ta sama kolejnosc u kazdego)
 local function RefreshChatDisplay()
 chatDisplay:Clear()
-local messages = GetChatHistory(currentChatScope, currentChatTab)
-if messages then for _, msg in ipairs(messages) do chatDisplay:AddMessage(msg) end end
+for _, entry in ipairs(Most.GetLog()) do
+if entry.tab == currentChatTab then chatDisplay:AddMessage(Most.FormatEntry(entry)) end
+end
 end
 local function UpdateChatTabVisuals()
 for name, btn in pairs(chatTabButtons) do
@@ -412,32 +428,15 @@ btn.topLine:SetColorTexture(0.15, 0.15, 0.2, 0.5)
 btn.text:SetTextColor(0.6, 0.6, 0.6)
 end
 end
-for scope, btn in pairs(chatScopeButtons) do
-if scope == currentChatScope then
-btn.bg:SetColorTexture(0.14, 0.14, 0.19, 1)
-btn.topLine:SetColorTexture(0.75, 0.25, 1, 1)
-btn.text:SetTextColor(0.85, 0.55, 1)
-else
-btn.bg:SetColorTexture(0.06, 0.06, 0.08, 0.8)
-btn.topLine:SetColorTexture(0.15, 0.15, 0.2, 0.5)
-btn.text:SetTextColor(0.6, 0.6, 0.6)
-end
-end
 RefreshChatDisplay()
 end
 local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
 if msg and msg ~= "" then
-SendJagodkaNetworkPacket("CHAT", currentChatTab .. ":" .. msg)
-local myName = UnitName("player")
-local guildName, rankName = GetGuildInfo("player")
+local guildName = GetGuildInfo("player")
 if IsPlayerGuildAllowed(guildName) then
-local rankStr = (rankName and rankName ~= "Brak") and (GetColoredRank(rankName) .. " ") or ""
-local line = rankStr .. "[" .. GetColoredName(myName) .. "]: " .. msg
-table.insert(chatHistories[currentChatTab], line)
--- Wlasna wiadomosc idzie tez kanalem wspolnym, wiec pokazujemy ja w obu widokach
-if GetCommChannelId() then table.insert(sharedChatHistories[currentChatTab], line) end
-RefreshChatDisplay()
+-- Kanal globalny raz; relaye gildii wkleja wiadomosc do swoich /g
+Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
 else
 chatDisplay:AddMessage("|cffff5555[System]: Twoja gildia nie jest na liscie Wspolnoty - wiadomosc nie zostala wyslana.|r")
 end
@@ -466,25 +465,13 @@ tBtn.text:SetText(name)
 tBtn:SetScript("OnClick", function() currentChatTab = name UpdateChatTabVisuals() end)
 chatTabButtons[name] = tBtn
 end
--- Przelacznik widoku: "Gildia" (tylko wlasna gildia) / "Wspolny" (wszystkie gildie z bialej listy)
-for i, scope in ipairs({"Gildia", "Wspolny"}) do
-local sBtn = CreateFrame("Button", nil, ChatPanel, "BackdropTemplate")
-sBtn:SetSize(60, 22)
-sBtn:SetPoint("BOTTOMLEFT", ChatPanel, "TOPLEFT", 432 + ((i-1) * 64), 0)
-sBtn:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-sBtn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
-sBtn.bg = sBtn:CreateTexture(nil, "BACKGROUND")
-sBtn.bg:SetAllPoints()
-sBtn.topLine = sBtn:CreateTexture(nil, "OVERLAY")
-sBtn.topLine:SetPoint("TOPLEFT", sBtn, "TOPLEFT", 0, 0)
-sBtn.topLine:SetPoint("TOPRIGHT", sBtn, "TOPRIGHT", 0, 0)
-sBtn.topLine:SetHeight(2)
-sBtn.text = sBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-sBtn.text:SetPoint("CENTER", sBtn, "CENTER", 0, 0)
-sBtn.text:SetText(scope)
-sBtn:SetScript("OnClick", function() currentChatScope = scope UpdateChatTabVisuals() end)
-chatScopeButtons[scope] = sBtn
-end
+-- Podpiecie mostu pod dane i widok czatu z core.lua
+Most.Init({
+activePlayers = activePlayers,
+isGuildAllowed = IsPlayerGuildAllowed,
+colorName = GetColoredName,
+onChatChanged = function(tab) if tab == currentChatTab then RefreshChatDisplay() end end,
+})
 -- ============================================================================
 -- 4. ZAKŁADKA 2: GŁÓWNA TABELA GRACZY + WYSZUKIWARKA
 -- ============================================================================
@@ -538,6 +525,10 @@ row.guildText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 row.guildText:SetPoint("LEFT", row, "LEFT", 265, 0)
 row.rankText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 row.rankText:SetPoint("LEFT", row, "LEFT", 410, 0)
+-- Dluga ranga jest ucinana, zeby nie nachodzila na kolumne wersji
+row.rankText:SetWidth(65) row.rankText:SetJustifyH("LEFT") row.rankText:SetWordWrap(false)
+row.versionText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+row.versionText:SetPoint("LEFT", row, "LEFT", 480, 0)
 tableRows[i] = row
 end
 UpdateMainTable = function()
@@ -562,6 +553,10 @@ local classColor = data.class and RAID_CLASS_COLORS[data.class]
 row.nameText:SetText(classColor and classColor:WrapTextInColorCode(data.name) or data.name)
 row.classText:SetText(classColor and classColor:WrapTextInColorCode(LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class) or "Nieznana")
 row.levelText:SetText(data.level) row.rankText:SetText(GetColoredRank(data.rank))
+-- Zielona = ta sama wersja, czerwona = starsza, zolta = nowsza od mojej
+local vCmp = CompareVersions(data.version or "0", ADDON_VERSION)
+local vColor = (vCmp == 0) and "|cff00ff00" or ((vCmp < 0) and "|cffff5555" or "|cffffd100")
+row.versionText:SetText(vColor .. (data.version or "?") .. "|r")
 row.guildText:SetText((data.guild and data.guild ~= "Brak") and ("|cffbf40ff" .. data.guild .. "|r") or "|cff808080Brak gildii|r")
 if data.class and CLASS_ICON_TCOORDS[data.class] then
 row.classIcon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
@@ -613,15 +608,17 @@ card.inactiveText:SetPoint("RIGHT", card, "RIGHT", -25, 0)
 guildRows[i] = card
 end
 UpdateGuildTable = function()
-local guildData, guildOrder, currentTime = {}, {}, GetTime()
+local guildData, guildOrder = {}, {}
+-- Wszystkie gildie z bialej listy sa widoczne zawsze, nawet gdy nikt z nich nie jest online
+for gName in pairs(AllowedGuilds) do guildData[gName] = { active = 0 } table.insert(guildOrder, gName) end
 for _, player in ipairs(activePlayers) do
-local gName = player.guild
-if gName and gName ~= "" and gName ~= "Brak" then
-if not guildData[gName] then guildData[gName] = { active = 0, inactive = 0 } table.insert(guildOrder, gName) end
-if (currentTime - (player.lastSeen or currentTime)) < 180 then guildData[gName].active = guildData[gName].active + 1 else guildData[gName].inactive = guildData[gName].inactive + 1 end
+local stats = guildData[player.guild]
+if stats then stats.active = stats.active + 1 end
 end
-end
-table.sort(guildOrder, function(a, b) return guildData[a].active > guildData[b].active end)
+table.sort(guildOrder, function(a, b)
+if guildData[a].active ~= guildData[b].active then return guildData[a].active > guildData[b].active end
+return a < b
+end)
 _G.FauxScrollFrame_Update(guildScrollFrame, #guildOrder, MAX_GUILD_ROWS, GUILD_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(guildScrollFrame)
 for i = 1, MAX_GUILD_ROWS do
@@ -629,8 +626,10 @@ local idx = i + offset local card = guildRows[i]
 if idx <= #guildOrder then
 local gName = guildOrder[idx] local stats = guildData[gName]
 card.nameText:SetText("|cffffffff" .. gName .. "|r")
-card.activeText:SetText("|cff00ff00● Aktywni:|r " .. stats.active)
-card.inactiveText:SetText("|cff808080○ Nieaktywni:|r " .. stats.inactive) card:Show()
+card.activeText:SetText("|cff00ff00Online:|r " .. stats.active)
+-- Bez relaya /g tej gildii nie dostaje wiadomosci z kanalu globalnego
+local relay = Most.GetRelayName(gName)
+card.inactiveText:SetText(relay and ("|cff808080Relay:|r " .. relay) or "|cffff5555brak relaya|r") card:Show()
 else card:Hide() end
 end
 end
@@ -655,6 +654,22 @@ local DDesc = DetailsContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlig
 DDesc:SetPoint("TOPLEFT", DetailsContainer, "TOPLEFT", 15, -45)
 DDesc:SetWidth(250)
 DDesc:SetJustifyH("LEFT")
+-- Dlugi opis jest ucinany, zeby nie spychal listy zapisow; pelny tekst w podpowiedzi po najechaniu
+if DDesc.SetMaxLines then DDesc:SetMaxLines(7) end
+do
+local DescHover = CreateFrame("Frame", nil, DetailsContainer)
+DescHover:SetAllPoints(DDesc)
+DescHover:EnableMouse(true)
+DescHover:SetScript("OnEnter", function(self)
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if not ev or not ev.desc or ev.desc == "" then return end
+_G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+_G.GameTooltip:AddLine(ev.title, 1, 0.82, 0)
+_G.GameTooltip:AddLine(ev.desc, 1, 1, 1, true)
+_G.GameTooltip:Show()
+end)
+DescHover:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+end
 DDesc:SetText("Wybierz wydarzenie z listy po lewej stronie.")
 local CounterFrame = CreateFrame("Frame", nil, DetailsContainer)
 CounterFrame:SetSize(250, 45)
@@ -760,12 +775,14 @@ DHeader:SetText("Szczegoly") DDesc:SetText("Wybierz wydarzenie z listy po lewej 
 CounterFrame:Hide() RosterContainer:Hide() JoinTankBtn:Hide() JoinHealBtn:Hide() JoinDpsBtn:Hide() RemoveEventBtn:Hide() return
 end
 local ev = eventsList[selectedEventIndex] DHeader:SetText(ev.title)
-DDesc:SetText("|cffffffffAutor:|r " .. ev.creator .. "  |cffffffffCzas:|r " .. ev.date .. " " .. ev.time .. "\n|cffdecda5Opis:|r " .. ev.desc)
+local guildStr = ev.guild and (" |cffbf40ff(" .. ev.guild .. ")|r") or ""
+local dungeonStr = (ev.dungeon and ev.dungeon ~= "") and ("\n|cffffffffInstancja:|r |cffffd100" .. ev.dungeon .. "|r") or ""
+DDesc:SetText("|cffffffffAutor:|r " .. ev.creator .. guildStr .. "  |cffffffffCzas:|r " .. ev.date .. " " .. ev.time .. dungeonStr .. "\n|cffdecda5Opis:|r " .. (ev.desc or ""))
 local t, h, d, total = 0, 0, 0, 0
 for _, role in pairs(ev.roster) do total = total + 1 if role == "TANK" then t = t + 1 elseif role == "HEAL" then h = h + 1 else d = d + 1 end end
 TankCountText:SetText(t) HealCountText:SetText(h) DpsCountText:SetText(d) TotalCountVal:SetText("|cffffd100" .. total .. "|r")
 CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals() JoinTankBtn:Show() JoinHealBtn:Show() JoinDpsBtn:Show()
-if ev.creator == UnitName("player") or IsPlayerOfficer() then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
+if CanRemoveEvent(ev, UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
 UpdateEventsList = function()
 _G.FauxScrollFrame_Update(eventScrollFrame, #eventsList, MAX_EV_ROWS, EV_ROW_HEIGHT)
@@ -776,7 +793,7 @@ if idx <= #eventsList then
 local ev = eventsList[idx]
 row.dataIndex = idx
 row.title:SetText("|cffffffff" .. ev.title .. "|r")
-row.time:SetText(ev.date .. " o " .. ev.time)
+row.time:SetText(ev.date .. " o " .. ev.time .. (ev.guild and ("  |cffbf40ff" .. ev.guild .. "|r") or ""))
 local totalSigned = 0
 for _ in pairs(ev.roster) do totalSigned = totalSigned + 1 end
 row.count:SetText(totalSigned .. " os.")
@@ -788,43 +805,172 @@ eventScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScr
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Stworz Wydarzenie")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
-CreatorFrame:SetSize(320, 340) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
+CreatorFrame:SetSize(320, 450) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
 CreatorFrame:SetFrameLevel(MainFrame:GetFrameLevel() + 20)
 ApplyModernStyle(CreatorFrame) CreatorFrame:SetBackdropColor(0.05, 0.05, 0.07, 0.98)
 CreatorFrame.TitleText = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 CreatorFrame.TitleText:SetPoint("TOP", CreatorFrame, "TOP", 0, -10) CreatorFrame.TitleText:SetText("Nowe Wydarzenie")
 local TitleInput = CreateLabelAndInput(CreatorFrame, "Nazwa Wydarzenia:", -45, 275, 26)
-local DateInput = CreateLabelAndInput(CreatorFrame, "Data:", -105, 130, 26)
-local TimeInput = CreateLabelAndInput(CreatorFrame, "Godzina:", -105, 130, 26)
-TimeInput:ClearAllPoints() TimeInput:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 165, -120)
-local TimeLabel = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-TimeLabel:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 165, -105) TimeLabel:SetText("Godzina:")
-local DescInput = CreateLabelAndInput(CreatorFrame, "Krotki opis:", -165, 275, 26)
--- Limity, zeby caly pakiet EV_ADD zmiescil sie w 255 bajtach
-TitleInput:SetMaxBytes(50) DateInput:SetMaxBytes(16) TimeInput:SetMaxBytes(8) DescInput:SetMaxBytes(80)
+-- DATA I GODZINA Z LIST ROZWIJANYCH (zamiast wpisywania, wiec format jest zawsze poprawny)
+-- Wybrane wartosci trzymamy w jednej tabeli, zeby nie zuzywac limitu zmiennych lokalnych pliku
+local EventPicker = { date = nil, hour = 20, minute = 0, dungeon = nil }
+do
+local WEEKDAYS = {"Nd", "Pn", "Wt", "Sr", "Cz", "Pt", "So"}
+local DAYS_AHEAD = 21
+local function NewLabel(text, x, y)
+local lbl = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+lbl:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", x, y) lbl:SetText(text)
+return lbl
+end
+local function NewDropDown(name, x, y, width)
+local dd = CreateFrame("Frame", name, CreatorFrame, "UIDropDownMenuTemplate")
+dd:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", x, y)
+_G.UIDropDownMenu_SetWidth(dd, width)
+return dd
+end
+NewLabel("Instancja:", 20, -95)
+NewLabel("Data:", 20, -145)
+NewLabel("Godzina:", 165, -145)
+local function DayLabel(t) return WEEKDAYS[tonumber(date("%w", t)) + 1] .. " " .. date("%d.%m", t) end
+local DungeonDD = NewDropDown("JagodkiEventDungeonDropDown", 2, -108, 255)
+local DateDD = NewDropDown("JagodkiEventDateDropDown", 2, -158, 110)
+local HourDD = NewDropDown("JagodkiEventHourDropDown", 147, -158, 40)
+local MinuteDD = NewDropDown("JagodkiEventMinuteDropDown", 222, -158, 40)
+-- Instancja: "(brak)" + grupy Dungeony / Rajdy z instancje.lua
+_G.UIDropDownMenu_Initialize(DungeonDD, function(self, level)
+local none = _G.UIDropDownMenu_CreateInfo()
+none.text = "(brak / inne)"
+none.checked = (EventPicker.dungeon == nil)
+none.func = function() EventPicker.dungeon = nil _G.UIDropDownMenu_SetText(DungeonDD, "(brak / inne)") end
+_G.UIDropDownMenu_AddButton(none, level)
+for _, group in ipairs(addonTable.Instances or {}) do
+local header = _G.UIDropDownMenu_CreateInfo()
+header.text = group.group header.isTitle = true header.notCheckable = true
+_G.UIDropDownMenu_AddButton(header, level)
+for _, inst in ipairs(group.list) do
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text = inst.name .. " |cff808080(" .. inst.levels .. ")|r"
+info.checked = (EventPicker.dungeon == inst.name)
+info.func = function() EventPicker.dungeon = inst.name _G.UIDropDownMenu_SetText(DungeonDD, inst.name) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end
+end)
+-- Data: dzisiaj + kolejne 3 tygodnie, z dniem tygodnia
+_G.UIDropDownMenu_Initialize(DateDD, function(self, level)
+local now = time()
+for i = 0, DAYS_AHEAD - 1 do
+local t = now + i * 86400
+local value, label = date("%d.%m.%Y", t), DayLabel(t)
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text = label
+info.checked = (EventPicker.date == value)
+info.func = function() EventPicker.date = value _G.UIDropDownMenu_SetText(DateDD, label) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+_G.UIDropDownMenu_Initialize(HourDD, function(self, level)
+for h = 0, 23 do
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text = string.format("%02d", h)
+info.checked = (EventPicker.hour == h)
+info.func = function() EventPicker.hour = h _G.UIDropDownMenu_SetText(HourDD, string.format("%02d", h)) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+_G.UIDropDownMenu_Initialize(MinuteDD, function(self, level)
+for _, m in ipairs({0, 15, 30, 45}) do
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text = string.format("%02d", m)
+info.checked = (EventPicker.minute == m)
+info.func = function() EventPicker.minute = m _G.UIDropDownMenu_SetText(MinuteDD, string.format("%02d", m)) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+-- Domyslnie: dzisiaj o 20:00 (ustawiane przy kazdym otwarciu okna)
+function EventPicker.Reset()
+local now = time()
+EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = date("%d.%m.%Y", now), 20, 0, nil
+_G.UIDropDownMenu_SetText(DungeonDD, "(brak / inne)")
+_G.UIDropDownMenu_SetText(DateDD, DayLabel(now))
+_G.UIDropDownMenu_SetText(HourDD, "20")
+_G.UIDropDownMenu_SetText(MinuteDD, "00")
+end
+end
+-- Przycisk X i zamykanie klawiszem Esc
+local CreatorCloseBtn = CreateFrame("Button", nil, CreatorFrame, "UIPanelCloseButton")
+CreatorCloseBtn:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -2, -2)
+table.insert(_G.UISpecialFrames, "JagodkiCreatorFrame")
+CreatorFrame:SetScript("OnShow", function() EventPicker.Reset() end)
+-- OPIS: pole wieloliniowe z przewijaniem i licznikiem bajtow
+local DescInput = CreateFrame("EditBox", nil, CreatorFrame)
+do
+local DescLabel = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+DescLabel:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -195) DescLabel:SetText("Opis:")
+local DescCounter = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+DescCounter:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -20, -197)
+local DescBox = CreateFrame("Frame", nil, CreatorFrame, "BackdropTemplate")
+DescBox:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -212)
+DescBox:SetPoint("BOTTOMRIGHT", CreatorFrame, "BOTTOMRIGHT", -20, 62)
+ApplyModernStyle(DescBox)
+local DescScroll = CreateFrame("ScrollFrame", "JagodkiEventDescScroll", DescBox, "UIPanelScrollFrameTemplate")
+DescScroll:SetPoint("TOPLEFT", DescBox, "TOPLEFT", 6, -6)
+DescScroll:SetPoint("BOTTOMRIGHT", DescBox, "BOTTOMRIGHT", -26, 6)
+DescInput:SetParent(DescScroll)
+DescInput:SetMultiLine(true) DescInput:SetAutoFocus(false) DescInput:SetFontObject(ChatFontNormal)
+DescInput:SetSize(240, 140)
+DescInput:SetMaxBytes(EVENT_DESC_MAX_BYTES)
+DescScroll:SetScrollChild(DescInput)
+DescInput:SetScript("OnEscapePressed", DescInput.ClearFocus)
+-- Przewijanie za kursorem (funkcje Blizzarda z UIPanelTemplates)
+if _G.ScrollingEdit_OnCursorChanged then DescInput:SetScript("OnCursorChanged", _G.ScrollingEdit_OnCursorChanged) end
+if _G.ScrollingEdit_OnUpdate then DescInput:SetScript("OnUpdate", function(self, elapsed) _G.ScrollingEdit_OnUpdate(self, elapsed, DescScroll) end) end
+DescInput:SetScript("OnTextChanged", function(self) DescCounter:SetText(#self:GetText() .. "/" .. EVENT_DESC_MAX_BYTES) end)
+DescCounter:SetText("0/" .. EVENT_DESC_MAX_BYTES)
+-- Klikniecie w dowolne miejsce ramki ustawia kursor w opisie
+DescBox:EnableMouse(true) DescBox:SetScript("OnMouseDown", function() DescInput:SetFocus() end)
+end
+-- Limit nazwy, zeby naglowek EV_ADD zostawil miejsce na poczatek opisu
+TitleInput:SetMaxBytes(50)
 local SubmitBtn = CreateFrame("Button", nil, CreatorFrame, "GameMenuButtonTemplate")
 SubmitBtn:SetSize(120, 30) SubmitBtn:SetPoint("BOTTOM", CreatorFrame, "BOTTOM", 0, 20) SubmitBtn:SetText("Dodaj i Rozeslij")
 CreateEventBtn:SetScript("OnClick", function() if IsPlayerOfficer() then CreatorFrame:Show() else UIErrorsFrame:AddMessage("Blad: Brak uprawnien oficerskich!", 1.0, 0.1, 0.1, 1.0, 2) end end)
 SubmitBtn:SetScript("OnClick", function()
-local title, eDate, eTime, desc = TitleInput:GetText(), DateInput:GetText(), TimeInput:GetText(), DescInput:GetText()
-if title ~= "" and eDate ~= "" and eTime ~= "" then
-local myName = UnitName("player") local eventID = myName .. "_" .. GetTime()
-local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, creator = myName, roster = {} }
+local title, desc = TitleInput:GetText(), DescInput:GetText()
+local eDate, eTime = EventPicker.date or "", string.format("%02d:%02d", EventPicker.hour, EventPicker.minute)
+local myName, myGuild = UnitName("player"), GetGuildInfo("player")
+if not IsPlayerGuildAllowed(myGuild) or not IsPlayerOfficer() then ShowEventError("Brak uprawnien oficerskich!") return end
+-- Bez nazwy, ale z wybrana instancja: nazwa = instancja
+if title == "" and EventPicker.dungeon then title = EventPicker.dungeon end
+if title == "" then ShowEventError("Podaj nazwe wydarzenia albo wybierz instancje.") return end
+if not IsValidEventDate(eDate) then ShowEventError("Data w formacie DD.MM lub DD.MM.RRRR") return end
+if not IsValidEventTime(eTime) then ShowEventError("Godzina w formacie GG:MM") return end
+if CountEventsBy(myName) >= MAX_EVENTS_PER_CREATOR then ShowEventError("Masz juz " .. MAX_EVENTS_PER_CREATOR .. " wydarzen - usun stare.") return end
+local eventID = myName .. "_" .. GetTime()
+local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, dungeon = EventPicker.dungeon, creator = myName, guild = myGuild, roster = {} }
 table.insert(eventsList, newEvent) UpdateEventsList()
-SendJagodkaNetworkPacket("EV_ADD", BuildEventPacket(newEvent))
-TitleInput:SetText("") DateInput:SetText("") TimeInput:SetText("") DescInput:SetText("") CreatorFrame:Hide()
-end
+SendEvent(newEvent)
+TitleInput:SetText("") DescInput:SetText("") CreatorFrame:Hide()
 end)
 local function SetRosterFilter(filterType) currentRosterFilter = filterType UpdateFilterVisuals() end
 BtnAll:SetScript("OnClick", function() SetRosterFilter("ALL") end)
 BtnTank:SetScript("OnClick", function() SetRosterFilter("TANK") end)
 BtnHeal:SetScript("OnClick", function() SetRosterFilter("HEAL") end)
 BtnDps:SetScript("OnClick", function() SetRosterFilter("DPS") end)
-JoinTankBtn:SetScript("OnClick", function() if selectedEventIndex and eventsList[selectedEventIndex] then eventsList[selectedEventIndex].roster[UnitName("player")] = "TANK" UpdateEventDetails() UpdateEventsList() SendJagodkaNetworkPacket("EV_SIGN", eventsList[selectedEventIndex].id .. ":TANK") end end)
-JoinHealBtn:SetScript("OnClick", function() if selectedEventIndex and eventsList[selectedEventIndex] then eventsList[selectedEventIndex].roster[UnitName("player")] = "HEAL" UpdateEventDetails() UpdateEventsList() SendJagodkaNetworkPacket("EV_SIGN", eventsList[selectedEventIndex].id .. ":HEAL") end end)
-JoinDpsBtn:SetScript("OnClick", function() if selectedEventIndex and eventsList[selectedEventIndex] then eventsList[selectedEventIndex].roster[UnitName("player")] = "DPS" UpdateEventDetails() UpdateEventsList() SendJagodkaNetworkPacket("EV_SIGN", eventsList[selectedEventIndex].id .. ":DPS") end end)
+local function SignUpForEvent(role)
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if not ev or not VALID_ROLES[role] then return end
+if not IsPlayerGuildAllowed(GetGuildInfo("player")) then ShowEventError("Twoja gildia nie jest na liscie Wspolnoty!") return end
+ev.roster[UnitName("player")] = role
+UpdateEventDetails() UpdateEventsList()
+SendJagodkaNetworkPacket("EV_SIGN", ev.id .. ":" .. role)
+end
+JoinTankBtn:SetScript("OnClick", function() SignUpForEvent("TANK") end)
+JoinHealBtn:SetScript("OnClick", function() SignUpForEvent("HEAL") end)
+JoinDpsBtn:SetScript("OnClick", function() SignUpForEvent("DPS") end)
 RemoveEventBtn:SetScript("OnClick", function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
+if not CanRemoveEvent(eventsList[selectedEventIndex], UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("Mozesz usuwac tylko swoje wydarzenia (oficerowie: wszystkie).") return end
 SendJagodkaNetworkPacket("EV_REM", eventsList[selectedEventIndex].id)
 table.remove(eventsList, selectedEventIndex) selectedEventIndex = nil UpdateEventDetails() UpdateEventsList()
 end)
@@ -832,8 +978,13 @@ end)
 -- 6B. ZAKŁADKA 5: USTAWIENIA
 -- ============================================================================
 local SettingsInfo = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-SettingsInfo:SetPoint("CENTER", Panels[5], "CENTER", 0, 0)
-SettingsInfo:SetText("Modul Konfiguracji i Filtrow w przygotowaniu...")
+SettingsInfo:SetPoint("TOPLEFT", Panels[5], "TOPLEFT", 10, -10)
+SettingsInfo:SetText("Status mostu (kanal globalny <-> /g) - wersja " .. ADDON_VERSION)
+local SettingsStatus = Panels[5]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+SettingsStatus:SetPoint("TOPLEFT", SettingsInfo, "BOTTOMLEFT", 0, -12)
+SettingsStatus:SetJustifyH("LEFT")
+-- Odswiezanie statusu co sekunde, tylko gdy zakladka jest widoczna
+C_Timer.NewTicker(1, function() if Panels[5]:IsVisible() then SettingsStatus:SetText(Most.GetStatusText()) end end)
 -- ============================================================================
 -- 7. PANEL BOCZNY (WIDOCZNY ZAWSZE - PRAWA STRONA)
 -- ============================================================================
@@ -895,6 +1046,53 @@ AddMyselfToActiveList()
 SendStatusPacket("PING")
 UpdateScrollList()
 end
+-- Czlonkowie mojej gildii wg rostera Blizzarda: nick -> true (online) / false (offline).
+-- Nikt spoza rostera nie podszyje sie pod moja gildie, a wylogowany relay jest od razu pomijany.
+local myGuildRoster, myGuildRosterLoaded, spoofWarned = {}, false, {}
+local function RefreshMyGuildRoster()
+local n = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
+if n == 0 then return end
+wipe(myGuildRoster)
+for i = 1, n do
+local fullName, _, _, _, _, _, _, _, isOnline = _G.GetGuildRosterInfo(i)
+if fullName then myGuildRoster[Ambiguate(fullName, "none")] = isOnline and true or false end
+end
+myGuildRosterLoaded = true
+end
+-- Brak w rosterze tez = offline (przy wylaczonym "pokaz offline" wylogowani znikaja z listy)
+Most.SetGuildmateOnlineCheck(function(name)
+if not myGuildRosterLoaded then return nil end
+return myGuildRoster[name] == true
+end)
+-- Ostrzezenie o innej wersji addonu (raz na gracza i wersje), w czacie addonu i w zwyklym czacie
+local warnedVersions = {}
+local function CheckPlayerVersion(name, version)
+if name == UnitName("player") or warnedVersions[name] == (version or "?") then return end
+local cmp = CompareVersions(version or "0", ADDON_VERSION)
+if cmp == 0 then return end
+warnedVersions[name] = version or "?"
+local text
+if cmp < 0 then
+text = name .. " ma starsza wersje addonu (" .. (version or "nieznana") .. ", Twoja: " .. ADDON_VERSION .. ") - musi zaktualizowac."
+else
+text = name .. " ma nowsza wersje addonu (" .. version .. ") - zaktualizuj swoja (" .. ADDON_VERSION .. ")."
+end
+Most.AddSystem(text)
+if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
+end
+-- Usuwa graczy, ktorzy dawno nie wyslali sygnalu (wylogowani) - lista = naprawde online
+local function PruneOfflinePlayers()
+local now, myName = GetTime(), UnitName("player")
+local changed = false
+local myGuild = GetGuildInfo("player")
+for i = #activePlayers, 1, -1 do
+local p = activePlayers[i]
+-- Gildiowicza wylogowanego wg rostera usuwamy od razu, reszte po braku sygnalu
+local offlineInRoster = p.guild == myGuild and myGuildRosterLoaded and myGuildRoster[p.name] ~= true
+if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONLINE_TIMEOUT) then table.remove(activePlayers, i) changed = true end
+end
+if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
+end
 NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
 if event == "ADDON_LOADED" and prefix == addonName then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
@@ -907,36 +1105,53 @@ if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster
 TryAnnounce()
 -- Kanal dolaczamy z opoznieniem, zeby nie zajac numeru /1 przed kanalem General
 C_Timer.After(8, function()
-JoinCommChannel()
+Most.JoinChannel()
 C_Timer.After(2, function()
--- Ponowny PING juz przez wspolny kanal, zeby zobaczyly nas inne gildie
+-- Ponowny PING juz przez kanal globalny, zeby zobaczyly nas inne gildie, potem prosba o historie
 announced = false
 TryAnnounce()
+if announced then Most.RequestHistory() end
 end)
 end)
-table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Wspolnota Jagodka gotowa.|r")
-table.insert(sharedChatHistories["Ogolny"], "|cff00ccff[System]: Kanal wspolny - wiadomosci ze wszystkich gildii z listy.|r")
+-- Sygnal "jestem online" co minute (bez odpowiedzi) + sprzatanie wylogowanych
+C_Timer.NewTicker(60, function()
+if announced then AddMyselfToActiveList() SendStatusPacket("PONG") end
+-- Inny addon (lub rozlaczenie) mogl nas wyrzucic z kanalu globalnego - wracamy
+if not Most.GetChannelId() then Most.JoinChannel() end
+PruneOfflinePlayers()
+end)
+-- Roster gildii odswiezany co 20 s, zeby szybko wiedziec, kto sie wylogowal (np. relay)
+C_Timer.NewTicker(20, function()
+if not IsInGuild() then return end
+if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster() elseif _G.GuildRoster then _G.GuildRoster() end
+end)
+Most.AddSystem("Wspolnota Jagodka gotowa. Kanal globalny laczy wszystkie gildie z listy.")
 UpdateChatTabVisuals()
 elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+RefreshMyGuildRoster()
 TryAnnounce()
+PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 local senderName = Ambiguate(sender, "none")
 local myName = UnitName("player")
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end
--- Pakiety systemowe od wlasnej gildii przychodza tez przez GUILD, wiec ich kopie z CHANNEL pomijamy.
--- CHAT przepuszczamy, bo kopia z kanalu trafia do widoku "Wspolny".
-if channel == "CHANNEL" and pType ~= "CHAT" then
-local senderGuild
-if pType == "PING" or pType == "PONG" then senderGuild = select(3, strsplit(":", payload, 4))
-else local i = GetPlayerIndex(senderName) senderGuild = i and activePlayers[i].guild end
-if senderGuild and senderGuild == GetGuildInfo("player") then return end
-end
+-- Wiadomosci czatu i historia: most.lua
+if Most.HandlePacket(pType, payload, channel, senderName, sender) then return end
 if pType == "PING" or pType == "PONG" then
-local lvl, cls, gld, rnk = strsplit(":", payload, 4)
+local lvl, cls, gld, rnk, ver, rIdx = strsplit(":", payload, 6)
 if not IsPlayerGuildAllowed(gld) then return end
+-- Ktos podaje sie za czlonka mojej gildii, a nie ma go w rosterze -> odrzucamy
+if gld == GetGuildInfo("player") and senderName ~= myName and myGuildRosterLoaded and myGuildRoster[senderName] == nil then
+if not spoofWarned[senderName] then
+spoofWarned[senderName] = true
+if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. senderName .. " podaje sie za czlonka Twojej gildii, ale nie ma go w rosterze - zignorowany.|r") end
+end
+return
+end
+CheckPlayerVersion(senderName, ver)
 local existingIndex = GetPlayerIndex(senderName)
-local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", lastSeen = GetTime() }
+local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", rankIndex = tonumber(rIdx), version = ver, lastSeen = GetTime() }
 if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
@@ -945,36 +1160,50 @@ if pType == "PING" and senderName ~= myName then SendStatusPacket("PONG") end
 else
 local senderIdx = GetPlayerIndex(senderName)
 if not senderIdx and senderName ~= myName then return end
-if pType == "CHAT" then
-local targetTab, msgContent = strsplit(":", payload, 2)
-if targetTab and msgContent and chatHistories[targetTab] then
-if senderName ~= myName then
-local rankStr = (activePlayers[senderIdx].rank and activePlayers[senderIdx].rank ~= "Brak") and (GetColoredRank(activePlayers[senderIdx].rank) .. " ") or ""
--- CHANNEL -> widok "Wspolny", GUILD (i inne) -> widok "Gildia"
-local scope = (channel == "CHANNEL") and "Wspolny" or "Gildia"
-table.insert(GetChatHistory(scope, targetTab), rankStr .. "[" .. GetColoredName(senderName) .. "]: " .. msgContent)
-if targetTab == currentChatTab and scope == currentChatScope then RefreshChatDisplay() end
-end
-end
-elseif pType == "EV_REQ" then
+-- Dane nadawcy (gildia, ranga) z jego meldunku - na ich podstawie sprawdzamy uprawnienia
+local senderInfo = senderIdx and activePlayers[senderIdx]
+local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
+local senderIsOfficer
+if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsRankOfficer(senderInfo.rank, senderInfo.rankIndex) end
+if pType == "EV_REQ" then
 for _, ev in ipairs(eventsList) do
 if ev.creator == myName then
-SendJagodkaNetworkPacket("EV_ADD", BuildEventPacket(ev))
+SendEvent(ev)
 end
 end
 elseif pType == "EV_ADD" then
-local evID, title, eDate, eTime, desc, creator = strsplit(":", payload, 6)
-evID, title, eDate, eTime, desc, creator = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName
-if evID and title and eDate and eTime then
+local evID, title, eDate, eTime, desc, creator, dungeon, parts = strsplit(":", payload, 8)
+evID, title, eDate, eTime, desc, creator, dungeon = DecodeField(evID), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(desc) or "", DecodeField(creator) or senderName, DecodeField(dungeon)
+if dungeon == "" then dungeon = nil end
+-- Wydarzenie moze rozeslac tylko jego autor, bedacy oficerem, z limitem wydarzen na osobe
+if evID and title and eDate and eTime and creator == senderName and senderIsOfficer and CountEventsBy(creator) < MAX_EVENTS_PER_CREATOR then
 local exists = false
 for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
 if not exists then
-table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, creator = creator, roster = {} })
+-- descParts: kolejne czesci opisu dochodza w pakietach EV_DESC
+local total = math.min(tonumber(parts) or 1, EVENT_MAX_DESC_PARTS)
+table.insert(eventsList, { id = evID, title = title, date = eDate, time = eTime, desc = desc, descParts = { desc }, descTotal = total, dungeon = dungeon, creator = creator, guild = senderGuild, roster = {} })
 if MainFrame:IsShown() then UpdateEventsList() end
+end
+end
+elseif pType == "EV_DESC" then
+local evID, partIdx, chunk = strsplit(":", payload, 3)
+evID, partIdx = DecodeField(evID), tonumber(partIdx)
+for _, ev in ipairs(eventsList) do
+-- Czesc opisu przyjmujemy tylko od autora i tylko dla zapowiedzianej liczby czesci
+if ev.id == evID and ev.creator == senderName and ev.descParts and partIdx and partIdx >= 2 and partIdx <= (ev.descTotal or 1) then
+ev.descParts[partIdx] = DecodeField(chunk) or ""
+local full = {}
+for i = 1, ev.descTotal do if ev.descParts[i] then table.insert(full, ev.descParts[i]) end end
+ev.desc = table.concat(full)
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+break
 end
 end
 elseif pType == "EV_SIGN" then
 local evID, role = strsplit(":", payload, 2)
+-- Tylko znane role; nadawca zapisuje wylacznie siebie (roster[senderName])
+if not VALID_ROLES[role] then return end
 for _, ev in ipairs(eventsList) do
 if ev.id == evID then
 ev.roster[senderName] = role
@@ -986,6 +1215,8 @@ end
 elseif pType == "EV_REM" then
 for idx, ev in ipairs(eventsList) do
 if ev.id == payload then
+-- Usunac moze autor albo oficer gildii z bialej listy; inne prosby ignorujemy
+if not CanRemoveEvent(ev, senderName, senderGuild, senderIsOfficer) then break end
 table.remove(eventsList, idx)
 -- Po usunieciu indeksy sie przesuwaja, wiec poprawiamy zaznaczenie
 if selectedEventIndex == idx then selectedEventIndex = nil UpdateEventDetails()
@@ -1017,8 +1248,10 @@ ShowTab(1)
 -- ============================================================================
 -- 9. REJESTRACJA KOMENDY CZATU I MINIMAPY (LibDataBroker)
 -- ============================================================================
-_G.SLASH_JAGODKI1 = "/okno"
-_G.SlashCmdList["JAGODKI"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
+-- "/okno" to popularne slowo i moze go zajac inny addon, wiec glowna komenda to /jagodka
+_G.SLASH_JAGODKANADINA1 = "/jagodka"
+_G.SLASH_JAGODKANADINA2 = "/okno"
+_G.SlashCmdList["JAGODKANADINA"] = function() if MainFrame:IsShown() then MainFrame:Hide() else MainFrame:Show() end end
 local JagodkiLDB = LibStub("LibDataBroker-1.1"):NewDataObject("JagodkiNadina", {
 type = "data source",
 text = "Jagodki Nadina",
