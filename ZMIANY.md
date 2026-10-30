@@ -55,3 +55,29 @@ Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach
 4. Wylogowanie relaya → rolę przejmuje następna osoba, wiadomości z `/g` nie giną.
 5. Wydarzenie z instancją i długim opisem → poprawne u drugiej osoby; zapisy na role; usuwanie przez oficera.
 6. Do omówienia później: format wiadomości w czacie jest zbyt „głośny”.
+
+---
+
+# 0.7.2 – roster wszystkich gildii w zakładce Członkowie
+
+- Nowy plik `roster.lua` i nowy zapis `JagodkiRosterDB` (ostatni znany roster każdej gildii).
+- Zakładka **Członkowie** pokazuje wszystkich członków gildii z whitelisty, także tych bez addonu.
+  - Gracze offline są wyszarzeni. Checkbox „Pokaż offline” przełącza widok na samych online.
+  - Kolumna Wersja: `-` oznacza gracza bez addonu.
+- Roster gildii wysyła jedna osoba z addonem, **nadawca**. Zmienia się co 5 min, a wybór jest liczony tak samo u wszystkich, więc ruch rozkłada się na całą gildię. Pakiety mają niski priorytet.
+  - Zmiana statusu to `+Nick` albo `-Nick`. Pełny wpis `Nick,W603+` (klasa, poziom, ranga, status) idzie tylko przy nowym członku albo zmianie poziomu lub rangi.
+  - Pełny roster idzie na prośbę osoby, która się zalogowała i ma dane starsze niż 10 min, oraz raz na 30 min.
+  - Zmiany sprawdza co 20 s każdy, ale wysyła tylko nadawca, więc zmiana nadawcy nie wymaga wysyłania całego rostera.
+- Gdy z danej gildii nikt z addonem nie jest online, jej członkowie są pokazywani jako offline (dane mogą być nieaktualne).
+- Po zalogowaniu addon czeka 40 s, zanim zacznie wysyłać, żeby wcześniej poznać pozostałych.
+- Zakładka Gildie nie pokazuje już relaya; jest on widoczny tylko w Ustawieniach.
+- Członkowie: sortowanie po kliknięciu w nagłówek kolumny (rosnąco ^, malejąco v, trzecie kliknięcie wraca do domyślnej kolejności: online, gildia, nick) oraz strony po 50 osób z paskiem pod tabelą: `Pokazano 51-100 z 312 (48 online)  [<<] [<] Strona 2 / 7 [>] [>>]`.
+- Członkowie: przycisk Reset (wyszukiwarka, „Pokaż offline”, sortowanie, strona 1). Prawy klik na wierszu otwiera menu z „Whisper” i „Invite to group”, a Shift + lewy klik od razu otwiera szept (tylko do graczy online).
+- Panel „Aktywni gracze” korzysta z tej samej listy co Członkowie, tylko z graczami online (także bez addonu). Ma te same kliknięcia (menu z „Szepnij”, Shift + lewy klik) i jest odświeżany najwyżej raz na 0,3 s, tylko przy otwartym oknie.
+- Kanał `JagodkaWspolnota` jest zahasłowany (`COMM_PASSWORD` w `most.lua`). Wszyscy muszą mieć 0.7.2: z hasłem założonego kanału 0.7.1 nie dołączy (WRONG_PASSWORD).
+- Interfejs po angielsku, bez polskich liter (zakładki, przyciski, komunikaty, status, ostrzeżenia, `.toc`). Wewnętrzne nazwy w protokole (zakładki czatu `Ogolny`/`Handel`, `Brak`) zostały bez zmian, więc pakiety pozostają zgodne.
+- Wydajność: lista członków jest przeliczana tylko przy widocznej zakładce i najwyżej raz na 0,3 s, scroll tylko przerysowuje wiersze, a roster własnej gildii jest odczytywany najwyżej raz na 2 s.
+
+Do przetestowania:
+- Lista członków drugiej gildii pojawia się po ok. 15–60 s od zalogowania.
+- Wylogowanie gracza z drugiej gildii zostaje zauważone w ciągu ok. 40 s.

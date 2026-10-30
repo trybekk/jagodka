@@ -7,7 +7,7 @@ local addonName, addonTable = ...
 
 addonTable.Instances = {
     {
-        group = "Dungeony",
+        group = "Dungeons",
         list = {
             { name = "Ragefire Chasm", levels = "13-18" },
             { name = "Wailing Caverns", levels = "17-24" },
@@ -32,15 +32,15 @@ addonTable.Instances = {
         },
     },
     {
-        group = "Rajdy",
+        group = "Raids",
         list = {
-            { name = "Zul'Gurub", levels = "20 os." },
-            { name = "Ruins of Ahn'Qiraj", levels = "20 os." },
-            { name = "Molten Core", levels = "40 os." },
-            { name = "Onyxia's Lair", levels = "40 os." },
-            { name = "Blackwing Lair", levels = "40 os." },
-            { name = "Temple of Ahn'Qiraj", levels = "40 os." },
-            { name = "Naxxramas", levels = "40 os." },
+            { name = "Zul'Gurub", levels = "20-man" },
+            { name = "Ruins of Ahn'Qiraj", levels = "20-man" },
+            { name = "Molten Core", levels = "40-man" },
+            { name = "Onyxia's Lair", levels = "40-man" },
+            { name = "Blackwing Lair", levels = "40-man" },
+            { name = "Temple of Ahn'Qiraj", levels = "40-man" },
+            { name = "Naxxramas", levels = "40-man" },
         },
     },
 }

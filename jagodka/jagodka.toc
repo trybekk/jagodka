@@ -1,9 +1,9 @@
 ## Interface: 11509
 ## Title: Jagodka
-## Notes: Wspolnota gildii: wspolny czat, lista online i wydarzenia. Komenda: /jagodka
+## Notes: Guild community: shared chat, online roster and events. Command: /jagodka
 ## Author: trybekk
-## Version: 0.7.1
-## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB
+## Version: 0.7.2
+## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
@@ -11,5 +11,6 @@ Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
 most.lua
+roster.lua
 instancje.lua
 core.lua

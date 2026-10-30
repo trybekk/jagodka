@@ -31,6 +31,9 @@ local table, string, math = _G.table, _G.string, _G.math
 
 local PREFIX = "JagodkaComm"
 local COMM_CHANNEL = "JagodkaWspolnota"
+-- Haslo kanalu: obcy gracz nie wejdzie przez /join i nie zobaczy ani nie podrobi pakietow.
+-- Jest jawne w kodzie addonu, wiec chroni przed przypadkowymi osobami, nie przed kims, kto ma addon.
+local COMM_PASSWORD = "jgdk7Wsp0lnota"
 local ONLINE_TIMEOUT = 150            -- sekundy bez sygnalu, po ktorych gracz jest offline
 local BRIDGED_TABS = { ["Ogolny"] = true } -- zakladki addonu polaczone z /g (Handel itp. zostaja w addonie)
 local MAX_LOG = 300                   -- ile wiadomosci trzymamy (pamiec + SavedVariables)
@@ -97,7 +100,7 @@ function Most.GetChannelId()
 end
 
 function Most.JoinChannel()
-    if not Most.GetChannelId() then JoinTemporaryChannel(COMM_CHANNEL) end
+    if not Most.GetChannelId() then JoinTemporaryChannel(COMM_CHANNEL, COMM_PASSWORD) end
     -- Ukrycie kanalu z okien czatu, zeby surowe pakiety nie zasmiecaly czatu
     if _G.ChatFrame_RemoveChannel then
         for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
@@ -446,10 +449,10 @@ end
 function Most.GetStatusText()
     local channelId = Most.GetChannelId()
     local lines = {
-        "Kanal globalny: " .. (channelId and ("|cff00ff00polaczony|r (" .. COMM_CHANNEL .. ", /" .. channelId .. ")") or ("|cffff5555brak|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
-        "Relay twojej gildii: " .. (Most.GetRelayName() or "-") .. (Most.IsRelay() and " |cff00ff00(to Ty)|r" or ""),
-        "Kolejka pakietow: " .. (#highQueue + #lowQueue) .. "   Kolejka /g: " .. #guildLineQueue,
-        "Wiadomosci w historii: " .. #chatLog,
+        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. COMM_CHANNEL .. ", /" .. channelId .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
+        "Your guild relay: " .. (Most.GetRelayName() or "-") .. (Most.IsRelay() and " |cff00ff00(you)|r" or ""),
+        "Packet queue: " .. (#highQueue + #lowQueue) .. "   /g queue: " .. #guildLineQueue,
+        "Messages in history: " .. #chatLog,
     }
     return table.concat(lines, "\n")
 end
@@ -472,8 +475,8 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         if channelBaseName ~= COMM_CHANNEL then return end
         if arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then
             -- Ktos przejal kanal (haslo) albo nas zbanowal - nie probujemy w kolko, tylko informujemy
-            channelProblem = (arg1 == "BANNED") and "zbanowany na kanale" or "kanal ma obce haslo"
-            Warn("Kanal globalny niedostepny: " .. channelProblem .. ". Zglos to oficerom.")
+            channelProblem = (arg1 == "BANNED") and "banned from the channel" or "the channel has a different password"
+            Warn("Global channel unavailable: " .. channelProblem .. ". Report this to an officer.")
         elseif arg1 == "YOU_LEFT" and not channelProblem then
             -- Inny addon (np. porzadkujacy kanaly) nas wypisal - wracamy po chwili
             C_Timer.After(5, Most.JoinChannel)
