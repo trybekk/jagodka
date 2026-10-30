@@ -27,6 +27,9 @@ local UIErrorsFrame = _G.UIErrorsFrame
 local RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS
 local CLASS_ICON_TCOORDS = _G.CLASS_ICON_TCOORDS
 local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
+local IsInRaid = _G.IsInRaid
+local IsInGroup = _G.IsInGroup
+local IsInGuild = _G.IsInGuild
 
 -- WYMUSZONA REJESTRACJA PREFIKSU NA SAMYM STARCIE PLIKU
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
@@ -34,8 +37,6 @@ C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 -- ============================================================================
 -- 0B. KONFIGURACJA WSPÓLNEGO KANAŁU I BIAŁEJ LISTY GILDII
 -- ============================================================================
-local CUSTOM_COMM_CHANNEL = "Jagodka"
-
 local AllowedGuilds = {
     ["Jagódki Nadina"] = true,  
     ["Testowo"] = true,        
@@ -143,15 +144,15 @@ local function CreateLabelAndInput(parentFrame, labelName, yOffset, width, heigh
 end
 
 -- ============================================================================
--- 1B. FUNKCJE SIECIOWE NA WSPÓLNY KANAŁ NIESTANDARDOWY
+-- 1B. FUNKCJE SIECIOWE NA STABILNE KANAŁY BLIZZARDA
 -- ============================================================================
 local function SendJagodkaNetworkPacket(prefixType, dataPayload)
     local myGuild = GetGuildInfo("player")
     if not IsPlayerGuildAllowed(myGuild) then return end
     
-    local channelID = _G.GetChannelName(CUSTOM_COMM_CHANNEL)
-    if channelID and channelID > 0 then
-        C_ChatInfo.SendAddonMessage("JagodkaComm", prefixType .. ":" .. dataPayload, "CHANNEL", channelID)
+    local channel = IsInRaid() and "RAID" or (IsInGroup() and "PARTY" or (IsInGuild() and "GUILD" or nil))
+    if channel then 
+        C_ChatInfo.SendAddonMessage("JagodkaComm", prefixType .. ":" .. dataPayload, channel) 
     end
 end
 
@@ -267,7 +268,7 @@ local function GetColoredName(name)
     if idx then
         local player = activePlayers[idx]
         if player.class and RAID_CLASS_COLORS[player.class] then
-            local color = RAID_CLASS_COLORS[player.class]
+local color = RAID_CLASS_COLORS[player.class]
 return color:WrapTextInColorCode(name)
 end
 end
@@ -795,12 +796,13 @@ if scrollBar then scrollBar:SetValue(offset) end
 UpdateScrollList()
 end)
 -- ============================================================================
--- 8. ODBIORNIK SIECIOWY (Z WERYFIKACJĄ BIAŁEJ LISTY GILDII)
+-- 8. ODBIORNIK SIECIOWY (STABILNE KANAŁY + BIAŁA LISTA)
 -- ============================================================================
 local NetworkListener = CreateFrame("Frame")
 NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
 NetworkListener:RegisterEvent("PLAYER_LOGIN")
 NetworkListener:RegisterEvent("ADDON_LOADED")
+-- POPRAWKA: Przypisanie zdarzenia bezpośrednio na ramce sieciowej, a nie tablicy!
 NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
 if event == "ADDON_LOADED" and prefix == "jagodka" then
 _G.JagodkiEventsDB = _G.JagodkiEventsDB or {}
@@ -808,11 +810,10 @@ eventsList = _G.JagodkiEventsDB
 return
 end
 if event == "PLAYER_LOGIN" then
-_G.JoinChannelByName(CUSTOM_COMM_CHANNEL)
 C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 AddMyselfToActiveList()
 SendStatusPacket("PING")
-table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Polaczono ze Wspolnota Jagodka.|r")
+table.insert(chatHistories["Ogolny"], "|cff00ccff[System]: Wspolnota Jagodka gotowa.|r")
 UpdateChatTabVisuals()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 local senderName = Ambiguate(sender, "none")
@@ -841,8 +842,6 @@ table.insert(chatHistories[targetTab], rankStr .. "[" .. GetColoredName(senderNa
 if targetTab == currentChatTab then RefreshChatDisplay() end
 end
 end
-elseif pType == "PING" or pType == "PONG" then
--- Ochrona przed przetworzeniem złego pakietu
 elseif pType == "EV_REQ" then
 for _, ev in ipairs(eventsList) do
 if ev.creator == myName then
@@ -890,7 +889,7 @@ if UpdateMainTable then UpdateMainTable() end
 UpdateGuildTable()
 UpdateEventsList()
 end)
--- NAPRAWIONE: Zmieniono całą tablicę Panels na indeks tablicy Panels[4]
+-- POPRAWKA: Wskazanie konkretnego, czwartego indeksu z tablicy paneli
 Panels[4]:SetScript("OnShow", function()
 if _G.JagodkiEventsDB then eventsList = _G.JagodkiEventsDB end
 if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
