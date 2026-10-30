@@ -6,7 +6,8 @@
 | 0.7.2 | `0992d28` | wypchnięta, przetestowana w grze |
 | 0.7.3 | `af508ab` | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
 | 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
-| 0.7.5 | commit „feat(lasarr-1): community chat mute, v0.7.5” | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
+| 0.7.5 | `5eda26f` | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
+| 0.7.6 | commit „feat(lasarr-1): Trade tab in game chat, item links, drop Raid tab, v0.7.6” | wypchnięta, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -216,3 +217,31 @@ Do przetestowania:
 - [ ] Każdy oficer może odciszyć, także osobę wyciszoną przez GM.
 - [ ] Link przedmiotu w czacie addonu pokazuje tooltip.
 - [ ] Zakładka „Jagodki Nadina - General”: prawy klik na nick pokazuje oficerowi sekcję „Jagodka” z Mute; w innych oknach czatu tej sekcji nie ma.
+
+---
+
+# 0.7.6 – zakładki czatu, Trade w czacie gry, linki
+
+- Okno addonu, zakładka Chat: usunięta zakładka **Raid**. Kolejność to teraz General, Trade, LFG.
+  - Stare wiadomości z Raid zostają w zapisanym logu, ale nigdzie ich nie widać.
+- **Trade** działa jak General, tylko bez `/g`:
+  - wiadomości idą przez kanał globalny do wszystkich gildii z listy (tak było już wcześniej);
+  - nowa zakładka w czacie gry **„Jagodki Nadina - Trade”** z kolorem treści `ffd2a05a` (piaskowy, inny niż General i `/g`);
+  - zakładka powstaje sama raz, przy pierwszym logowaniu z 0.7.6, a po zalogowaniu pokazuje ostatnie 30 wiadomości;
+  - nic nie trafia do `/g` i nic z `/g` nie trafia do Trade, żeby czat gildii nie był zaśmiecony handlem.
+- `zakladka.lua` obsługuje teraz listę zakładek (`TABS`: General i Trade); kolejną dodaje się jednym wpisem.
+  - `/jagodka tab` tworzy brakujące zakładki od nowa.
+  - Menu na nicku z Mute/Unmute działa w obu zakładkach (`Zakladka.IsOurFrame`).
+- Linki przedmiotów, zaklęć, profesji itp.:
+  - **Shift + klik** na przedmiot w torbie, zaklęcie w spellbooku albo przepis wstawia link do pola wpisywania w oknie addonu, gdy to pole jest aktywne (hook na `ChatEdit_InsertLink`).
+  - Kliknięcie linku w oknie addonu pokazuje tooltip, jak w zwykłym czacie (`SetItemRef`, od 0.7.5).
+  - Zakładki w czacie gry obsługują linki same.
+  - Linki przechodzą przez kanał globalny i relay do `/g` bez zmian. Dzielenie długich wiadomości nigdy nie tnie linku.
+- Limity: szczyt w `core.lua` bez zmian, 185/200.
+
+## Do przetestowania (0.7.6)
+- [ ] Zakładki w oknie addonu: General, Trade, LFG (bez Raid).
+- [ ] W czacie gry pojawia się „Jagodki Nadina - Trade”, a wiadomości z Trade w addonie są tam w innym kolorze.
+- [ ] Wiadomość w Trade nie pojawia się w `/g` żadnej gildii.
+- [ ] Shift + klik na przedmiot, zaklęcie i przepis przy aktywnym polu addonu wstawia link; po wysłaniu link jest klikalny u innych w addonie, w zakładkach gry i (dla General) w `/g`.
+- [ ] Prawy klik na nick w zakładce Trade w czacie gry pokazuje oficerowi sekcję „Jagodka”.

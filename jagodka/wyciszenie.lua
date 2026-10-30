@@ -339,16 +339,15 @@ function Mute.AttachChat(frame)
     end)
 end
 
--- Menu gry na nicku (prawy klik) w zakladce "Jagodki Nadina - General": dopisujemy Mute / Unmute.
+-- Menu gry na nicku (prawy klik) w zakladkach "Jagodki Nadina - General / Trade": dopisujemy Mute / Unmute.
 -- Nowe API menu (Menu.ModifyMenu) - na kliencie bez niego zakladka ma tylko zwykle menu gry.
 if _G.Menu and _G.Menu.ModifyMenu then
     _G.Menu.ModifyMenu("MENU_UNIT_FRIEND", function(owner, rootDescription, contextData)
         local name = contextData and contextData.name
         if not name then return end
         name = _G.Ambiguate(name, "none")
-        -- Tylko w naszej zakladce (gdy gra nie podaje okna czatu, pokazujemy wszedzie - i tak tylko oficerom)
-        local tab = addonTable.Zakladka and addonTable.Zakladka.GetFrame()
-        if contextData.chatFrame and contextData.chatFrame ~= tab then return end
+        -- Tylko w naszych zakladkach (gdy gra nie podaje okna czatu, pokazujemy wszedzie - i tak tylko oficerom)
+        if contextData.chatFrame and not addonTable.Zakladka.IsOurFrame(contextData.chatFrame) then return end
         local me, muted = MyName(), Mute.IsMuted(name)
         if muted and not Mute.CanUnmute(me) then return end
         if not muted and not Mute.CanMute(me, name) then return end

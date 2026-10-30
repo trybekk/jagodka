@@ -592,11 +592,14 @@ chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
 -- Dluzsze wiadomosci most.lua sam dzieli na czesci (limit 255 bajtow na pakiet)
 chatInput:SetMaxBytes(255)
+-- Shift + klik na przedmiot / zaklecie / profesje wstawia link do pola, gdy to ono jest aktywne
+-- (gra wstawia linki tylko do swojego okna czatu)
+hooksecurefunc("ChatEdit_InsertLink", function(link) if link and chatInput:HasFocus() then chatInput:Insert(link) end end)
 local sendButton = CreateFrame("Button", nil, ChatPanel, "GameMenuButtonTemplate")
 sendButton:SetSize(75, 26)
 sendButton:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
 sendButton:SetText("Send")
-local chatTabs = {"Ogolny", "Raid", "Handel", "Szukaj grupy"}
+local chatTabs = {"Ogolny", "Handel", "Szukaj grupy"}
 local currentChatTab = "Ogolny"
 local chatTabButtons = {}
 -- Czat pokazuje jeden wspolny log z most.lua (wszystkie gildie, ta sama kolejnosc u kazdego)
