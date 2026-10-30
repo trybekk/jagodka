@@ -8,7 +8,8 @@
 | 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
 | 0.7.5 | `5eda26f` | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
 | 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
-| 0.7.7 | commit „fix(lasarr-1): global channel via JoinChannelByName, v0.7.7” | wypchnięta, do przetestowania w grze |
+| 0.7.7 | `36241cb` | wypchnięta; na postaciach z wyższym levelem sync w jednej gildii działa (kanał na postaciach lvl 1 zwraca 4) |
+| 0.7.8 | — | lokalnie, do przetestowania w grze |
 
 Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
 
@@ -288,3 +289,24 @@ Do przetestowania:
 - [ ] Kanał nie pojawia się w oknach czatu; stary `JagodkaWspolnota` znika z `/chatlist`.
 - [ ] Wysłany link przedmiotu działa u drugiej osoby; zwykły tekst z `|` nie robi kolorów.
 - [ ] Test z drugą gildią z listy (cross-guild).
+
+---
+
+# 0.7.8 – „Your guild is not on the Community list” mimo gildii z listy
+
+**Problem znaleziony w teście:** gracz wyszedł z Jagódek Nadina, od razu został przyjęty do `Testowo` (jest na liście) i od razu wysłał wiadomość. Dostał komunikat „Your guild is not on the Community list - message not sent.”.
+- Przyczyna: `GetGuildInfo("player")` w Classic potrafi chwilowo zwracać `nil` (po loadingu, zaraz po dołączeniu do gildii), a addon traktował `nil` jak „gildia spoza listy”.
+
+**Poprawki (`most.lua`, `core.lua`):**
+- `Most.MyGuild()` pamięta ostatnią znaną nazwę gildii i używa jej, gdy `GetGuildInfo` chwilowo zwraca `nil` (dopóki `IsInGuild()` mówi, że gracz jest w gildii). Przy okazji prosi grę o odświeżenie rostera.
+- Z tej samej funkcji korzysta relay, mostek `/g`, wysyłka czatu i zapis na wydarzenie.
+- Gdy nazwa gildii nie jest jeszcze znana: komunikat „Guild info not loaded yet - try again in a moment”, a wpisana wiadomość zostaje w polu.
+- Komunikat o gildii spoza listy podaje teraz nazwę, którą widzi addon, np. „Your guild (Xyz) is not on the Community list”.
+- Po zmianie gildii (`PLAYER_GUILD_UPDATE`) addon zapomina starą nazwę i od razu wysyła ponowny PING z nową gildią. Wcześniej inni widzieli gracza w starej gildii aż do następnego PONG-a (do minuty).
+- Limity: `most.lua` 88, `core.lua` 186/200.
+
+## Do przetestowania (0.7.8)
+- [ ] Wyjście z gildii, od razu `/ginvite` do `Testowo` i wysyłka: wiadomość z addonu wychodzi albo pojawia się „Guild info not loaded yet”, a nie „not on the Community list”.
+- [ ] Gracz spoza listy widzi w komunikacie nazwę swojej gildii.
+- [ ] Po zmianie gildii inni od razu widzą gracza w nowej gildii (Members, nazwa gildii przy wiadomościach).
+- [ ] Test cross-guild na postaciach z wyższym levelem (lvl 1 nie może wysyłać na kanał – kod 4).

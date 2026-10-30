@@ -60,7 +60,6 @@ local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end
     return AllowedGuilds[guildName] == true
 end
-
 -- ============================================================================
 -- 0C. WERSJA ADDONU (z pola "## Version" w .toc, wysylana w kazdym meldunku)
 -- ============================================================================
@@ -630,14 +629,17 @@ end
 local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
 if msg and msg ~= "" then
-local guildName = GetGuildInfo("player")
+local guildName = Most.MyGuild()
 if Mute.IsMuted(UnitName("player")) then
 chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
 -- Kanal globalny raz; relaye gildii wkleja wiadomosc do swoich /g
 Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
+elseif not guildName and IsInGuild() then
+chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
+return
 else
-chatDisplay:AddMessage("|cffff5555[System]: Your guild is not on the Community list - message not sent.|r")
+chatDisplay:AddMessage("|cffff5555[System]: Your guild (" .. tostring(guildName) .. ") is not on the Community list - message not sent.|r")
 end
 chatInput:SetText("")
 end
@@ -1412,7 +1414,7 @@ BtnDps:SetScript("OnClick", function() SetRosterFilter("DPS") end)
 local function SignUpForEvent(role)
 local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if not ev or not VALID_ROLES[role] then return end
-if not IsPlayerGuildAllowed(GetGuildInfo("player")) then ShowEventError("Your guild is not on the Community list!") return end
+if not IsPlayerGuildAllowed(Most.MyGuild()) then ShowEventError("Your guild is not on the Community list!") return end
 ev.roster[UnitName("player")] = role
 UpdateEventDetails() UpdateEventsList()
 SendJagodkaNetworkPacket("EV_SIGN", ev.id .. ":" .. role)
@@ -1822,11 +1824,11 @@ NetworkListener:RegisterEvent("ADDON_LOADED")
 NetworkListener:RegisterEvent("PLAYER_GUILD_UPDATE")
 NetworkListener:RegisterEvent("GUILD_ROSTER_UPDATE")
 -- Zaraz po zalogowaniu GetGuildInfo() czesto zwraca nil, wiec PING wysylamy dopiero gdy gildia jest znana
-local announced = false
+local announced, announcedGuild = false, nil
 local function TryAnnounce()
 if announced then return end
 if not IsPlayerGuildAllowed(GetGuildInfo("player")) then return end
-announced = true
+announced, announcedGuild = true, GetGuildInfo("player")
 AddMyselfToActiveList()
 SendStatusPacket("PING")
 UpdateScrollList()
@@ -1920,6 +1922,10 @@ end)
 Most.AddSystem("Jagodka Community ready. The global channel links all listed guilds.")
 UpdateChatTabVisuals()
 elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+if event == "PLAYER_GUILD_UPDATE" then Most.ResetGuild() end
+-- Zmiana gildii (wyjscie lub nowa gildia): ponowny PING z nowa gildia, zeby inni od razu ja znali
+local g = GetGuildInfo("player")
+if announced and g ~= announcedGuild and (g or not IsInGuild()) then announced = false end
 RefreshMyGuildRoster()
 TryAnnounce()
 PruneOfflinePlayers()

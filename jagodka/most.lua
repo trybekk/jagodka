@@ -62,7 +62,19 @@ function Most.SetGuildmateOnlineCheck(fn) guildmateOnlineCheck = fn end
 local channelProblem = nil -- opis problemu z kanalem globalnym (obce haslo / ban), widoczny w statusie
 
 local function MyName() return UnitName("player") end
-local function MyGuild() return (GetGuildInfo("player")) end
+-- GetGuildInfo() potrafi chwilowo zwracac nil (po loadingu, po dolaczeniu do gildii),
+-- wiec pamietamy ostatnia znana nazwe; IsInGuild() pilnuje, zeby po wyjsciu z gildii jej nie uzywac
+local lastGuildName = nil
+local function MyGuild()
+    local g = GetGuildInfo("player")
+    if g and g ~= "" then lastGuildName = g return g end
+    if not IsInGuild() then lastGuildName = nil return nil end
+    if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster() elseif _G.GuildRoster then _G.GuildRoster() end
+    return lastGuildName
+end
+Most.MyGuild = MyGuild
+-- Zmiana gildii (wyjscie / nowa gildia): zapomniana nazwa nie moze trafic do nowej gildii
+function Most.ResetGuild() lastGuildName = nil end
 
 -- ============================================================================
 -- KODOWANIE POL (":" jest separatorem pakietu)
