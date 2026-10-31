@@ -1,11 +1,11 @@
 -- ============================================================================
--- SYNCHRO: pasek postepu synchronizacji w naglowku glownego okna
+-- SYNC: sync progress bar in the main window header
 -- ============================================================================
---  * Pokazuje sie tylko, gdy cos sie dzieje (i tylko przy otwartym oknie - jest jego czescia).
---  * Etapy zglaszaja inne pliki: Sync.Start(etap) -> Sync.Activity(etap) przy kazdym pakiecie.
---    Etap jest gotowy, gdy przez chwile nic nie przychodzi (albo nikt nie odpowiada / minie limit).
---  * Kanal globalny: sprawdzany sam (czy addon juz na nim jest).
---  * Po zakonczeniu wszystkiego: "Synced" przez kilka sekund, potem pasek znika.
+--  * Shown only while something is happening (and only with the window open, as it is part of it).
+--  * Other files report stages: Sync.Start(stage) -> Sync.Activity(stage) on each packet.
+--    A stage is done when nothing arrives for a moment (or nobody answers / the limit passes).
+--  * Global channel: checked here directly (whether the addon has joined it yet).
+--  * When everything is finished: "Synced" for a few seconds, then the bar disappears.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -19,32 +19,32 @@ local table = _G.table
 local Sync = {}
 addonTable.Sync = Sync
 
--- Kolejnosc i nazwy etapow na pasku
+-- Order and names of the stages on the bar
 local STAGES = {
     { key = "channel", label = "Channel" },
     { key = "history", label = "Chat" },
     { key = "events", label = "Events" },
     { key = "rosters", label = "Rosters" },
 }
--- first = ile czekamy na pierwsza odpowiedz (odpowiadajacy losuja 1-4 s), quiet = cisza po ostatnim
--- pakiecie, max = twardy limit
+-- first = how long to wait for the first answer (responders pick a random 0.5-2.5 s), quiet = silence after the last
+-- packet, max = hard limit
 local TIMING = {
     channel = { max = 40 },
     history = { first = 7, quiet = 3, max = 20 },
     events = { first = 7, quiet = 3, max = 30 },
     rosters = { first = 8, quiet = 4, max = 40 },
 }
-local SHOW_DONE_FOR = 4 -- s z napisem "Synced"
+local SHOW_DONE_FOR = 4 -- seconds showing "Synced"
 
 local ICON_DONE = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t"
 local ICON_WAIT = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:12:12|t"
 
-local state = {}      -- etap -> { started, last, done }
+local state = {}      -- stage -> { started, last, done }
 local finishedAt = nil
 local bar = nil
 
 -- ============================================================================
--- API dla innych plikow
+-- API for other files
 -- ============================================================================
 function Sync.Start(key)
     local now = GetTime()
@@ -63,7 +63,7 @@ function Sync.Done(key)
 end
 
 -- ============================================================================
--- STAN
+-- STATE
 -- ============================================================================
 local function Update()
     local now = GetTime()
@@ -77,7 +77,7 @@ local function Update()
             elseif s.last then
                 if now - s.last > (t.quiet or 3) then s.done = true end
             elseif now - s.started > (t.first or 7) then
-                -- Nikt nie odpowiedzial (np. nikogo innego online albo wszystko juz mamy)
+                -- Nobody answered (e.g. nobody else is online or we already have everything)
                 s.done = true
             end
             if not s.done and now - s.started > (t.max or 30) then s.done = true end
@@ -93,7 +93,7 @@ local function Render()
     local anyStarted, anyActive = Update()
     if not anyStarted or (not anyActive and finishedAt and GetTime() - finishedAt > SHOW_DONE_FOR) then
         bar:Hide()
-        -- Po zakonczeniu czyscimy, zeby kolejna synchronizacja zaczela od zera
+        -- Clear when finished so the next sync starts from zero
         if anyStarted and not anyActive then state = {} finishedAt = nil end
         return
     end
@@ -119,7 +119,7 @@ local function Render()
 end
 
 -- ============================================================================
--- UI: pasek w naglowku okna (core.lua wywoluje Sync.Attach po utworzeniu naglowka)
+-- UI: bar in the window header (core.lua calls Sync.Attach after creating the header)
 -- ============================================================================
 function Sync.Attach(parent, rightOf)
     bar = CreateFrame("StatusBar", nil, parent)
@@ -132,7 +132,7 @@ function Sync.Attach(parent, rightOf)
     bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
     bar:Hide()
-    -- Odswiezanie tylko przy otwartym oknie (pasek jest czescia okna)
+    -- Refresh only with the window open (the bar is part of the window)
     local elapsedSum = 0
     parent:HookScript("OnUpdate", function(_, elapsed)
         elapsedSum = elapsedSum + elapsed
@@ -142,10 +142,10 @@ function Sync.Attach(parent, rightOf)
     end)
 end
 
--- Kanal globalny: etap od zalogowania do wejscia na kanal
+-- Global channel: stage from login until joining the channel
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:SetScript("OnEvent", function() Sync.Start("channel") end)
 
--- Stan przelicza sie tez przy zamknietym oknie (lekko, co 1 s), zeby po otwarciu nie pokazac starych etapow
+-- State is also updated with the window closed (cheap, every 1 s), so opening it does not show old stages
 C_Timer.NewTicker(1, Update)

@@ -1,414 +1,428 @@
-# Jagodka – zmiany na `feature/lasarr-1`
+# Jagodka – changes
 
-| Wersja | Commit | Stan |
-|---|---|---|
-| 0.7.1 | `65044cb` | wypchnięta, wstępnie przetestowana w grze |
-| 0.7.2 | `0992d28` | wypchnięta, przetestowana w grze |
-| 0.7.3 | `af508ab` | wypchnięta, częściowo przetestowana w grze (reszta do testu) |
-| 0.7.4 | `81be319` | wypchnięta, do przetestowania w grze |
-| 0.7.5 | `5eda26f` | wypchnięta, wstępnie przetestowana w grze (dokładne testy później) |
-| 0.7.6 | `3c96f4b` (+ diagnostyka `47464c8`) | wypchnięta; test pokazał, że kanał globalny nie przenosił pakietów |
-| 0.7.7 | `36241cb` | wypchnięta; sync w jednej gildii działa tylko przez `GUILD`, kanał zwraca 4 na każdej postaci |
-| 0.7.8 | `64ea018` | wypchnięta; test cross-guild pokazał, że kanał nie przenosi pakietów |
-| 0.8.0 | `a41000c` | wypchnięta, przetestowana w grze: działa, czasem długa synchronizacja przy przelogowaniu |
-| 0.8.1 | `7919b2b` | wypchnięta, przetestowana w grze |
-| 0.8.2 | — | lokalnie, do przetestowania w grze |
+# 0.7.1 – shared chat, events, versions (based on `5b4b160`)
 
-**Łączność między gildiami:** sekcje do 0.7.8 opisują wysyłkę pakietów przez kanał globalny, która w Classic nie działa. Od 0.8.0 pakiety idą przez `GUILD` i szepty między relayami (patrz 0.8.0), a stare sekcje zostają jako historia.
-
-Wersje są opisane po kolei, każda sekcja zawiera tylko zmiany względem poprzedniej. Wszyscy gracze muszą mieć tę samą wersję, bo addon ostrzega o niezgodności, a 0.7.2 i 0.7.3 zmieniają protokół. Kod sprawdzany jest skryptami struktury (domknięte bloki, brak zmiennych globalnych, limit zmiennych lokalnych), a działanie testujemy w grze.
-
----
-
-# 0.7.1 – wspólny czat, wydarzenia, wersje (na bazie `5b4b160`)
-
-## Pliki
-| Plik | Co |
+## Files
+| File | What |
 |---|---|
-| `most.lua` (nowy) | Most kanał globalny ↔ `/g`: transport, relay, historia, log czatu |
-| `instancje.lua` (nowy) | Lista dungeonów i rajdów Classic Era do wydarzeń |
-| `core.lua` | UI + punkty styku z mostem, wydarzenia, wersje, zabezpieczenia |
-| `jagodka.toc` | `## Version`, CallbackHandler, nowe pliki, `JagodkiChatDB` |
+| `most.lua` (new) | Global channel ↔ `/g` bridge: transport, relay, history, chat log |
+| `instancje.lua` (new) | List of Classic Era dungeons and raids for events |
+| `core.lua` | UI + bridge connection points, events, versions, safeguards |
+| `jagodka.toc` | `## Version`, CallbackHandler, new files, `JagodkiChatDB` |
 
-## Czat globalny
-- Ukryty kanał `JagodkaWspolnota` łączy wszystkie gildie z whitelisty; każda wiadomość ma unikalne ID, więc nie ma duplikatów.
-- **Relay** to alfabetycznie pierwsza osoba z addonem online w gildii. Przenosi `/g` na kanał, a z kanału wkleja do `/g` jako `[Gildia] Nick: tekst`. Do `/g` trafia tylko zakładka Ogolny.
-- **Relay zapasowy:** jeśli relay nie przekaże linii z `/g` w ciągu 2–5 s, robi to inna osoba z addonem. Duplikaty są wycinane po treści (okno 15 s).
-- Relay wybierany jest według rostera gildii, odświeżanego co 20 s, więc wylogowany relay od razu przestaje nim być.
-- Czat sortowany jest po czasie napisania (czas serwera).
-- **Historia:** po zalogowaniu addon dostaje ostatnie 30 wiadomości; log 300 wiadomości zapisuje się w `JagodkiChatDB`.
-- Wiadomość od nadawcy, którego meldunek jeszcze nie doszedł, nie jest gubiona; kolejka ponawia wysyłkę ok. 30 s.
-- Na kanał addon wchodzi 10 s po zalogowaniu i wraca na niego, gdy zostanie wyrzucony.
+## Global chat
+- The hidden `JagodkaWspolnota` channel connects all whitelisted guilds; each message has a unique ID, so there are no duplicates.
+- The **relay** is the alphabetically first person with the addon online in a guild. It carries `/g` to the channel and posts from the channel to `/g` as `[Guild] Name: text`. Only the Ogolny tab reaches `/g`.
+- **Backup relay:** if the relay does not forward a `/g` line within 2–5 s, another person with the addon does it. Duplicates are removed by content (15 s window).
+- The relay is chosen using the guild roster, refreshed every 20 s, so a logged-out relay stops being relay right away.
+- Chat is sorted by the time of writing (server time).
+- **History:** after login the addon gets the last 30 messages; a log of 300 messages is saved in `JagodkiChatDB`.
+- A message from a sender whose status packet has not arrived yet is not lost; the queue retries sending for about 30 s.
+- The addon joins the channel 10 s after login and returns if removed.
 
-## Gracze i gildie
-- Meldunek co 60 s; gracze offline znikają z listy (roster albo 150 s bez sygnału).
-- Zakładka Gildie pokazuje wszystkie gildie z whitelisty: liczbę osób online i relaya (albo „brak relaya”).
-- Wersja addonu jest wysyłana w meldunku; kolumna Wersja w zakładce Członkowie; przy niezgodności pojawia się ostrzeżenie.
+## Players and guilds
+- Status packet every 60 s; offline players leave the list (roster or 150 s without a signal).
+- The Guilds tab shows all whitelisted guilds: the number of people online and the relay (or "no relay").
+- The addon version is sent in the status packet; there is a Version column in the Members tab, and a warning on mismatch.
 
-## Wydarzenia
-- Są wspólne dla wszystkich gildii z whitelisty i pokazują gildię autora.
-- Tworzy je oficer; przy każdym jest lista instancji (pogrupowana na dungeony i rajdy). Data (3 tygodnie do przodu) i godzina (00–23, minuty co 15) wybierane są z list.
-- Opis jest polem wieloliniowym do 400 bajtów z licznikiem, wysyłanym w częściach (`EV_DESC`); w szczegółach pełny opis pokazuje się po najechaniu myszką.
-- Okno tworzenia ma przycisk X i zamyka się klawiszem Esc.
-- Każdy odbiorca sam sprawdza uprawnienia: tworzy autor-oficer, maksymalnie 10 wydarzeń na osobę, role tylko Tank/Heal/DPS, każdy zapisuje tylko siebie, usuwa autor albo dowolny oficer z whitelisty.
+## Events
+- Shared by all whitelisted guilds, showing the author's guild.
+- Created by an officer, with a list of instances (grouped into dungeons and raids). The date (3 weeks ahead) and time (00–23, minutes every 15) are chosen from lists.
+- The description is a multiline field of up to 400 bytes with a counter, sent in parts (`EV_DESC`); in the details the full description shows on mouse hover.
+- The create window has an X button and closes with Esc.
+- Each receiver checks permissions itself: an officer author creates, at most 10 events per person, roles only Tank/Heal/DPS, everyone signs up only themselves, and the author or any whitelisted officer removes.
 
-## Izolacja i zabezpieczenia
-- Brak zmiennych globalnych (poza zapisami, nazwanymi ramkami i komendą).
-- Główna komenda to `/jagodka`; `/okno` działa jako druga nazwa.
-- Ostrzeżenie, gdy nie uda się zarejestrować prefiksu albo kanał jest zablokowany (obce hasło lub ban).
-- Kto podaje się za członka twojej gildii, a nie ma go w rosterze, jest ignorowany.
+## Isolation and safeguards
+- No global variables (except saved data, named frames and the command).
+- The main command is `/jagodka`; `/okno` works as a second name.
+- A warning when the prefix cannot be registered or the channel is locked (foreign password or ban).
+- Anyone claiming to be in your guild but missing from its roster is ignored.
 
-## Poprawione stare błędy
-Brak CallbackHandler w `.toc`, ścieżki tekstur z pojedynczym `\`, `:` w polach wydarzeń, niezapisywana pozycja ikony na minimapie, zepsute przewijanie list.
+## Old bugs fixed
+Missing CallbackHandler in `.toc`, texture paths with a single `\`, `:` in event fields, unsaved minimap icon position, broken list scrolling.
 
-## Czego nie da się zagwarantować
-- Gdy w gildii nikt z addonem nie jest online, jej `/g` nie trafia na kanał (i odwrotnie).
-- Historia obejmuje tylko 30 ostatnich wiadomości; identyczna linia od tej samej osoby wysłana 2× w ciągu 15 s pokaże się raz.
-- W `/g` innych gildii wiadomość wysyła relay, a nie autor; spóźniona linia od relaya zapasowego może tam trafić po nowszej.
-- Nie da się zweryfikować członków **innych** gildii, a właściciel kanału może banować.
-- W `core.lua` naraz aktywne są maksymalnie 184 zmienne lokalne z limitu 200 w Lua 5.1 (stan na 0.7.4; w 0.7.5 jest ich 185, liczone razem z blokami `do ... end`). Nowe funkcje trzeba dodawać w osobnych plikach albo w osobnych funkcjach, np. `BuildCalendar`, a nie w blokach `do ... end`.
-
-## Do przetestowania
-1. Wszyscy na wersji 0.7.1; po zalogowaniu odczekać 10 s; w zakładce Ustawienia kanał powinien być „połączony”, a relay wskazany.
-2. `/g` gildii A → widoczne w addonie u wszystkich i w `/g` gildii B.
-3. Wiadomość z addonu (zakładka Ogolny) → trafia do `/g` obu gildii.
-4. Wylogowanie relaya → rolę przejmuje następna osoba, wiadomości z `/g` nie giną.
-5. Wydarzenie z instancją i długim opisem → poprawne u drugiej osoby; zapisy na role; usuwanie przez oficera.
-6. Do omówienia później: format wiadomości w czacie jest zbyt „głośny”.
+## What cannot be guaranteed
+- When nobody with the addon is online in a guild, its `/g` does not reach the channel (and vice versa).
+- History covers only the last 30 messages; an identical line from the same person sent twice within 15 s shows once.
+- In `/g` of other guilds the relay sends the message, not the author; a late line from a backup relay can land after a newer one.
+- Members of **other** guilds cannot be verified, and the channel owner can ban.
+- In `core.lua` at most 184 local variables are active at once out of Lua 5.1's limit of 200 (as of 0.7.4; 185 in 0.7.5, counting `do ... end` blocks). New features must go in separate files or separate functions, e.g. `BuildCalendar`, not in `do ... end` blocks.
 
 ---
 
-# 0.7.2 – roster wszystkich gildii w zakładce Członkowie
+# 0.7.2 – roster of all guilds in the Members tab
 
-- Nowy plik `roster.lua` i nowy zapis `JagodkiRosterDB` (ostatni znany roster każdej gildii).
-- Zakładka **Członkowie** pokazuje wszystkich członków gildii z whitelisty, także tych bez addonu.
-  - Gracze offline są wyszarzeni. Checkbox „Pokaż offline” przełącza widok na samych online.
-  - Kolumna Wersja: `-` oznacza gracza bez addonu.
-- Roster gildii wysyła jedna osoba z addonem, **nadawca**. Zmienia się co 5 min, a wybór jest liczony tak samo u wszystkich, więc ruch rozkłada się na całą gildię. Pakiety mają niski priorytet.
-  - Zmiana statusu to `+Nick` albo `-Nick`. Pełny wpis `Nick,W603+` (klasa, poziom, ranga, status) idzie tylko przy nowym członku albo zmianie poziomu lub rangi.
-  - Pełny roster idzie na prośbę osoby, która się zalogowała i ma dane starsze niż 10 min, oraz raz na 30 min.
-  - Zmiany sprawdza co 20 s każdy, ale wysyła tylko nadawca, więc zmiana nadawcy nie wymaga wysyłania całego rostera.
-- Gdy z danej gildii nikt z addonem nie jest online, jej członkowie są pokazywani jako offline (dane mogą być nieaktualne).
-- Po zalogowaniu addon czeka 40 s, zanim zacznie wysyłać, żeby wcześniej poznać pozostałych.
-- Zakładka Gildie nie pokazuje już relaya; jest on widoczny tylko w Ustawieniach.
-- Członkowie: sortowanie po kliknięciu w nagłówek kolumny (rosnąco ^, malejąco v, trzecie kliknięcie wraca do domyślnej kolejności: online, gildia, nick) oraz strony po 50 osób z paskiem pod tabelą: `Pokazano 51-100 z 312 (48 online)  [<<] [<] Strona 2 / 7 [>] [>>]`.
-- Członkowie: przycisk Reset (wyszukiwarka, „Pokaż offline”, sortowanie, strona 1). Prawy klik na wierszu otwiera menu z „Whisper” i „Invite to group”, a Shift + lewy klik od razu otwiera szept (tylko do graczy online).
-- Panel „Aktywni gracze” korzysta z tej samej listy co Członkowie, tylko z graczami online (także bez addonu). Ma te same kliknięcia (menu z „Whisper” i „Invite to group”, Shift + lewy klik) i jest odświeżany najwyżej raz na 0,3 s, tylko przy otwartym oknie.
-- Licznik „Online: N” w nagłówku okna liczy to samo co panel: wszystkich online ze wszystkich gildii z whitelisty, z addonem i bez.
-- Kanał `JagodkaWspolnota` jest zahasłowany (`COMM_PASSWORD` w `most.lua`). Wszyscy muszą mieć 0.7.2: z hasłem założonego kanału 0.7.1 nie dołączy (WRONG_PASSWORD).
-- Interfejs po angielsku, bez polskich liter (zakładki, przyciski, komunikaty, status, ostrzeżenia, `.toc`). Wewnętrzne nazwy w protokole (zakładki czatu `Ogolny`/`Handel`, `Brak`) zostały bez zmian, więc pakiety pozostają zgodne.
-- Wydajność: lista członków jest przeliczana tylko przy widocznej zakładce i najwyżej raz na 0,3 s, scroll tylko przerysowuje wiersze, a roster własnej gildii jest odczytywany najwyżej raz na 2 s.
-
-Do przetestowania:
-- Lista członków drugiej gildii pojawia się po ok. 15–60 s od zalogowania.
-- Wylogowanie gracza z drugiej gildii zostaje zauważone w ciągu ok. 40 s.
+- New file `roster.lua` and new saved data `JagodkiRosterDB` (the last known roster of each guild).
+- The **Members** tab shows all members of whitelisted guilds, including those without the addon.
+  - Offline players are grayed out. A "Show offline" checkbox switches the view to online only.
+  - Version column: `-` means a player without the addon.
+- A guild's roster is sent by one person with the addon, the **sender**. The sender changes every 5 min, and the choice is computed the same by everyone, so traffic spreads over the whole guild. Packets have low priority.
+  - A status change is `+Name` or `-Name`. A full entry `Name,W603+` (class, level, rank, status) goes only for a new member or a level or rank change.
+  - The full roster goes on request from someone who logged in with data older than 10 min, and once per 30 min.
+  - Everyone checks for changes every 20 s, but only the sender sends, so changing the sender does not require sending the whole roster.
+- When nobody with the addon from a guild is online, its members are shown as offline (the data may be out of date).
+- After login the addon waits 40 s before sending, to learn about the others first.
+- The Guilds tab no longer shows the relay; it is visible only in Settings.
+- Members: sorting by clicking a column header (ascending ^, descending v, a third click returns to the default order: online, guild, name) and pages of 50 people with a bar under the table: `Showing 51-100 of 312 (48 online)  [<<] [<] Page 2 / 7 [>] [>>]`.
+- Members: Reset button (search, "Show offline", sorting, page 1). Right-clicking a row opens a menu with "Whisper" and "Invite to group", and Shift + left click opens a whisper at once (online players only).
+- The "Online players" panel uses the same list as Members, with online players only (also without the addon). It has the same clicks (menu with "Whisper" and "Invite to group", Shift + left click) and refreshes at most once per 0.3 s, only with the window open.
+- The "Online: N" counter in the window header counts the same as the panel: everyone online from all whitelisted guilds, with and without the addon.
+- The `JagodkaWspolnota` channel has a password (`COMM_PASSWORD` in `most.lua`). Everyone needs 0.7.2: 0.7.1 cannot join a channel created with the password (WRONG_PASSWORD).
+- English interface without Polish letters (tabs, buttons, messages, status, warnings, `.toc`). Internal protocol names (chat tabs `Ogolny`/`Handel`, `Brak`) stay unchanged, so packets remain compatible.
+- Performance: the member list is recomputed only with the tab visible and at most once per 0.3 s, scrolling only redraws rows, and your own guild's roster is read at most once per 2 s.
 
 ---
 
-# 0.7.3 – whitelista, Guilds, Calendar, synchronizacja wydarzeń, okno
+# 0.7.3 – whitelist, Guilds, Calendar, event sync, window
 
-- Whitelista: `Jagódki Nadina`, `Jagódki Nadina II`, `III`, `IV` (bazowa nazwa + przyrostki w `core.lua`) oraz `Testowo`. Każda nowa gildia wymaga podbicia wersji.
-- Zakładka Guilds pokazuje wszystkie gildie z whitelisty:
-  - **aktywne** (ktoś z addonem jest online): `Online: 12 / 87`, „Active”, na górze listy;
-  - **nieaktywne**: wyszarzone, z liczbą członków z cache i czasem ostatniej synchronizacji („Inactive (2 h ago)” albo „never synced”).
-- Zakładka odświeża się sama, gdy dojdzie roster.
-- Po utworzeniu wydarzenia na czat General (kanał globalny i `/g` wszystkich gildii) idzie ogłoszenie: `Event created by Nick -> Nazwa : Instancja 05.11 20:00`.
-- Nowa zakładka **Calendar** (między Events a Settings):
-  - Siatka miesiąca 7×6 od poniedziałku do niedzieli, przyciski `<` `>` i `Today`. Dzisiejszy dzień ma złotą ramkę, przeszłe dni są ciemniejsze, a dni z sąsiednich miesięcy przygaszone.
-  - W każdym dniu mieszczą się 3 wydarzenia `20:00 Nazwa`. Wydarzenia, na które jesteś zapisany, są zielone. Gdy wydarzeń jest więcej, ostatnia linia pokazuje „+N more”.
-  - Tooltip pokazuje nazwę, czas, instancję, autora z gildią i liczbę zapisów T/H/D.
-  - Kliknięcie otwiera zakładkę Events z tym wydarzeniem i jego zapisami.
-- Po usunięciu wydarzenia idzie ogłoszenie na General: `Event removed by Nick -> Nazwa : Instancja 05.11 20:00`.
-- **Synchronizacja wydarzeń** (Events i Calendar mają te same dane u wszystkich):
-  - Prośba `EV_REQ` idzie po zalogowaniu (ok. 15 s) oraz przy otwarciu Events lub Calendar, nie częściej niż co 5 min.
-  - Odpowiada **jedna losowa osoba z addonem**, nie tylko autor. Po 1–4 s wysyła `EV_CLAIM`, a reszta rezygnuje. Wysyłka idzie na kanał z niskim priorytetem, więc korzystają z niej wszyscy.
-  - Synchronizowane są też zapisy (`EV_ROS`): dopisywane są tylko brakujące osoby.
-  - `EV_ADD` zawiera gildię autora, więc przekazane wydarzenie pokazuje właściwą gildię.
-  - Usunięte wydarzenia są pamiętane przez 30 dni, więc nie wracają od kogoś, kto był offline. Wydarzenia starsze niż 2 dni po terminie znikają same.
-  - Przekazane wydarzenie (gdy autor jest offline) przyjmujemy od dowolnego znanego gracza z whitelisty. Od samego autora nadal wymagana jest ranga oficera.
-- Główne okno:
-  - przesuwa się tylko za pasek tytułu (logo i nazwa);
-  - uchwytem w prawym dolnym rogu zmienia się rozmiar okna (od 850×620 do 1600×1100), a czcionki zostają bez zmian. Większe okno pokazuje więcej treści: więcej linii czatu i dłuższe pole wpisywania, więcej wierszy w Members, Guilds, na liście wydarzeń, w zapisach i w panelu Online players, a w kalendarzu większe komórki z większą liczbą wydarzeń w dniu;
-  - pozycja i rozmiar zapisują się w `JagodkiMinimapDB.window`;
-  - `/jagodka reset` przywraca domyślny rozmiar i środek ekranu.
-- Na liście wydarzeń „os.” zastąpiono „signed”.
-- Panel Online players: paski graczy zajmują całą szerokość panelu (bez suwaka aż do krawędzi), poziom jest wyrównany do prawej, a długi nick z gildią jest ucinany przed poziomem.
-- Czat przewija się kółkiem myszy (3 linie, z Shift o stronę, a z Ctrl na początek albo koniec historii) albo paskiem przewijania z prawej (suwak i strzałki). Pasek jest zsynchronizowany z kółkiem i nowymi wiadomościami.
-- Nowy plik `zakladka.lua`: dodatkowa zakładka **„Jagodki Nadina - General” w czacie gry**, z tymi samymi wiadomościami co czat General w addonie. Treść wiadomości jest ciemnozielona (`3cb43c`), żeby odróżniała się od `/g`; zakładka utworzona wcześniej jako „Jagodki Nadina” zostaje przemianowana.
-  - Tworzy się raz, przy pierwszym zalogowaniu z addonem. Przy domyślnym układzie (General i Combat Log) jest trzecia, a gra sama pamięta ją później.
-  - Po zalogowaniu pokazuje ostatnie 30 wiadomości, potem nowe na bieżąco. Nicki są linkami (klik to szept, prawy klik to menu).
-  - Służy tylko do czytania: pisze się przez `/g` (relay przenosi to do wszystkich gildii) albo w oknie addonu.
-  - Zamknięta przez gracza nie wraca sama; `/jagodka tab` tworzy ją ponownie.
+- Whitelist: `Jagódki Nadina`, `Jagódki Nadina II`, `III`, `IV` (base name + suffixes in `core.lua`) and `Testowo`. Each new guild requires a version bump.
+- The Guilds tab shows all whitelisted guilds:
+  - **active** (someone with the addon is online): `Online: 12 / 87`, "Active", at the top of the list;
+  - **inactive**: grayed out, with the member count from cache and the time of the last sync ("Inactive (2 h ago)" or "never synced").
+- The tab refreshes itself when a roster arrives.
+- After creating an event, an announcement goes to General chat (the global channel and `/g` of all guilds): `Event created by Name -> Title : Instance 05.11 20:00`.
+- New **Calendar** tab (between Events and Settings):
+  - A 7×6 month grid from Monday to Sunday, with `<` `>` and `Today` buttons. Today has a gold border, past days are darker, and days from adjacent months are dimmed.
+  - Each day fits 3 events as `20:00 Title`. Events you signed up for are green. When there are more events, the last line shows "+N more".
+  - The tooltip shows the title, time, instance, author with guild, and the T/H/D sign-up count.
+  - A click opens the Events tab with that event and its sign-ups.
+- After removing an event, an announcement goes to General: `Event removed by Name -> Title : Instance 05.11 20:00`.
+- **Event sync** (Events and Calendar have the same data for everyone):
+  - The `EV_REQ` request goes after login (about 15 s) and when opening Events or Calendar, at most every 5 min.
+  - **One random person with the addon** answers, not only the author. After 1–4 s they send `EV_CLAIM`, and the others give up. Data goes to the channel with low priority, so everyone benefits.
+  - Sign-ups are also synced (`EV_ROS`): only missing people are added.
+  - `EV_ADD` includes the author's guild, so a forwarded event shows the right guild.
+  - Removed events are remembered for 30 days, so they do not return from someone who was offline. Events more than 2 days past their date disappear on their own.
+  - A forwarded event (when the author is offline) is accepted from any known whitelisted player. The author themselves must still have an officer rank.
+- Main window:
+  - moves only by the title bar (logo and name);
+  - the handle in the bottom right corner resizes the window (from 850×620 to 1600×1100), and fonts stay the same. A larger window shows more content: more chat lines and a longer input field, more rows in Members, Guilds, the event list, sign-ups and the Online players panel, and larger calendar cells with more events per day;
+  - position and size are saved in `JagodkiMinimapDB.window`;
+  - `/jagodka reset` restores the default size and the center of the screen.
+- In the event list "os." was replaced with "signed".
+- Online players panel: player bars take the panel's full width (up to the edge without a slider), the level is aligned right, and a long name with guild is cut before the level.
+- Chat scrolls with the mouse wheel (3 lines, by page with Shift, to the start or end of history with Ctrl) or with the scroll bar on the right (slider and arrows). The bar is synced with the wheel and new messages.
+- New file `zakladka.lua`: an extra **"Jagodki Nadina - General" tab in the game chat**, with the same messages as General chat in the addon. Message text is dark green (`3cb43c`) to stand out from `/g`; a tab created earlier as "Jagodki Nadina" gets renamed.
+  - Created once, at the first login with the addon. In the default layout (General and Combat Log) it is third, and the game remembers it afterwards.
+  - After login it shows the last 30 messages, then new ones as they arrive. Names are links (click is a whisper, right click is a menu).
+  - Read only: write through `/g` (the relay carries it to all guilds) or in the addon window.
+  - If the player closes it, it does not return on its own; `/jagodka tab` recreates it.
 
-Poprawki błędów:
-- Kliknięcie Remove wywoływało błąd `most.lua:240: attempt to compare string with number`. Przyczyna: `GetGuildInfo("player")` jako ostatni argument `Most.Publish` przekazywało też nazwę rangi, która wpadała na miejsce czasu wiadomości. Wywołanie jest teraz w nawiasach, a `Most.Publish` przyjmuje czas tylko jako liczbę (inaczej bierze bieżący czas serwera).
+Bug fixes:
+- Clicking Remove caused the error `most.lua:240: attempt to compare string with number`. Cause: `GetGuildInfo("player")` as the last argument of `Most.Publish` also passed the rank name, which landed in place of the message time. The call is now in parentheses, and `Most.Publish` accepts time only as a number (otherwise it uses the current server time).
 
-Zgodność: `EV_ADD` ma nowe, 9. pole (gildia autora), doszły pakiety `EV_ROS` i `EV_CLAIM`, a whitelista się zmieniła. Wszyscy muszą mieć 0.7.3.
-
-Do przetestowania:
-- Guilds: gildie bez nikogo online są wyszarzone i przechodzą na „Active”, gdy ktoś z nich wejdzie.
-- Wydarzenie utworzone, gdy druga osoba jest offline: po jej zalogowaniu pojawia się w Events i Calendar, razem z zapisami, nawet gdy autor jest już offline.
-- Usunięcie wydarzenia: znika u wszystkich, wysyła ogłoszenie i nie wraca po synchronizacji.
-- Calendar: klik w wydarzenie otwiera Events z jego szczegółami; nawigacja `<` `>` `Today`.
-- Okno: przesuwanie tylko za pasek tytułu, uchwyt rozmiaru, zapamiętanie po `/reload`, `/jagodka reset`.
+Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_CLAIM` packets were added, and the whitelist changed. Everyone needs 0.7.3.
 
 ---
 
-# 0.7.4 – pasek synchronizacji
+# 0.7.4 – sync bar
 
-- Nowy plik `synchro.lua`: w nagłówku głównego okna, na lewo od „Online: N”, pojawia się pasek postępu `Syncing: ✓ Channel  ⌛ Chat  ⌛ Events  ✓ Rosters`.
-  - Widać go tylko przy otwartym oknie i tylko wtedy, gdy coś się synchronizuje: po zalogowaniu albo przy otwarciu Events lub Calendar, gdy addon prosi o brakujące wydarzenia.
-  - Etapy: wejście na kanał, historia czatu, wydarzenia i zapisy, rostery innych gildii. Etap rosterów pojawia się tylko wtedy, gdy cache ma ponad 10 min.
-  - Etap kończy się, gdy przez chwilę nic nie przychodzi (3–4 s po ostatnim pakiecie), gdy nikt nie odpowie (ok. 7 s) albo po twardym limicie czasu.
-  - Na koniec pasek pokazuje „Synced” przez 4 s i znika.
-- Synchronizacja nie została zmieniona; pasek tylko pokazuje, co się dzieje, a dane z cache są dostępne od razu, jak dotąd.
-- Members: „Show offline” jest domyślnie **odznaczone**, więc widać tylko graczy online. Reset też wraca do tego ustawienia.
-- Calendar: kliknięcie w wolne miejsce dnia (poza wydarzeniem) otwiera menu z „Create event”, które otwiera okno tworzenia z ustawioną datą tego dnia. Opcja jest aktywna tylko dla oficerów i tylko dla dnia dzisiejszego oraz przyszłych; dla przeszłych dni jest wyszarzona.
-- Calendar: **prawy klik na wydarzeniu** otwiera menu z „Invite members (N)”, „Open event” i „Cancel”. Lewy klik działa jak dotąd i otwiera wydarzenie.
-  - „Invite members” wysyła zaproszenia do grupy wszystkim zapisanym. Pomija ciebie, osoby już w grupie i offline. Na końcu w czacie pojawia się podsumowanie, np. `MC: inviting 12 (already in group: 3, offline: 2)`.
-  - Zapraszać może tylko lider grupy, asystent raidu albo ktoś bez grupy.
-  - Gdy chętnych jest więcej niż miejsc w party, addon zamienia grupę na raid (od razu albo po pierwszym przyjętym zaproszeniu) i zaprasza resztę, maksymalnie do 40 osób.
-- Poprawka techniczna (przyczyna awarii przy pierwszej wersji „Invite members”): Lua 5.1 pozwala na najwyżej **200 zmiennych lokalnych aktywnych naraz** w jednej funkcji, także w głównym pliku. Zmienne w blokach `do ... end` też się do tego liczą, dopóki blok trwa. Pierwsza wersja zaproszeń podniosła `core.lua` do ok. 203, przez co cały plik się nie kompilował i nie działało nic.
-  - Kalendarz jest teraz osobną funkcją (`BuildCalendar`), która ma własny limit. Szczyt w `core.lua` spadł ze 193 do 184, a funkcja kalendarza ma 43 zmienne i ok. 26 odwołań do zmiennych spoza siebie (limit 60).
-  - Nowy skrypt `luaactive.ps1` liczy najgorszy moment w każdym pliku i jest uruchamiany przed każdą zmianą.
-
----
-
-# 0.7.5 – mute na wspólnym czacie
-
-- Nowy plik `wyciszenie.lua` z modułem `Mute`.
-- W czacie addonu nicki są teraz linkami:
-  - lewy klik otwiera szept,
-  - prawy klik otwiera menu z „Whisper”, „Invite to group”, „Mute on community chat” albo „Unmute” oraz „Cancel”.
-  - Opcje mute i unmute widzą tylko osoby, które mają do nich prawo (zasady niżej). Na własnym nicku menu się nie otwiera.
-  - Przy okazji linki przedmiotów w czacie addonu pokazują tooltip (`SetItemRef`).
-- Zakładka Blizzarda „Jagodki Nadina - General”: oficerowie mają w zwykłym menu gry na nicku (prawy klik) nową sekcję „Jagodka” z „Mute on community chat” albo „Unmute”.
-  - Menu jest rozszerzane przez `Menu.ModifyMenu("MENU_UNIT_FRIEND")`, czyli oficjalny sposób, który nie psuje menu gry.
-  - Sekcja pojawia się tylko w tej zakładce. Jeśli gra nie poda, z którego okna czatu otwarto menu, sekcja pokaże się w każdym oknie, ale nadal tylko oficerom.
-  - Jeśli klient nie ma tego API, zakładka zostaje przy zwykłym menu gry.
-- Uprawnienia (sprawdza je klient wyciszającego i każdy odbiorca pakietu):
-  - **Mute** może dać oficer, ale nie innemu oficerowi ani sobie. GM (ranga 0) może wyciszyć każdego poza sobą.
-  - **Unmute** może zrobić każdy oficer.
-  - Oficerem jest ranga 0 lub 1 albo ranga, której nazwa zawiera „oficer”, „officer”, „master” lub „lider”; to założenia do potwierdzenia.
-  - Rangę wyciszanej osoby addon bierze z jej meldunku albo z rosterów gildii, więc działa to także dla osób offline (`Roster.GetRank`). Gdy ranga jest nieznana, mute nie jest blokowany.
-- Powód: „Mute” otwiera okienko z polem na powód (do 60 znaków). Przycisk „Mute” jest aktywny dopiero po wpisaniu powodu; Enter zatwierdza, Esc anuluje. Powód jest w pakiecie, w synchronizacji, w wiadomości na czacie i w tooltipie.
-- Members: przy nicku wyciszonej osoby pojawia się czerwona ikonka (✗). Po najechaniu myszką tooltip pokazuje, kto wyciszył, od kiedy i z jakiego powodu. Tabela odświeża się po każdej zmianie wyciszenia.
-  - Prawy klik na wiersz w Members (i w panelu Online players) ma teraz także „Unmute” albo „Mute on community chat”, na tych samych zasadach co menu w czacie.
-- Co oznacza wyciszenie:
-  - Wiadomości wyciszonej osoby z okna addonu nie są wysyłane; dostaje komunikat „You are muted ... (by X)”.
-  - Jej linie z `/g` nie trafiają na kanał globalny ani do `/g` innych gildii. We własnej gildii nadal je widać, bo to zwykły czat gry.
-  - Każdy klient odrzuca jej wiadomości sam (`Ingest` w `most.lua`), więc nie ma znaczenia, który relay ma starą wersję.
-  - Jej wcześniejsze wiadomości są ukryte w oknie addonu i w zakładce Blizzarda; po odciszeniu wracają.
-  - Oficer, który wycisza albo odcisza, wysyła zwykłą wiadomość na czat wspólnoty (General), np. `[Gildia] [Oficer]: Muted X on the community chat (reason: ...)` albo `Unmuted X on the community chat`. Działa to jak „Event created by …”: relaye wklejają ją też do `/g` wszystkich gildii. Nie ma już komunikatu systemowego.
-- Synchronizacja:
-  - Pakiet `MUTE` (nick, mute lub unmute, czas, oficer, powód) jest przyjmowany tylko wtedy, gdy nadawca ma do tego prawo.
-  - Po zalogowaniu addon wysyła prośbę `MREQ` i dostaje brakujące wpisy, które wyśle jedna losowa osoba (`MCLAIM`, ten sam wzorzec co historia czatu). Dzięki temu mute działa także u osób, które były offline.
-  - Wygrywa nowszy wpis. Odciszenie też jest wpisem i jest pamiętane przez 30 dni, żeby stary mute nie wrócił z synchronizacji.
-  - Dane są w `JagodkiChatDB.mutes`.
-- Ograniczenia:
-  - Klienty 0.7.4 nie znają mute i będą dalej pokazywać takie wiadomości, dopóki ich użytkownicy nie zaktualizują addonu.
-  - Przekazany wpis jest przyjmowany od dowolnego znanego gracza z listy, tak samo jak przy wydarzeniach.
-- Limity: `core.lua` ma szczyt 185/200 aktywnych lokalnych (+1 za `local Mute`); `wyciszenie.lua` ma 39.
-
-## Do przetestowania (0.7.5)
-- [ ] Prawy klik na nick w czacie addonu otwiera menu; lewy klik otwiera szept.
-- [ ] Oficer wycisza gracza: wiadomość „Muted X … (reason: …)” od oficera pojawia się na czacie wspólnoty i w `/g` innych gildii, a wiadomości wyciszonej osoby znikają z okna addonu.
-- [ ] Wyciszony gracz pisze w addonie i dostaje komunikat; pisze w `/g` i jego linia nie trafia do innych gildii.
-- [ ] Gracz, który był offline podczas mute, po zalogowaniu ma ten mute (prośba `MREQ`).
-- [ ] Unmute: wiadomości wracają, a gracz znów może pisać.
-- [ ] Nie-oficer nie widzi opcji Mute.
-- [ ] Mute pyta o powód; bez powodu przycisk jest nieaktywny; po OK gracz jest wyciszony.
-- [ ] Members: ikonka przy wyciszonym, tooltip pokazuje kto, kiedy i powód; po unmute ikonka znika.
-- [ ] Members: prawy klik na wyciszonego daje „Unmute”, a na niewyciszonego oficerowi „Mute on community chat” z pytaniem o powód.
-- [ ] Oficer nie może wyciszyć oficera (brak opcji w menu); GM może.
-- [ ] Każdy oficer może odciszyć, także osobę wyciszoną przez GM.
-- [ ] Link przedmiotu w czacie addonu pokazuje tooltip.
-- [ ] Zakładka „Jagodki Nadina - General”: prawy klik na nick pokazuje oficerowi sekcję „Jagodka” z Mute; w innych oknach czatu tej sekcji nie ma.
+- New file `synchro.lua`: in the main window header, left of "Online: N", a progress bar appears: `Syncing: ✓ Channel  ⌛ Chat  ⌛ Events  ✓ Rosters`.
+  - It shows only with the window open and only while something is syncing: after login or when opening Events or Calendar, when the addon requests missing events.
+  - Stages: joining the channel, chat history, events and sign-ups, rosters of other guilds. The roster stage appears only when the cache is more than 10 min old.
+  - A stage ends when nothing arrives for a moment (3–4 s after the last packet), when nobody answers (about 7 s), or at a hard time limit.
+  - At the end the bar shows "Synced" for 4 s and disappears.
+- Sync itself did not change; the bar only shows what is happening, and cached data is available at once, as before.
+- Members: "Show offline" is **unchecked** by default, so only online players show. Reset also returns to this setting.
+- Calendar: clicking free space in a day (outside an event) opens a menu with "Create event", which opens the create window with that day's date. The option is active only for officers and only for today and future days; for past days it is grayed out.
+- Calendar: a **right click on an event** opens a menu with "Invite members (N)", "Open event" and "Cancel". Left click works as before and opens the event.
+  - "Invite members" sends group invites to everyone signed up. It skips you, people already in the group and offline ones. At the end a summary appears in chat, e.g. `MC: inviting 12 (already in group: 3, offline: 2)`.
+  - Only a group leader, raid assistant or someone without a group can invite.
+  - When more people want in than a party has spots, the addon converts the group to a raid (at once or after the first accepted invite) and invites the rest, up to 40 people.
+- Technical fix (the cause of the failure in the first "Invite members" version): Lua 5.1 allows at most **200 local variables active at once** in one function, including the main file. Variables in `do ... end` blocks also count while the block lasts. The first version of invites raised `core.lua` to about 203, so the whole file failed to compile and nothing worked.
+  - The calendar is now a separate function (`BuildCalendar`) with its own limit. The peak in `core.lua` fell from 193 to 184, and the calendar function has 43 variables and about 26 references to variables outside itself (limit 60).
+  - A new script `luaactive.ps1` counts the worst moment in each file and is run before every change.
 
 ---
 
-# 0.7.6 – zakładki czatu, Trade w czacie gry, linki
+# 0.7.5 – mute on the shared chat
 
-- Okno addonu, zakładka Chat: usunięta zakładka **Raid**. Kolejność to teraz General, Trade, LFG.
-  - Stare wiadomości z Raid zostają w zapisanym logu, ale nigdzie ich nie widać.
-- **Trade** działa jak General, tylko bez `/g`:
-  - wiadomości idą przez kanał globalny do wszystkich gildii z listy (tak było już wcześniej);
-  - nowa zakładka w czacie gry **„Jagodki Nadina - Trade”** z kolorem treści `ffd2a05a` (piaskowy, inny niż General i `/g`);
-  - zakładka powstaje sama raz, przy pierwszym logowaniu z 0.7.6, a po zalogowaniu pokazuje ostatnie 30 wiadomości;
-  - nic nie trafia do `/g` i nic z `/g` nie trafia do Trade, żeby czat gildii nie był zaśmiecony handlem.
-- `zakladka.lua` obsługuje teraz listę zakładek (`TABS`: General i Trade); kolejną dodaje się jednym wpisem.
-  - `/jagodka tab` tworzy brakujące zakładki od nowa.
-  - Menu na nicku z Mute/Unmute działa w obu zakładkach (`Zakladka.IsOurFrame`).
-- Linki przedmiotów, zaklęć, profesji itp.:
-  - **Shift + klik** na przedmiot w torbie, zaklęcie w spellbooku albo przepis wstawia link do pola wpisywania w oknie addonu, gdy to pole jest aktywne (hook na `ChatEdit_InsertLink`).
-  - Kliknięcie linku w oknie addonu pokazuje tooltip, jak w zwykłym czacie (`SetItemRef`, od 0.7.5).
-  - Zakładki w czacie gry obsługują linki same.
-  - Linki przechodzą przez kanał globalny i relay do `/g` bez zmian. Dzielenie długich wiadomości nigdy nie tnie linku.
-- Limity: szczyt w `core.lua` bez zmian, 185/200.
-
-- Diagnostyka w Settings (dodana po 0.7.6, przy szukaniu błędu „wiadomości z addonu nie dochodzą, a z `/g` tak”):
-  - **sent**: liczba wysłanych pakietów wg kanału, osobno udane i nieudane (`CHANNEL ok/fail`, `GUILD …`, `WHISPER …`), oraz ostatni wynik API;
-  - **Received**: odebrane pakiety wg kanału i typu, np. `CHANNEL GMSG=3`;
-  - **Packets from (5 min)**: kto przysłał jakikolwiek pakiet w ostatnich 5 minutach;
-  - **Chat rejected**: dlaczego wiadomość czatu została odrzucona. `duplicate / own echo / muted` jest normalne, bo własne wiadomości wracają z kanału.
-  - Status zawija się do szerokości panelu.
-
-## Do przetestowania (0.7.6)
-- [ ] Zakładki w oknie addonu: General, Trade, LFG (bez Raid).
-- [ ] W czacie gry pojawia się „Jagodki Nadina - Trade”, a wiadomości z Trade w addonie są tam w innym kolorze.
-- [ ] Wiadomość w Trade nie pojawia się w `/g` żadnej gildii.
-- [ ] Shift + klik na przedmiot, zaklęcie i przepis przy aktywnym polu addonu wstawia link; po wysłaniu link jest klikalny u innych w addonie, w zakładkach gry i (dla General) w `/g`.
-- [ ] Prawy klik na nick w zakładce Trade w czacie gry pokazuje oficerowi sekcję „Jagodka”.
-
----
-
-# 0.7.7 – naprawa kanału globalnego (pakiety addonu między graczami)
-
-**Problem znaleziony w teście:** w diagnostyce było `CHANNEL fail=127`, a ostatni wynik `CHANNEL=4` (`InvalidChatType`). Gra odrzucała wszystkie pakiety addonu wysyłane na kanał.
-- Wiadomości z addonu nie docierały do nikogo; przechodził tylko `GUILD` przez kilka sekund po zalogowaniu.
-- `/g` w oknie addonu działał, bo każdy klient czyta `/g` sam.
-- Założona wtedy przyczyna: kanał był dołączany przez `JoinTemporaryChannel`, czyli jako kanał tymczasowy. **Była błędna:** kod 4 został także po tej zmianie, a prawdziwą przyczynę opisuje 0.8.0.
-- Założenie, że Olympus (ten sam klient, `Interface 11509`) wysyła na kanał bez problemu, nie zostało sprawdzone. Dołącza do niego przez `JoinChannelByName`, a poza tym ścieżka wysyłki jest taka sama.
-
-**Poprawki (`most.lua`, `core.lua`):**
-- Kanał dołączany jest przez `JoinChannelByName(nazwa, hasło)` pod **nową nazwą**, żeby powstał od nowa jako zwykły kanał, a nie dołączył do starego tymczasowego:
-  - **`JagodkaNet`** dla Przymierza,
-  - **`JagodkaNetH`** dla Hordy (frakcje i tak się nie łączą).
-- Hasło bez zmian. Stary kanał `JagodkaWspolnota` addon opuszcza sam.
-- Kanał jest chowany z okien czatu także po komunikacie „joined”, bo gra może go wtedy dopisać do okna.
-- **Kolejka:**
-  - pakiet ponawiany jest tylko przy chwilowym limicie serwera (kody 3 i 8 albo `false`);
-  - błąd trwały (np. 4) nie blokuje już kolejki przez 30 s;
-  - pakiet, którego kanał nie przyjął, idzie zastępczo przez `GUILD`, więc własna gildia działa zawsze. W diagnostyce widać to jako `GUILD fallback`.
-- **Bezpieczeństwo** (wzorowane na Olympusie):
-  - pakiety z `CHANNEL` są przyjmowane tylko z naszego kanału, sprawdzane po numerze `localID` z `CHAT_MSG_ADDON`;
-  - w danych od innych graczy usuwane są kody formatowania `|`. W treści czatu zostają tylko poprawne linki (przedmioty, zaklęcia, profesje). Nick, gildia i tytuły nie mogą zawierać kolorów ani podrobionych linków.
-  - Skutek uboczny: link wklejony w opis wydarzenia inni zobaczą jako zwykły tekst.
-- Wersja 0.7.7. Starsze wersje nadal są na starym kanale i nic przez niego nie wyślą, więc wszyscy muszą zaktualizować.
-- Limity: `most.lua` 87, `core.lua` 185/200.
-
-## Do przetestowania (0.7.7)
-- [ ] Settings: „Global channel: connected (JagodkaNet…)” albo `JagodkaNetH` na Hordzie.
-- Nieaktualne od 0.8.0: `CHANNEL ok` w diagnostyce, bo Classic odrzuca pakiety na kanale.
-- [ ] Wiadomość w addonie (General, Trade) dochodzi do drugiej osoby i z powrotem.
-- [ ] Kanał nie pojawia się w oknach czatu; stary `JagodkaWspolnota` znika z `/chatlist`.
-- [ ] Wysłany link przedmiotu działa u drugiej osoby; zwykły tekst z `|` nie robi kolorów.
-- [ ] Test z drugą gildią z listy (cross-guild).
+- New file `wyciszenie.lua` with the `Mute` module.
+- Names in the addon chat are now links:
+  - left click opens a whisper,
+  - right click opens a menu with "Whisper", "Invite to group", "Mute on community chat" or "Unmute", and "Cancel".
+  - Mute and unmute options are visible only to people entitled to them (rules below). The menu does not open on your own name.
+  - In addition, item links in the addon chat show a tooltip (`SetItemRef`).
+- Blizzard tab "Jagodki Nadina - General": officers have a new "Jagodka" section with "Mute on community chat" or "Unmute" in the regular game menu on a name (right click).
+  - The menu is extended through `Menu.ModifyMenu("MENU_UNIT_FRIEND")`, the official way that does not break the game menu.
+  - The section appears only in this tab. If the game does not say which chat window opened the menu, the section shows in every window, still only for officers.
+  - If the client does not have this API, the tab keeps the regular game menu.
+- Permissions (checked by the muting client and every packet receiver):
+  - An officer can **mute**, but not another officer or themselves. The GM (rank 0) can mute anyone except themselves.
+  - Any officer can **unmute**.
+  - An officer is rank 0 or 1, or a rank whose name contains "oficer", "officer", "master" or "lider"; these are assumptions to be confirmed.
+  - The addon takes the muted person's rank from their status packet or from guild rosters, so this also works for offline people (`Roster.GetRank`). When the rank is unknown, the mute is not blocked.
+- Reason: "Mute" opens a dialog with a reason field (up to 60 characters). The "Mute" button is active only after a reason is typed; Enter confirms, Esc cancels. The reason is in the packet, in sync, in the chat message and in the tooltip.
+- Members: a red icon (✗) appears next to a muted person's name. On hover the tooltip shows who muted them, since when and why. The table refreshes after every mute change.
+  - Right-clicking a row in Members (and in the Online players panel) now also has "Unmute" or "Mute on community chat", under the same rules as the chat menu.
+- What a mute means:
+  - Messages from the muted person's addon window are not sent; they get the message "You are muted ... (by X)".
+  - Their `/g` lines reach neither the global channel nor `/g` of other guilds. Their own guild still sees them, because that is regular game chat.
+  - Each client rejects their messages itself (`Ingest` in `most.lua`), so it does not matter which relay has an old version.
+  - Their earlier messages are hidden in the addon window and the Blizzard tab; they return after unmute.
+  - The officer who mutes or unmutes sends a regular message to the community chat (General), e.g. `[Guild] [Officer]: Muted X on the community chat (reason: ...)` or `Unmuted X on the community chat`. It works like "Event created by …": relays also post it to `/g` of all guilds. There is no longer a system message.
+- Sync:
+  - A `MUTE` packet (name, mute or unmute, time, officer, reason) is accepted only when the sender is entitled to it.
+  - After login the addon sends an `MREQ` request and gets missing entries, sent by one random person (`MCLAIM`, the same pattern as chat history). This way mutes also apply to people who were offline.
+  - The newer entry wins. An unmute is also an entry and is remembered for 30 days, so an old mute does not return from sync.
+  - Data is in `JagodkiChatDB.mutes`.
+- Limitations:
+  - 0.7.4 clients do not know mutes and keep showing such messages until their users update the addon.
+  - A forwarded entry is accepted from any known listed player, the same as with events.
+- Limits: `core.lua` peaks at 185/200 active locals (+1 for `local Mute`); `wyciszenie.lua` has 39.
 
 ---
 
-# 0.7.8 – „Your guild is not on the Community list” mimo gildii z listy
+# 0.7.6 – chat tabs, Trade in the game chat, links
 
-**Problem znaleziony w teście:** gracz wyszedł z Jagódek Nadina, od razu został przyjęty do `Testowo` (jest na liście) i od razu wysłał wiadomość. Dostał komunikat „Your guild is not on the Community list - message not sent.”.
-- Przyczyna: `GetGuildInfo("player")` w Classic potrafi chwilowo zwracać `nil` (po loadingu, zaraz po dołączeniu do gildii), a addon traktował `nil` jak „gildia spoza listy”.
+- Addon window, Chat tab: the **Raid** tab was removed. The order is now General, Trade, LFG.
+  - Old Raid messages stay in the saved log but are not shown anywhere.
+- **Trade** works like General, only without `/g`:
+  - messages go over the global channel to all listed guilds (as they did before);
+  - a new game chat tab **"Jagodki Nadina - Trade"** with text color `ffd2a05a` (sand, different from General and `/g`);
+  - the tab is created automatically once, at the first login with 0.7.6, and shows the last 30 messages after login;
+  - nothing reaches `/g` and nothing from `/g` reaches Trade, so guild chat is not cluttered with trading.
+- `zakladka.lua` now handles a list of tabs (`TABS`: General and Trade); another can be added with one entry.
+  - `/jagodka tab` recreates missing tabs.
+  - The Mute/Unmute name menu works in both tabs (`Zakladka.IsOurFrame`).
+- Item, spell, profession etc. links:
+  - **Shift + click** on an item in a bag, a spell in the spellbook or a recipe inserts a link into the addon window's input field when that field is active (hook on `ChatEdit_InsertLink`).
+  - Clicking a link in the addon window shows a tooltip, as in regular chat (`SetItemRef`, since 0.7.5).
+  - The tabs in the game chat handle links themselves.
+  - Links pass through the global channel and relay to `/g` unchanged. Splitting long messages never cuts a link.
+- Limits: the `core.lua` peak is unchanged, 185/200.
 
-**Poprawki (`most.lua`, `core.lua`):**
-- `Most.MyGuild()` pamięta ostatnią znaną nazwę gildii i używa jej, gdy `GetGuildInfo` chwilowo zwraca `nil` (dopóki `IsInGuild()` mówi, że gracz jest w gildii). Przy okazji prosi grę o odświeżenie rostera.
-- Z tej samej funkcji korzysta relay, mostek `/g`, wysyłka czatu i zapis na wydarzenie.
-- Gdy nazwa gildii nie jest jeszcze znana: komunikat „Guild info not loaded yet - try again in a moment”, a wpisana wiadomość zostaje w polu.
-- Komunikat o gildii spoza listy podaje teraz nazwę, którą widzi addon, np. „Your guild (Xyz) is not on the Community list”.
-- Po zmianie gildii (`PLAYER_GUILD_UPDATE`) addon zapomina starą nazwę i od razu wysyła ponowny PING z nową gildią. Wcześniej inni widzieli gracza w starej gildii aż do następnego PONG-a (do minuty).
-- Limity: `most.lua` 88, `core.lua` 186/200.
-
-## Do przetestowania (0.7.8)
-- [ ] Wyjście z gildii, od razu `/ginvite` do `Testowo` i wysyłka: wiadomość z addonu wychodzi albo pojawia się „Guild info not loaded yet”, a nie „not on the Community list”.
-- [ ] Gracz spoza listy widzi w komunikacie nazwę swojej gildii.
-- [ ] Po zmianie gildii inni od razu widzą gracza w nowej gildii (Members, nazwa gildii przy wiadomościach).
-- [ ] Test cross-guild na postaciach z wyższym levelem (lvl 1 nie może wysyłać na kanał – kod 4). **Sprostowanie:** poziom nie ma znaczenia, patrz 0.8.0.
-
----
-
-# 0.8.0 – nowa łączność między gildiami (relaye i szepty)
-
-**Problem znaleziony w teście:** kod 4 (`InvalidChatType`) wracał na każdej postaci, także z wysokim poziomem.
-- Przyczyna: Classic od patcha 1.13.3 blokuje addonom wysyłanie pakietów na własne kanały graczy. Na zrzutach wszystkie odebrane pakiety były z `GUILD`, więc działała tylko własna gildia.
-- **Sprostowanie:** wyjaśnienia z 0.7.7 (kanał tymczasowy) i 0.7.8 (poziom 1) były błędne.
-- Testy przed przebudową: na `/chatlist JagodkaNetH` wszyscy się widzą, a ręczne wiadomości na kanale dochodzą.
-
-**Nowy transport (`most.lua`, `core.lua`):**
-- Każdy wysyła pakiet przez `GUILD`.
-- Relay gildii opakowuje każdy pakiet z `GUILD` w `FW:nadawca:pakiet` i szepcze go relayom innych gildii.
-- Odbiorca obsługuje pakiet jako wysłany przez pierwotnego nadawcę i wkleja go do swojego `GUILD`. Opakowanych pakietów nikt nie przekazuje dalej, więc nie ma pętli.
-- **Czat też idzie tą drogą**, a nie jako zwykła wiadomość na kanale, jak zakładał pierwszy plan. Linie z `/g` i tak muszą iść szeptem, bo addon nie może sam pisać na kanale bez wciśnięcia klawisza przez gracza. Jedna droga dla wszystkiego to mniej kodu i brak filtrów czatu.
-- **Kanał służy tylko do szukania innych gildii:** relay co 30 s czyta listę członków (`ListChannelByName`) i wita szeptem nieznanych graczy. Wynik tego odczytu nie pojawia się w oknie czatu.
-- Szept do wylogowanego gracza: komunikat „No player named…” jest chowany, a gracz od razu znika z listy online, więc relayem jego gildii zostaje następna osoba.
-- Pakiety mają teraz najwyżej 225 bajtów (zapas na nagłówek `FW:nick:`).
-- Settings: nowa linia **Linked guilds** (gildia i jej relay) oraz **members seen** przy kanale. W diagnostyce pakiety z innych gildii mają przedrostek `FW`, np. `FW GMSG=3`.
-- Usunięte z 0.7.7: wysyłka pakietów na kanał, `GUILD fallback` w diagnostyce oraz sprawdzanie numeru kanału przy odbiorze (`IsOurChannel`).
-- Wszyscy muszą zaktualizować addon; starsze wersje nie rozumieją `FW`.
-- Limity: `most.lua` 100, `core.lua` 186/200.
-
-**Ograniczenia:**
-- Pakiety wysłane do relaya w chwili jego wylogowania mogą przepaść.
-- Hasło kanału nie chroni już pakietów, bo nie idą przez kanał. Szept przyjmowany jest od nadawcy mówiącego za siebie albo od znanego gracza z gildii z listy.
-- Kolejka wysyła około 1 pakietu na sekundę (do 10 naraz), a każda dodatkowa gildia to kolejny szept relaya. Przy większym ruchu może pojawić się opóźnienie.
-
-## Do przetestowania (0.8.0)
-- [ ] Znaczek w Settings -> Global Channels wyłączony: po relogu Settings pokazuje `members seen` większe od 0, a `/chatlist` działa normalnie.
-- [ ] Do 30 s po wejściu obu gildii: **Linked guilds** pokazuje drugą gildię u obu osób.
-- [ ] General i Trade: wiadomość dochodzi do drugiej gildii i z powrotem (`FW GMSG` w Received).
-- [ ] Wiadomość z `/g` trafia do `/g` drugiej gildii tylko raz.
-- [ ] Members, Events, Mute i Guilds widzą dane z drugiej gildii.
-- [ ] Wylogowanie relaya: bez komunikatu „No player named…”, następna osoba przejmuje relay.
-- [ ] Trzy osoby w dwóch gildiach: osoba, która nie jest relayem, też dostaje wiadomości z drugiej gildii.
+- Diagnostics in Settings (added after 0.7.6, while looking for the bug "addon messages do not arrive, but `/g` ones do"):
+  - **sent**: number of packets sent by channel, successes and failures separately (`CHANNEL ok/fail`, `GUILD …`, `WHISPER …`), plus the last API result;
+  - **Received**: received packets by channel and type, e.g. `CHANNEL GMSG=3`;
+  - **Packets from (5 min)**: who sent any packet in the last 5 minutes;
+  - **Chat rejected**: why a chat message was rejected. `duplicate / own echo / muted` is normal, because your own messages come back from the channel.
+  - The status wraps to the panel width.
 
 ---
 
-# 0.8.1 – pole czatu nie traci focusa po wysłaniu
+# 0.7.7 – global channel fix (addon packets between players)
 
-- Po wysłaniu wiadomości (Enter albo przycisk Send) kursor zostaje w polu, więc można od razu pisać dalej.
-- Pole traci focus po kliknięciu poza nim oraz po Esc.
-- Shift + klik na przedmiot lub zaklęcie nie zabiera focusa, więc wstawianie linków działa jak wcześniej.
-- Limity: `core.lua` bez zmian w szczycie.
+**Problem found in testing:** diagnostics showed `CHANNEL fail=127` and the last result `CHANNEL=4` (`InvalidChatType`). The game rejected all addon packets sent to the channel.
+- Addon messages reached nobody; only `GUILD` got through for a few seconds after login.
+- `/g` in the addon window worked, because each client reads `/g` itself.
+- The cause assumed at the time: the channel was joined through `JoinTemporaryChannel`, as a temporary channel. **This was wrong:** code 4 remained after this change, and 0.8.0 describes the real cause.
+- The assumption that Olympus (same client, `Interface 11509`) sends to its channel without problems was not verified. It joins through `JoinChannelByName`, and otherwise the send path is the same.
 
-## Do przetestowania (0.8.1)
-- [ ] Enter i Send: kursor zostaje w polu, kolejna wiadomość wychodzi bez klikania.
-- [ ] Klik w świat gry, w inne okno i w inną część addonu: pole traci focus.
-- [ ] Shift + klik na przedmiot: link trafia do pola, a focus zostaje.
-- [ ] Esc: pole traci focus.
+**Fixes (`most.lua`, `core.lua`):**
+- The channel is joined through `JoinChannelByName(name, password)` under a **new name**, so it is created fresh as a regular channel rather than joining the old temporary one:
+  - **`JagodkaNet`** for the Alliance,
+  - **`JagodkaNetH`** for the Horde (factions do not connect anyway).
+- The password is unchanged. The addon leaves the old `JagodkaWspolnota` channel itself.
+- The channel is also hidden from chat windows after the "joined" notice, because the game may add it to a window then.
+- **Queue:**
+  - a packet is retried only on a temporary server limit (codes 3 and 8, or `false`);
+  - a permanent error (e.g. 4) no longer blocks the queue for 30 s;
+  - a packet the channel did not accept goes over `GUILD` instead, so your own guild always works. Diagnostics show this as `GUILD fallback`.
+- **Security** (modeled on Olympus):
+  - `CHANNEL` packets are accepted only from our channel, checked by the `localID` number from `CHAT_MSG_ADDON`;
+  - `|` formatting codes are removed from data from other players. Only valid links (items, spells, professions) remain in chat text. Names, guilds and titles cannot contain colors or fake links.
+  - Side effect: a link pasted into an event description shows as plain text to others.
+- Version 0.7.7. Older versions stay on the old channel and send nothing through it, so everyone must update.
+- Limits: `most.lua` 87, `core.lua` 185/200.
 
 ---
 
-# 0.8.2 – szybsza synchronizacja po logowaniu, szybkie przelogowania
+# 0.7.8 – "Your guild is not on the Community list" despite a listed guild
 
-**Powód:** test 0.8.0 i 0.8.1 w grze wypadł dobrze, ale przy przelogowaniach synchronizacja czasem trwała długo.
+**Problem found in testing:** a player left Jagódki Nadina, was immediately accepted into `Testowo` (which is listed) and immediately sent a message. They got "Your guild is not on the Community list - message not sent.".
+- Cause: `GetGuildInfo("player")` in Classic can briefly return `nil` (after a loading screen, right after joining a guild), and the addon treated `nil` as "guild not on the list".
 
-**Czasy po zalogowaniu (od pierwszego PING-u):**
+**Fixes (`most.lua`, `core.lua`):**
+- `Most.MyGuild()` remembers the last known guild name and uses it when `GetGuildInfo` briefly returns `nil` (as long as `IsInGuild()` says the player is in a guild). It also asks the game to refresh the roster.
+- The relay, `/g` bridge, chat sending and event sign-up use this same function.
+- When the guild name is not known yet: the message "Guild info not loaded yet - try again in a moment", and the typed message stays in the field.
+- The message about a guild not on the list now gives the name the addon sees, e.g. "Your guild (Xyz) is not on the Community list".
+- After a guild change (`PLAYER_GUILD_UPDATE`) the addon forgets the old name and immediately sends another PING with the new guild. Previously others saw the player in the old guild until the next PONG (up to a minute).
+- Limits: `most.lua` 88, `core.lua` 186/200.
 
-| Co | Było | Jest |
+---
+
+# 0.8.0 – new links between guilds (relays and whispers)
+
+**Problem found in testing:** code 4 (`InvalidChatType`) came back on every character, including high-level ones.
+- Cause: since patch 1.13.3 Classic blocks addons from sending packets to players' own channels. In the screenshots all received packets were from `GUILD`, so only your own guild worked.
+- **Correction:** the explanations from 0.7.7 (temporary channel) and 0.7.8 (level 1) were wrong.
+- Tests before the rebuild: everyone sees each other on `/chatlist JagodkaNetH`, and manual messages on the channel arrive.
+
+**New transport (`most.lua`, `core.lua`):**
+- Everyone sends packets over `GUILD`.
+- A guild's relay wraps each `GUILD` packet as `FW:sender:packet` and whispers it to the relays of other guilds.
+- The receiver handles the packet as sent by the original sender and reposts it to its own `GUILD`. Nobody forwards wrapped packets again, so there are no loops.
+- **Chat goes this way too**, rather than as a regular channel message as the first plan assumed. `/g` lines must go by whisper anyway, because an addon cannot post to a channel by itself without the player pressing a key. One path for everything means less code and no chat filters.
+- **The channel is only used to find other guilds:** every 30 s the relay reads the member list (`ListChannelByName`) and greets unknown players by whisper. The result of this read does not appear in the chat window.
+- A whisper to a logged-out player: the "No player named…" message is hidden and the player leaves the online list at once, so the next person becomes relay of their guild.
+- Packets now have at most 225 bytes (room for the `FW:name:` header).
+- Settings: a new **Linked guilds** line (guild and its relay) and **members seen** next to the channel. In diagnostics, packets from other guilds have an `FW` prefix, e.g. `FW GMSG=3`.
+- Removed from 0.7.7: sending packets to the channel, `GUILD fallback` in diagnostics, and checking the channel number on receipt (`IsOurChannel`).
+- Everyone must update; older versions do not understand `FW`.
+- Limits: `most.lua` 100, `core.lua` 186/200.
+
+**Limitations:**
+- Packets sent to a relay at the moment it logs out may be lost.
+- The channel password no longer protects packets, because they do not go through the channel. A whisper is accepted from a sender speaking for themselves or from a known player of a listed guild.
+- The queue sends about 1 packet per second (up to 10 at once), and each additional guild means another relay whisper. Heavier traffic may cause delays.
+
+---
+
+# 0.8.1 – chat input keeps focus after sending
+
+- After sending a message (Enter or the Send button) the cursor stays in the field, so you can keep typing at once.
+- The field loses focus after a click outside it and on Esc.
+- Shift + click on an item or spell does not take focus, so inserting links works as before.
+- Limits: the `core.lua` peak is unchanged.
+
+---
+
+# 0.8.2 – faster sync after login, quick relogs
+
+**Reason:** in-game testing of 0.8.0 and 0.8.1 went well, but on relogs sync sometimes took a long time.
+
+**Times after login (from the first PING):**
+
+| What | Before | Now |
 |---|---|---|
-| Historia czatu i mute | 10 s | 2 s |
-| Wydarzenia | 15 s | 4 s |
-| Prośba o rostery innych gildii | 14 s | 6 s |
-| Odpowiedź na prośbę (losowo) | 1–4 s | 0,5–2,5 s |
-| Gracz może być relayem | po wejściu na kanał (ok. 10 s) | po 5 s |
-| Gracz może wysyłać roster gildii | 40 s | 15 s |
+| Chat history and mutes | 10 s | 2 s |
+| Events | 15 s | 4 s |
+| Request for other guilds' rosters | 14 s | 6 s |
+| Answer to a request (random) | 1–4 s | 0.5–2.5 s |
+| A player can be relay | after joining the channel (about 10 s) | after 5 s |
+| A player can send the guild roster | 40 s | 15 s |
 
-- Wejście na kanał zostaje po 8 s (żeby nie zająć `/1` przed General), a szukanie innych gildii po 10 s. Po 14 s relay, który znalazł inne gildie, ponawia prośby; dzięki temu działa to też u kogoś, kto jest sam online w swojej gildii.
-- Relay i nadawca rostera nie zależą już od kanału, bo pakiety przez niego nie idą.
+- Joining the channel stays at 8 s (so it does not take `/1` before General), and looking for other guilds at 10 s. At 14 s a relay that found other guilds repeats its requests; this way it also works for someone alone online in their guild.
+- The relay and roster sender no longer depend on the channel, because packets do not go through it.
 
-**Mniej ruchu:**
-- Jeden PING przy logowaniu zamiast dwóch.
-- Odpowiedź PONG idzie szeptem tylko do witającego, z losowym opóźnieniem 0,2–1,5 s, a kilka PING-ów tej samej osoby daje jedną odpowiedź. Wcześniej każdy odpowiadał całej gildii i wszystkim relayom.
-- Wydarzenia i zapisy idą szeptem tylko do proszącego. Wcześniej każde logowanie mogło co 15 s wysyłać wszystkie wydarzenia do wszystkich.
+**Less traffic:**
+- One PING at login instead of two.
+- The PONG answer goes by whisper only to the greeter, with a random delay of 0.2–1.5 s, and several PINGs from the same person give one answer. Previously everyone answered the whole guild and all relays.
+- Events and sign-ups go by whisper only to the requester. Previously each login could send all events to everyone every 15 s.
 
-**Szybkie przelogowania (np. main i alt):**
-- Komunikat „X has gone offline” od razu usuwa gracza z listy online, więc relayem zostaje następna osoba. Wcześniej gildia mogła być odcięta od innych nawet przez 20 s.
-- Poprawiony błąd: po szybkim powrocie roster gildii mógł jeszcze mówić „offline”, przez co gracz znikał z listy nawet na minutę. Sygnał z ostatnich 30 s wygrywa teraz z rosterem.
-- Nowo zalogowany przez pierwsze 5 s nie uważa się za relaya, więc nie dubluje linii w `/g`.
+**Quick relogs (e.g. main and alt):**
+- The "X has gone offline" message immediately removes the player from the online list, so the next person becomes relay. Previously a guild could be cut off from others for up to 20 s.
+- Bug fixed: after a quick return the guild roster could still say "offline", so the player disappeared from the list for up to a minute. A signal from the last 30 s now beats the roster.
+- A fresh login does not treat itself as relay for the first 5 s, so it does not duplicate lines in `/g`.
 
-**Poprawiony błąd z 0.8.0:** pakiety z zapisami na wydarzenia (`EV_ROS`) mogły być za długie i nie przechodziły do innych gildii. Limit zmniejszony z 240 do 215 bajtów.
+**Bug from 0.8.0 fixed:** event sign-up packets (`EV_ROS`) could be too long and did not reach other guilds. The limit was lowered from 240 to 215 bytes.
 
-**Ograniczenia:**
-- Pakiety czekające w kolejce w chwili wylogowania przepadają, bo gra nie daje czasu na ich wysłanie. Ostatnia wiadomość wysłana tuż przed wylogowaniem może nie dojść do innych.
-- Limit gry na pakiety (około 1 na sekundę, do 10 naraz) zostaje bez zmian, żeby gra nie odrzucała pakietów.
-- Czat, wydarzenia i rostery są zapisane wspólnie dla całego konta, więc alt widzi dane maina, także z innej frakcji.
-- Limity: `most.lua` 104, `core.lua` 186/200.
+**Limitations:**
+- Packets waiting in the queue at logout are lost, because the game gives no time to send them. The last message sent right before logging out may not reach others.
+- The game's packet limit (about 1 per second, up to 10 at once) stays unchanged, so the game does not reject packets.
+- Chat, events and rosters are saved for the whole account, so an alt sees the main's data, also from another faction.
+- Limits: `most.lua` 104, `core.lua` 186/200.
 
-## Do przetestowania (0.8.2)
-- [ ] Logowanie: historia, mute i wydarzenia są widoczne w ciągu kilku sekund, a pasek Syncing kończy się szybciej.
-- [ ] Relay przełącza się na alta: następna osoba przejmuje relay od razu, a wiadomość z drugiej gildii dochodzi.
-- [ ] Szybki powrót na tę samą postać: gracz zostaje na liście online u innych.
-- [ ] Po zalogowaniu linia z `/g` nie pojawia się dwa razy w `/g` innej gildii.
-- [ ] Sam online w gildii, druga gildia online: po ok. 15–20 s masz jej dane.
-- [ ] Wydarzenie z długą listą zapisów przechodzi do drugiej gildii.
+---
+
+# 0.8.3 – one chat command
+
+- The only command is now `/jagodka`, including `/jagodka reset` and `/jagodka tab`. `/okno` no longer works.
+- `Testowo` stays on the whitelist for now; remove it just before release.
+
+---
+
+# 0.8.4 – event removals reach people who were offline
+
+**Problem found in code review:** a removal only reached people online at that moment. Removal markers stayed on the clients that had seen the removal and were never synced. Someone who was offline kept the event and could send it to others during sync, so it came back for everyone without a marker.
+
+**Fix (`core.lua`):**
+- New `EV_RM` packet (event id and original removal time), sent by whisper to one person.
+- Whoever answers `EV_REQ` also sends their removal markers, before the events.
+- When someone sends an event we know was removed, we answer with its marker, so the event stops spreading.
+- A marker keeps its original time, so passing it on does not extend its 30 days.
+- `EV_RM` is accepted from any known whitelisted player, like a forwarded event.
+
+**Limitations:**
+- There is no server, so a marker needs someone online who has it. If an officer removes an event alone and logs out, others still see it until they sync with someone holding the marker.
+- Any player from a listed guild with a modified addon could remove events this way. The same trust already applies to forwarded events and mutes.
+- Everyone needs 0.8.4 for markers to spread; older versions ignore `EV_RM`.
+
+---
+
+# 0.8.5 – cleaner chat format, reliable game chat tabs
+
+**Message format** (time and level are gray, the guild tag is muted purple, and the name uses the real author's class color, not the relay's):
+
+| Where | Format |
+|---|---|
+| Addon window | `21:05 [JN] [60] Name: text` |
+| `/g` with the addon | `[Guild chat] [JN] [60] Name: text` (the game's standard green label first) |
+| Game chat tab (General) | `[JN] [60] Name: text` |
+| `/g` without the addon | `[Guild chat] [Relay]: [JN] [60] Name: text` |
+
+- Guild tags: `JN`, `JN2`, `JN3`, `JN4` and `TEST`. A guild added to the whitelist needs a tag in `GUILD_TAGS` in `bridge.lua`, otherwise it shows its full name.
+- A `/g` message from a player that starts like `[JN] word: ` is treated as a bridged line and is not forwarded to other guilds.
+
+- The `/g` marker is gone. Names stay clickable, and item links work as before.
+- Level and class come from the online list and guild rosters. When the level is unknown the brackets are left out, and an unknown class uses the default color. Older messages show the current level.
+- `/g` with the addon: a chat filter hides the original bridged line and prints this format. Only lines from a known addon user are changed, so someone without the addon cannot fake another author by typing such a line.
+- Regular `/g` messages from your own guild look as they always did.
+
+**Game chat tabs (`chattab.lua`):**
+- Only General has a tab in the game chat. The "Jagodki Nadina - Trade" tab is gone, and one left by an older version is closed at login. Trade and LFG stay in the addon window.
+- A missing General tab is created at every login, so a tab closed by the player comes back, and a duplicate with the same name is closed. Previously the "already created" flag was shared by the whole account, so alts could never get the tab.
+- A closed window no longer counts as an existing tab, and `/jagodka tab` recreates a missing tab without printing the history again into an existing one.
+
+**Limitations:**
+- The relay's name cannot be hidden for players without the addon: the server sends the sender separately from the text, and their game adds it.
+- Other chat addons (e.g. Prat) may display the changed `/g` lines differently.
+
+---
+
+# 0.8.6 – Members table: column widths and order
+
+- The Lvl column is now before Class. The order is Name, Lvl, Class, Guild, Rank, Version.
+- Each column fits its longest text, plus 16 px of padding on the right. Widths come from the whole filtered list rather than the current page, so columns do not jump between pages.
+- In a narrow window the padding shrinks first (down to 6 px), and then Rank and Guild are cut.
+- Headers now line up exactly with the column text (they were 5 px to the left).
+
+---
+
+# 0.8.7 – public and officer notes in the Members table
+
+- New file `notes.lua` and a new **Note** column between Rank and Version, with a note icon. It is bright when a note is known or can be fetched, and dimmed otherwise. The column cannot be sorted.
+- Hovering over the icon shows a small popup under it with the notes, and moving the mouse away hides it. Clicks go through to the row, so its menu also works on the icon.
+- **Own guild:** both notes come directly from the game. The officer note shows only with the game's own permission (`CanViewOfficerNote`).
+- **Other guilds:** public note only. Hovering whispers `NREQ` to that guild's relay, who answers with `NOTE`, at most once per minute per player. The last known note is saved in `JagodkiChatDB.publicNotes`, so it also shows when nobody from that guild is online.
+- **Officer notes are never sent or saved:** a responder could not reliably check who is an officer, and saved data is shared by the whole account. They are also cleared from memory after a guild change.
+
+**Limitations:**
+- A new or changed note from another guild shows only after hovering over the icon, and only while someone with the addon from that guild is online.
+- An answer needs that guild's relay on 0.8.7; otherwise the popup shows "Not available".
+- Without any saved note and with nobody online from that guild, the icon is dimmed.
+- Limits: `core.lua` 186/200.
+
+---
+
+# 0.8.8 – professions in the Members table
+
+- New file `professions.lua` and a new **Prof** column between Note and Version, which cannot be sorted. The order is Name, Lvl, Class, Guild, Rank, Note, Prof, Version.
+- The column shows icons of up to two main professions. Hovering shows all professions with skill levels, including Cooking, First Aid and Fishing, and the last seen date for offline players.
+- The game gives skill levels only for your own character, so every addon sends its own in a new `PROF` packet: over `GUILD` and relays at login and after a change (checked once a minute), and by whisper in answer to a `PING`.
+- The packet uses profession codes rather than names, so clients in different languages understand each other.
+- Received data is saved in `JagodkiChatDB.professions`, so it also shows for offline players.
+
+**Limitations:**
+- Players without the addon show `-`, because their skills cannot be read.
+- A new addon user starts with an empty list and fills it by seeing players online. There is no full sync of saved data.
+- A section collapsed in the game's Skills window hides its lines, so a level there is not updated until it is expanded.
+- Everyone needs 0.8.8 to send and read professions.
+- Herbalism is recognized by name in English, German, French, Spanish and Russian clients. Other languages may not detect it.
+
+---
+
+# 0.8.9 – location in the Members table
+
+- A new **Location** column after Class. The order is Name, Lvl, Class, Location, Guild, Rank, Note, Prof, Version. It can be sorted, the search also looks in it, and hovering shows the full name.
+- **Own guild:** the location of everyone online comes from the game's roster, also for players without the addon.
+- **Other guilds:** players with the addon send their location in the status packet (`PING`/`PONG`, about once a minute), so it can be up to a minute old.
+- Players from other guilds without the addon and offline players show `-`.
+- In a narrow window Location is cut first, then Rank and Guild.
+
+**Limitations:**
+- Zone names come in the language of the sender's client.
+- Everyone in the listed guilds with the addon can see your location; there is no option to hide it yet.
+- Compatibility: the status packet has a new field. Clients older than 0.8.9 cannot read the rank index from it, and fall back to the rank name for officer checks, so everyone should update.

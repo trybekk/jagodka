@@ -1,14 +1,14 @@
 -- ============================================================================
--- ZAKLADKI W CZACIE BLIZZARDA: General i Trade wspolnoty
+-- TAB IN BLIZZARD CHAT: community General
 -- ============================================================================
---  * Dodatkowo do okna addonu: te same wiadomosci, w zwyklym oknie czatu gry.
---    "Jagodki Nadina - General" = zakladka General addonu (polaczona z /g),
---    "Jagodki Nadina - Trade" = zakladka Trade addonu (tylko addon, bez /g).
---  * Tworzone raz (pierwsze zalogowanie z addonem); gra sama pamieta okna czatu.
---    Zamknieta przez gracza nie wraca sama - "/jagodka tab" tworzy brakujace ponownie.
---  * Tylko do czytania: General pisze sie przez /g albo w oknie addonu, Trade w oknie addonu.
---    Nicki sa linkami (klik = szept, prawy klik = menu), linki przedmiotow dzialaja jak w grze.
---  * Po zalogowaniu pokazuje ostatnie wiadomosci z historii, potem nowe na biezaco.
+--  * In addition to the addon window: the same messages in a regular game chat window.
+--    "Jagodki Nadina - General" = the addon's General tab (linked to /g).
+--    Trade and LFG stay in the addon window; a Trade tab left by older versions is closed.
+--  * Created at login whenever missing, also after the player closes it, and a duplicate
+--    with the same name is closed. "/jagodka tab" recreates it.
+--  * Read only: write through /g or the addon window.
+--    Names are links (click = whisper, right click = menu), item links work as in the game.
+--  * After login it shows the latest messages from history, then new ones as they arrive.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -20,46 +20,50 @@ local table, math = _G.table, _G.math
 
 local Most = addonTable.Most
 
-local REPLAY_COUNT = 30       -- ile ostatnich wiadomosci pokazac po zalogowaniu
-local REPLAY_DELAY = 15       -- s po zalogowaniu (po synchronizacji historii)
+local REPLAY_COUNT = 30       -- how many of the latest messages to show after login
+local REPLAY_DELAY = 15       -- seconds after login (after the history sync)
 
--- tab = zakladka czatu addonu, flag = znacznik w JagodkiChatDB (zakladka juz raz utworzona),
--- color = kolor tresci (rozny od /g i od siebie), old = wczesniejsze nazwy (przemianowywane)
+-- tab = addon chat tab, color = text color (different from /g), old = earlier names (renamed)
 local TABS = {
-    { name = "Jagodki Nadina - General", tab = "Ogolny", flag = "blizzTabCreated", color = "ff3cb43c", old = { ["Jagodki Nadina"] = true } },
-    { name = "Jagodki Nadina - Trade", tab = "Handel", flag = "blizzTradeTabCreated", color = "ffd2a05a", old = {} },
+    { name = "Jagodki Nadina - General", tab = "Ogolny", color = "ff3cb43c", old = { ["Jagodki Nadina"] = true } },
 }
+local OBSOLETE_TAB = "Jagodki Nadina - Trade"
 
 local Zakladka = {}
 addonTable.Zakladka = Zakladka
 
--- Stan kazdej zakladki trzymamy w jej wpisie TABS: frame, lastShownTs
--- (lastShownTs = nil -> historia jeszcze nie pokazana, do tego czasu nic nie wypisujemy)
+-- The state of each tab is kept in its TABS entry: frame, lastShownTs
+-- (lastShownTs = nil -> history not shown yet, nothing is printed until then)
 
+-- A closed window keeps its name, so only a shown or docked one counts as an existing tab
 local function FindTab(def)
+    local found = nil
     for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
-        local name = _G.GetChatWindowInfo(i)
-        if name == def.name then return _G["ChatFrame" .. i] end
-        -- Zakladka utworzona pod stara nazwa: przemianowujemy zamiast tworzyc druga
-        if def.old[name] then
+        local name, _, _, _, _, _, shown, _, docked = _G.GetChatWindowInfo(i)
+        if (name == def.name or def.old[name]) and (shown or docked) then
             local frame = _G["ChatFrame" .. i]
-            if _G.FCF_SetWindowName then _G.FCF_SetWindowName(frame, def.name) end
-            return frame
+            if found then
+                if _G.FCF_Close then _G.FCF_Close(frame) end
+            else
+                found = frame
+                -- Tab created under an old name: rename it instead of creating a second one
+                if name ~= def.name and _G.FCF_SetWindowName then _G.FCF_SetWindowName(frame, def.name) end
+            end
         end
     end
-    return nil
+    return found
 end
 
 local function CreateTab(def)
     if not _G.FCF_OpenNewWindow then return nil end
-    -- Nowe okno dokuje sie na koncu (przy domyslnym czacie: General, Combat Log, nasze zakladki)
+    -- A new window docks at the end (with the default chat: General, Combat Log, our tabs)
     _G.FCF_OpenNewWindow(def.name, true)
     local frame = FindTab(def)
-    if not frame then return nil end -- limit okien czatu
-    -- Zadnych zwyklych kanalow ani typow wiadomosci - tylko to, co wypisze addon
+    if not frame then return nil end -- chat window limit
+    -- No regular channels or message types, only what the addon prints
     if _G.ChatFrame_RemoveAllMessageGroups then _G.ChatFrame_RemoveAllMessageGroups(frame) end
     if _G.ChatFrame_RemoveAllChannels then _G.ChatFrame_RemoveAllChannels(frame) end
-    -- Nowe okno samo sie zaznacza - wracamy na General
+    -- A new window selects itself, so we go back to General
     if _G.FCF_SelectDockFrame and _G.DEFAULT_CHAT_FRAME then _G.FCF_SelectDockFrame(_G.DEFAULT_CHAT_FRAME) end
     return frame
 end
@@ -73,7 +77,7 @@ end
 
 local function Print(def, e)
     if def.frame and e.src ~= "S" and not addonTable.Mute.IsMuted(e.author) then
-        def.frame:AddMessage(Most.FormatEntry(e, true, def.color))
+        def.frame:AddMessage(Most.FormatEntry(e, def.color))
         if not def.lastShownTs or e.ts > def.lastShownTs then def.lastShownTs = e.ts end
     end
 end
@@ -94,27 +98,25 @@ local function ReplayAll()
     for _, def in ipairs(TABS) do Replay(def) end
 end
 
--- Nowe wiadomosci: biezace zawsze, z historii tylko nowsze od ostatnio pokazanej
--- (okno czatu gry dopisuje tylko na koncu, starsze zaburzylyby kolejnosc)
+-- New messages: current ones always, from history only those newer than the last one shown
+-- (the game chat window only appends at the end, older ones would break the order)
 Most.OnNewEntry(function(e, live)
     local def = DefFor(e.tab)
     if not def or def.lastShownTs == nil then return end
     if live or e.ts > def.lastShownTs then Print(def, e) end
 end)
 
-local function Setup(force)
-    local db = _G.JagodkiChatDB
-    if not db then return end
+local function Setup()
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+        local name, _, _, _, _, _, shown, _, docked = _G.GetChatWindowInfo(i)
+        if name == OBSOLETE_TAB and (shown or docked) and _G.FCF_Close then _G.FCF_Close(_G["ChatFrame" .. i]) end
+    end
     for _, def in ipairs(TABS) do
-        def.frame = FindTab(def)
-        if not def.frame and (force or not db[def.flag]) then
-            def.frame = CreateTab(def)
-            if def.frame then db[def.flag] = true end
-        end
+        def.frame = FindTab(def) or CreateTab(def)
     end
 end
 
--- Czy to okno czatu jest jedna z naszych zakladek (np. menu na nicku w wyciszenie.lua)
+-- Whether this chat window is one of our tabs (e.g. the name menu in mute.lua)
 function Zakladka.IsOurFrame(frame)
     for _, def in ipairs(TABS) do
         if frame and def.frame == frame then return true end
@@ -122,13 +124,16 @@ function Zakladka.IsOurFrame(frame)
     return false
 end
 
--- "/jagodka tab": ponowne utworzenie brakujacych zakladek (np. po zamknieciu)
+-- "/jagodka tab": recreate missing tabs (e.g. after closing one)
 function Zakladka.Recreate()
-    Setup(true)
+    local before = {}
+    for _, def in ipairs(TABS) do before[def] = def.frame end
+    Setup()
     local any = false
     for _, def in ipairs(TABS) do
         if def.frame then
-            Replay(def)
+            -- Only a new tab gets the history; an existing one already has it
+            if def.frame ~= before[def] then Replay(def) end
             any = true
         end
     end
@@ -138,7 +143,7 @@ end
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:SetScript("OnEvent", function()
-    -- Okna czatu sa gotowe chwile po zalogowaniu
-    C_Timer.After(3, function() Setup(false) end)
+    -- Chat windows are ready a moment after login
+    C_Timer.After(3, Setup)
     C_Timer.After(REPLAY_DELAY, ReplayAll)
 end)

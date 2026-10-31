@@ -1,8 +1,8 @@
 -- ============================================================================
--- INSTANCJE CLASSIC ERA (lista do wyboru przy tworzeniu wydarzenia)
+-- CLASSIC ERA INSTANCES (list to choose from when creating an event)
 -- ============================================================================
--- Nazwy angielskie (takie jak w kliencie EU), w nawiasie zakres poziomow.
--- Zeby dodac nowa instancje, wystarczy dopisac ja do odpowiedniej grupy.
+-- English names (as in the EU client), level range in parentheses.
+-- To add a new instance, just add it to the right group.
 local addonName, addonTable = ...
 
 addonTable.Instances = {

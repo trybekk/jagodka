@@ -1,8 +1,8 @@
 ## Interface: 11509
-## Title: Jagodka
-## Notes: Guild community: shared chat, online roster and events. Command: /jagodka
-## Author: trybekk
-## Version: 0.8.2
+## Title: Jagodki Nadina - Community
+## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with shared chat linked to guild chat, a combined member list, and synced events with sign-ups and a calendar.
+## Author: trybekk & Lasarr
+## Version: 0.8.9
 ## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 
 Libs\LibStub\LibStub.lua
@@ -10,10 +10,12 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
-synchro.lua
-most.lua
-wyciszenie.lua
+sync.lua
+bridge.lua
+mute.lua
 roster.lua
-zakladka.lua
-instancje.lua
+notes.lua
+professions.lua
+chattab.lua
+instances.lua
 core.lua
