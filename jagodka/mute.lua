@@ -1,19 +1,19 @@
 -- ============================================================================
--- WYCISZENIE: mute na wspolnym czacie (oficerowie i GM gildii z listy)
+-- MUTE: mute on the shared chat (officers and GMs of listed guilds)
 -- ============================================================================
---  * Wyciszony gracz nie pisze na czacie wspolnoty (okno addonu), a jego linie z /g
---    nie sa przenoszone do innych gildii. Kazdy klient odrzuca jego wiadomosci sam
---    (most.lua, Ingest), wiec nie zalezy to od tego, kto jest relayem.
---  * Uprawnienia: mute - oficer (nie moze wyciszyc innego oficera ani siebie), GM - kazdego
---    poza soba; unmute - kazdy oficer. Sprawdzane lokalnie i u kazdego odbiorcy pakietu.
---  * Mute wymaga powodu (okienko z polem tekstowym); powod widac w tooltipie ikonki
---    przy nicku w zakladce Members i w komunikacie w czacie.
---  * Stan: JagodkiChatDB.mutes[nick] = { m = true/false, ts = czas serwera, by = oficer, r = powod }.
---    Odciszenie tez jest wpisem (m = false), zeby starszy mute z synchronizacji nie wrocil.
---    Wygrywa wpis z nowszym czasem.
---  * Pakiety: MUTE (zmiana, na kanal globalny albo szeptem przy synchronizacji),
---    MREQ (prosba po zalogowaniu), MCLAIM (ktos juz odpowiada na prosbe).
---  * Prawy klik na nick w czacie addonu: Whisper, Invite to group, Mute / Unmute.
+--  * A muted player cannot write on the community chat (addon window), and their /g lines
+--    are not carried to other guilds. Each client rejects their messages on its own
+--    (bridge.lua, Ingest), so this does not depend on who the relay is.
+--  * Permissions: mute - officer (cannot mute another officer or themselves), GM - anyone
+--    except themselves; unmute - any officer. Checked locally and by every packet receiver.
+--  * Mute requires a reason (dialog with a text field); the reason shows in the icon tooltip
+--    next to the name in the Members tab and in the chat notice.
+--  * State: JagodkiChatDB.mutes[name] = { m = true/false, ts = server time, by = officer, r = reason }.
+--    An unmute is also an entry (m = false), so an older mute does not return through sync.
+--    The entry with the newer time wins.
+--  * Packets: MUTE (a change, over GUILD and relays, or by whisper during sync),
+--    MREQ (request after login), MCLAIM (someone is already answering the request).
+--  * Right click on a name in the addon chat: Whisper, Invite to group, Mute / Unmute.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -31,18 +31,18 @@ local table, math = _G.table, _G.math
 local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
-local UNMUTE_KEEP_DAYS = 30 -- po tylu dniach wpis odciszenia jest usuwany
-local REASON_MAX_LETTERS = 60 -- powod miesci sie w jednym pakiecie (255 bajtow) nawet z polskimi znakami
+local UNMUTE_KEEP_DAYS = 30 -- an unmute entry is removed after this many days
+local REASON_MAX_LETTERS = 60 -- the reason fits in one packet (255 bytes) even with Polish characters
 local ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 
 local Mute = {}
 addonTable.Mute = Mute
 
--- Kontekst z core.lua: activePlayers, isGuildAllowed, isRankOfficer, isMeOfficer, onChanged
+-- Context from core.lua: activePlayers, isGuildAllowed, isRankOfficer, isMeOfficer, onChanged
 local ctx = nil
 function Mute.Init(c) ctx = c end
 
-local mutes = {} -- podmieniane na JagodkiChatDB.mutes po wczytaniu addonu
+local mutes = {} -- replaced with JagodkiChatDB.mutes after the addon loads
 
 local function MyName() return UnitName("player") end
 
@@ -51,15 +51,15 @@ function Mute.IsMuted(name)
     return m ~= nil and m.m == true
 end
 
--- Wpis wyciszenia ({ by, ts, r }) albo nil, gdy gracz nie jest wyciszony
+-- Mute entry ({ by, ts, r }) or nil when the player is not muted
 function Mute.Info(name)
     return Mute.IsMuted(name) and mutes[name] or nil
 end
 
 -- ============================================================================
--- UPRAWNIENIA
+-- PERMISSIONS
 -- ============================================================================
--- Gracz z listy online (jego meldunek) albo nil
+-- Player from the online list (their status packet) or nil
 local function FindPlayer(name)
     if not ctx then return nil end
     for _, p in ipairs(ctx.activePlayers) do
@@ -68,7 +68,7 @@ local function FindPlayer(name)
     return nil
 end
 
--- Ranga gracza (nazwa, indeks): ja, gracze z addonem online, potem rostery gildii (takze offline)
+-- Player's rank (name, index): me, online players with the addon, then guild rosters (also offline)
 local function RankOf(name)
     if name == MyName() then
         local _, rankName, rankIndex = GetGuildInfo("player")
@@ -80,7 +80,7 @@ local function RankOf(name)
     return nil, nil
 end
 
--- Oficer albo GM gildii z listy. Dzialajacy oficer musi byc online (jego meldunek).
+-- Officer or GM of a listed guild. The acting officer must be online (their status packet).
 function Mute.IsOfficer(name)
     if not ctx then return false end
     if name == MyName() then return ctx.isMeOfficer() end
@@ -93,7 +93,7 @@ local function IsGM(name)
     return rankIndex == 0 and Mute.IsOfficer(name)
 end
 
--- Ranga celu moze byc nieznana (gildia bez zsynchronizowanego rostera) - wtedy nie blokujemy
+-- The target's rank may be unknown (guild without a synced roster), in which case we do not block
 local function IsTargetOfficer(name)
     local rankName, rankIndex = RankOf(name)
     if not rankName and not rankIndex then return false end
@@ -110,14 +110,14 @@ function Mute.CanUnmute(by)
 end
 
 -- ============================================================================
--- ZMIANY
+-- CHANGES
 -- ============================================================================
--- Powod: bez znakow formatowania i separatora pakietu
+-- Reason: without formatting codes or the packet separator
 local function CleanReason(text)
     return ((text or ""):gsub("[|:\n]", " "):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
--- Zapisuje wpis, jesli jest nowszy od znanego
+-- Saves the entry if it is newer than the known one
 local function Apply(name, on, ts, by, reason)
     local cur = mutes[name]
     if cur and (cur.ts or 0) >= ts then return false end
@@ -130,23 +130,24 @@ local function Encode(name, m)
     return table.concat({ Enc(name), m.m and "1" or "0", tostring(m.ts), Enc(m.by), Enc(m.r or "") }, ":")
 end
 
--- Mute / unmute (sprawdza uprawnienia lokalnie; odbiorcy sprawdzaja je ponownie)
+-- Mute / unmute (checks permissions locally; receivers check them again)
 function Mute.Set(name, on, reason)
+    if addonTable.Sync.Blocked() then return end
     local me = MyName()
     reason = CleanReason(reason)
     if on and (reason == "" or not Mute.CanMute(me, name)) then return end
     if not on and not Mute.CanUnmute(me) then return end
-    -- Czas co najmniej o 1 s nowszy od znanego wpisu, zeby zmiana wygrala tez przy szybkim klikaniu
+    -- Time at least 1 s newer than the known entry, so the change wins even with fast clicking
     local ts = math.max(GetServerTime(), ((mutes[name] and mutes[name].ts) or 0) + 1)
     if not Apply(name, on, ts, me, reason) then return end
     Most.Send("MUTE", Encode(name, mutes[name]), "high")
-    -- Zwykla wiadomosc na czacie wspolnoty (jak "Event created by ..."), relaye wkleja ja tez do /g
+    -- A regular message on the community chat (like "Event created by ..."), relays also post it to /g
     local text = on and ("Muted " .. name .. " on the community chat (reason: " .. reason .. ")")
         or ("Unmuted " .. name .. " on the community chat")
     Most.Publish("Ogolny", text, "A", me, (GetGuildInfo("player")))
 end
 
--- Okienko z powodem; mute dopiero po OK (przycisk aktywny, gdy powod nie jest pusty)
+-- Reason dialog; mute only after OK (button active when the reason is not empty)
 _G.StaticPopupDialogs["JAGODKA_MUTE_REASON"] = {
     text = "Mute %s on the community chat?\nReason:",
     button1 = "Mute",
@@ -180,13 +181,14 @@ _G.StaticPopupDialogs["JAGODKA_MUTE_REASON"] = {
 }
 
 function Mute.AskReason(name)
+    if addonTable.Sync.Blocked() then return end
     _G.StaticPopup_Show("JAGODKA_MUTE_REASON", name, nil, name)
 end
 
 -- ============================================================================
--- SYNCHRONIZACJA (ten sam wzorzec co historia czatu: odpowiada jedna losowa osoba)
+-- SYNC (same pattern as chat history: one random person answers)
 -- ============================================================================
-local pendingRequests = {} -- requester -> true, dopoki nikt inny nie odpowiedzial
+local pendingRequests = {} -- requester -> true until someone else has answered
 
 function Mute.Request()
     local newest = 0
@@ -204,7 +206,7 @@ local function HandleRequest(sender, rawSender, since)
     end
     if #list == 0 then return end
     pendingRequests[sender] = true
-    C_Timer.After(1 + math.random() * 3, function()
+    C_Timer.After(0.5 + math.random() * 2, function()
         if not pendingRequests[sender] then return end
         pendingRequests[sender] = nil
         Most.Send("MCLAIM", sender, "low")
@@ -212,7 +214,7 @@ local function HandleRequest(sender, rawSender, since)
     end)
 end
 
--- Wywolywane z core.lua; zwraca true, jesli pakiet obsluzony
+-- Called from core.lua; returns true if the packet was handled
 function Mute.HandlePacket(pType, payload, senderName, rawSender)
     if pType == "MUTE" then
         local name, flag, ts, by, reason = strsplit(":", payload, 5)
@@ -220,12 +222,12 @@ function Mute.HandlePacket(pType, payload, senderName, rawSender)
         if not (name and ts and by) or (flag ~= "1" and flag ~= "0") then return true end
         local on = flag == "1"
         if senderName == by then
-            -- Od oficera, ktory zmienil wyciszenie: te same zasady co w menu
+            -- From the officer who changed the mute: the same rules as in the menu
             if (on and Mute.CanMute(senderName, name)) or (not on and Mute.CanUnmute(senderName)) then
                 Apply(name, on, ts, by, reason)
             end
         elseif FindPlayer(senderName) then
-            -- Przekazane przy synchronizacji (oficer moze byc offline): od znanego gracza z listy
+            -- Forwarded during sync (the officer may be offline): from a known listed player
             Apply(name, on, ts, by, reason)
         end
         return true
@@ -240,7 +242,7 @@ function Mute.HandlePacket(pType, payload, senderName, rawSender)
 end
 
 -- ============================================================================
--- IKONKA PRZY NICKU (zakladka Members) - tooltip z powodem
+-- ICON NEXT TO THE NAME (Members tab), tooltip with the reason
 -- ============================================================================
 local function ShowIconTooltip(icon)
     local m = Mute.Info(icon.name)
@@ -254,7 +256,7 @@ local function ShowIconTooltip(icon)
     tip:Show()
 end
 
--- core.lua wola przy rysowaniu wiersza: ikonka zaraz za nickiem, tylko u wyciszonych
+-- core.lua calls this when drawing a row: icon right after the name, for muted players only
 function Mute.DecorateName(row, nameText, name)
     local icon = row.muteIcon
     if not Mute.IsMuted(name) then
@@ -279,7 +281,7 @@ function Mute.DecorateName(row, nameText, name)
 end
 
 -- ============================================================================
--- MENU NA NICKU W CZACIE ADDONU (prawy klik; lewy klik = szept)
+-- MENU ON A NAME IN THE ADDON CHAT (right click; left click = whisper)
 -- ============================================================================
 local NameMenu = CreateFrame("Frame", "JagodkiChatNameMenu", _G.UIParent, "UIDropDownMenuTemplate")
 local menuName = nil
@@ -297,7 +299,7 @@ _G.UIDropDownMenu_Initialize(NameMenu, function(self, level)
     _G.UIDropDownMenu_AddButton(info, level)
     info = _G.UIDropDownMenu_CreateInfo()
     info.text, info.notCheckable = "Invite to group", true
-    -- Nowsze klienty maja C_PartyInfo.InviteUnit, starsze tylko InviteUnit (jak w menu Members)
+    -- Newer clients have C_PartyInfo.InviteUnit, older only InviteUnit (as in the Members menu)
     info.func = function()
         local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
         if invite then invite(target) end
@@ -317,14 +319,14 @@ _G.UIDropDownMenu_Initialize(NameMenu, function(self, level)
     _G.UIDropDownMenu_AddButton(info, level)
 end, "MENU")
 
--- core.lua podpina okno czatu addonu (nicki sa linkami z Most.FormatEntry(e, true))
+-- core.lua attaches the addon chat window (names are links from Most.FormatEntry)
 function Mute.AttachChat(frame)
     frame:EnableMouse(true)
     if frame.SetHyperlinksEnabled then frame:SetHyperlinksEnabled(true) end
     frame:SetScript("OnHyperlinkClick", function(self, link, text, button)
         local kind, rest = strsplit(":", link, 2)
         if kind ~= "player" then
-            -- Linki przedmiotow, zaklec itp.: domyslna obsluga gry (tooltip)
+            -- Item, spell etc. links: the game's default handling (tooltip)
             if _G.SetItemRef then _G.SetItemRef(link, text, button, self) end
             return
         end
@@ -339,14 +341,14 @@ function Mute.AttachChat(frame)
     end)
 end
 
--- Menu gry na nicku (prawy klik) w zakladkach "Jagodki Nadina - General / Trade": dopisujemy Mute / Unmute.
--- Nowe API menu (Menu.ModifyMenu) - na kliencie bez niego zakladka ma tylko zwykle menu gry.
+-- Game menu on a name (right click) in the "Jagodki Nadina - General" tab: we add Mute / Unmute.
+-- New menu API (Menu.ModifyMenu); on a client without it the tab has only the regular game menu.
 if _G.Menu and _G.Menu.ModifyMenu then
     _G.Menu.ModifyMenu("MENU_UNIT_FRIEND", function(owner, rootDescription, contextData)
         local name = contextData and contextData.name
         if not name then return end
         name = _G.Ambiguate(name, "none")
-        -- Tylko w naszych zakladkach (gdy gra nie podaje okna czatu, pokazujemy wszedzie - i tak tylko oficerom)
+        -- Only in our tabs (when the game does not give the chat window, we show it everywhere, still officers only)
         if contextData.chatFrame and not addonTable.Zakladka.IsOurFrame(contextData.chatFrame) then return end
         local me, muted = MyName(), Mute.IsMuted(name)
         if muted and not Mute.CanUnmute(me) then return end
@@ -360,7 +362,7 @@ if _G.Menu and _G.Menu.ModifyMenu then
 end
 
 -- ============================================================================
--- WCZYTANIE (SavedVariables)
+-- LOADING (SavedVariables)
 -- ============================================================================
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
@@ -369,7 +371,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
     _G.JagodkiChatDB = _G.JagodkiChatDB or {}
     _G.JagodkiChatDB.mutes = _G.JagodkiChatDB.mutes or {}
     mutes = _G.JagodkiChatDB.mutes
-    -- Stare wpisy odciszenia nie sa juz potrzebne
+    -- Old unmute entries are no longer needed
     local cutoff = GetServerTime() - UNMUTE_KEEP_DAYS * 86400
     for name, m in pairs(mutes) do
         if not m.m and (m.ts or 0) < cutoff then mutes[name] = nil end

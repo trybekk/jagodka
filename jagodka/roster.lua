@@ -1,14 +1,14 @@
 -- ============================================================================
--- ROSTER: czlonkowie (online i offline) wszystkich gildii z listy
+-- ROSTER: members (online and offline) of all listed guilds
 -- ============================================================================
--- Blizzard pokazuje roster tylko wlasnej gildii, wiec:
---  * W kazdej gildii jedna osoba z addonem jest NADAWCA rostera. Co 5 min nadawca sie zmienia
---    (wybor "losowy", ale liczony tak samo u wszystkich), zeby ruch rozlozyl sie na wszystkich.
---  * Kazdy co 20 s porownuje roster swojej gildii z poprzednim; wysyla tylko nadawca.
---    Zmiana statusu to "+Nick" / "-Nick", nowy czlonek / poziom / ranga: "Nick,W603+".
---  * Pelny roster: na prosbe nowo zalogowanego (dane > 10 min) i raz na 30 min.
---  * Pakiety ida z niskim priorytetem (czat ma pierwszenstwo).
---  * Kazdy trzyma ostatni znany roster w JagodkiRosterDB.
+-- Blizzard only shows the roster of your own guild, so:
+--  * In each guild one person with the addon is the roster SENDER. The sender changes every 5 min
+--    (a "random" choice, but computed the same by everyone) to spread the traffic over everyone.
+--  * Everyone compares their guild's roster with the previous one every 20 s; only the sender sends.
+--    A status change is "+Name" / "-Name"; a new member / level / rank: "Name,W603+".
+--  * Full roster: on request from a fresh login (data > 10 min old) and once per 30 min.
+--  * Packets have low priority (chat goes first).
+--  * Everyone keeps the last known roster in JagodkiRosterDB.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -27,31 +27,31 @@ local table, math, wipe = _G.table, _G.math, _G.wipe
 local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
-local MAX_ADDON_BYTES = 250
-local FULL_INTERVAL = 1800   -- pelny roster co 30 min
-local FULL_COOLDOWN = 60     -- nie czesciej niz raz na minute (kilka logowan naraz = jedna wysylka)
-local STALE_AFTER = 600      -- po zalogowaniu prosimy o roster gildii, ktorej dane maja > 10 min
-local READY_DELAY = 40       -- po zalogowaniu czekamy, az poznamy pozostalych (inaczej kazdy mysli, ze jest nadawca)
-local SENDER_ROTATION = 300  -- co tyle sekund nadawca rostera sie zmienia
+local MAX_ADDON_BYTES = 225
+local FULL_INTERVAL = 1800   -- full roster every 30 min
+local FULL_COOLDOWN = 60     -- at most once per minute (several logins at once = one send)
+local STALE_AFTER = 600      -- after login we request the roster of a guild whose data is > 10 min old
+local READY_DELAY = 15       -- after login we wait until we know the others (otherwise everyone thinks they are the sender)
+local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
 
 local Roster = {}
 addonTable.Roster = Roster
 
--- Kontekst z core.lua: activePlayers, isGuildAllowed, allowedGuilds, onChanged
+-- Context from core.lua: activePlayers, isGuildAllowed, allowedGuilds, onChanged
 local ctx = nil
 function Roster.Init(c) ctx = c end
 
--- rosters[gildia] = { members = { nick = { c = klasa, l = poziom, r = ranga, o = online } }, ranks = {...}, updated = czas }
+-- rosters[guild] = { members = { name = { c = class, l = level, r = rank, o = online } }, ranks = {...}, updated = time }
 local rosters = {}
 local readyAt = math.huge
 local lastFull, lastFullSlot, lastSent = 0, nil, {}
-local incoming = {} -- gildia -> { id, got = { [idx] = true }, count, total, complete }
+local incoming = {} -- guild -> { id, got = { [idx] = true }, count, total, complete }
 
 local function MyGuild() return (GetGuildInfo("player")) end
 local function Changed() if ctx and ctx.onChanged then ctx.onChanged() end end
 
 -- ============================================================================
--- KODOWANIE WPISU
+-- ENTRY ENCODING
 -- ============================================================================
 local CLASS_CODE = { WARRIOR = "W", PALADIN = "P", HUNTER = "H", ROGUE = "R", PRIEST = "I", SHAMAN = "S", MAGE = "M", WARLOCK = "L", DRUID = "D" }
 local CODE_CLASS = {}
@@ -67,7 +67,7 @@ local function DecodeEntry(s)
     return name, { c = CODE_CLASS[c], l = tonumber(l), r = tonumber(r), o = (o == "+") }
 end
 
--- Dzieli wpisy na kawalki "a;b;c" mieszczace sie w limicie (pierwszy moze miec inny limit)
+-- Splits entries into "a;b;c" chunks that fit the limit (the first may have a different limit)
 local function Chunk(entries, firstMax, restMax)
     local chunks, current, limit = {}, "", firstMax
     for _, e in ipairs(entries) do
@@ -82,13 +82,13 @@ local function Chunk(entries, firstMax, restMax)
 end
 
 -- ============================================================================
--- MOJA GILDIA (z rostera Blizzarda)
+-- MY GUILD (from Blizzard's roster)
 -- ============================================================================
 local function RefreshLocal()
     local guild = MyGuild()
     local n = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
     if not guild or n == 0 then return end
-    -- Przy wylaczonym "pokaz offline" Blizzard zwraca tylko graczy online - wtedy reszte zostawiamy jako offline
+    -- With "show offline" turned off Blizzard returns only online players, so we keep the rest as offline
     local complete = not (_G.GetGuildRosterShowOffline and not _G.GetGuildRosterShowOffline())
     local old = rosters[guild] and rosters[guild].members or {}
     local members = {}
@@ -96,9 +96,10 @@ local function RefreshLocal()
         for name, m in pairs(old) do members[name] = { c = m.c, l = m.l, r = m.r, o = false } end
     end
     for i = 1, n do
-        local fullName, _, rankIndex, level, _, _, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
+        local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
         if fullName then
-            members[Ambiguate(fullName, "none")] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false }
+            -- z = location: own guild only, not part of the entries sent to other guilds
+            members[Ambiguate(fullName, "none")] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone }
         end
     end
     local ranks = {}
@@ -109,12 +110,12 @@ local function RefreshLocal()
 end
 
 -- ============================================================================
--- NADAWCA: rotacja co SENDER_ROTATION sekund wsrod graczy z addonem online w mojej gildii
+-- SENDER: rotates every SENDER_ROTATION seconds among online players with the addon in my guild
 -- ============================================================================
 local function IsSender()
     local guild = MyGuild()
     local g = guild and rosters[guild]
-    if not g or not ctx or not Most.GetChannelId() then return false end
+    if not g or not ctx then return false end
     local myName, now = UnitName("player"), GetTime()
     local candidates = { myName }
     for _, p in ipairs(ctx.activePlayers) do
@@ -124,7 +125,7 @@ local function IsSender()
         end
     end
     table.sort(candidates)
-    -- Przesuniecie zalezne od nazwy gildii, zeby rozne gildie nie zmienialy nadawcy w tym samym rytmie
+    -- Shift based on the guild name, so different guilds do not change senders at the same moment
     local shift = 0
     for i = 1, #guild do shift = shift + guild:byte(i) end
     local slot = math.floor(GetServerTime() / SENDER_ROTATION)
@@ -132,7 +133,7 @@ local function IsSender()
 end
 
 -- ============================================================================
--- WYSYLKA (tylko nadawca)
+-- SENDING (sender only)
 -- ============================================================================
 local function SendFull()
     local guild = MyGuild()
@@ -150,7 +151,7 @@ local function SendFull()
     for i, r in ipairs(g.ranks) do rankParts[i] = Enc(((r or ""):gsub(",", " "))) end
     local ranks = table.concat(rankParts, ",")
     local snap = tostring(GetServerTime() % 100000)
-    -- RF:gildia:snap:idx:total:pelny:rangi:wpisy  (rangi tylko w pierwszej czesci)
+    -- RF:guild:snap:idx:total:full:ranks:entries  (ranks only in the first part)
     local header = #"RF:" + #Enc(guild) + 1 + #snap + 1 + 3 + 1 + 3 + 1 + 2 + 1
     local chunks = Chunk(entries, MAX_ADDON_BYTES - header - #ranks, MAX_ADDON_BYTES - header)
     for i, chunk in ipairs(chunks) do
@@ -158,9 +159,9 @@ local function SendFull()
     end
 end
 
--- Zmiany od poprzedniego sprawdzenia liczy KAZDY (wszyscy widza ten sam roster), wysyla tylko
--- nadawca - dzieki temu zmiana nadawcy nie wymaga pelnego rostera.
--- Sam status: "+Nick" / "-Nick"; nowy czlonek albo inny poziom/ranga: pelny wpis.
+-- EVERYONE computes changes since the previous check (everyone sees the same roster), only the
+-- sender sends them, so changing the sender does not require a full roster.
+-- Status only: "+Name" / "-Name"; new member or different level/rank: full entry.
 local function SendDelta(send)
     local guild = MyGuild()
     local g = guild and rosters[guild]
@@ -189,7 +190,7 @@ local function Tick()
     if GetTime() < readyAt then return end
     local fullSlot = math.floor(GetServerTime() / FULL_INTERVAL)
     if not baselined then
-        -- Pierwsze sprawdzenie tylko zapamietuje stan, niczego nie wysyla
+        -- The first check only remembers the state and sends nothing
         baselined, lastFullSlot = true, fullSlot
         SendDelta(false)
         return
@@ -202,7 +203,7 @@ local function Tick()
     SendDelta(isSender)
 end
 
--- Po zalogowaniu: prosba o rostery gildii, o ktorych nie mamy swiezych danych
+-- After login: request rosters of guilds we have no fresh data for
 local function RequestStale()
     if not ctx then return end
     local now, list = GetServerTime(), {}
@@ -212,14 +213,15 @@ local function RequestStale()
     end
     if #list > 0 then
         Most.Send("RQ", table.concat(list, ","), "low")
-        addonTable.Sync.Start("rosters") -- pasek synchronizacji (synchro.lua)
+        addonTable.Sync.Start("rosters") -- sync bar (sync.lua)
     end
 end
+Roster.RequestStale = RequestStale
 
 -- ============================================================================
--- ODBIOR
+-- RECEIVING
 -- ============================================================================
--- Roster innej gildii przyjmujemy tylko od znanego gracza z tej gildii (swoja znamy z gry)
+-- Another guild's roster is accepted only from a known player of that guild (we know our own from the game)
 local function AcceptFrom(sender, guild)
     if not ctx or not guild or guild == MyGuild() or not ctx.isGuildAllowed(guild) then return false end
     for _, p in ipairs(ctx.activePlayers) do
@@ -232,7 +234,7 @@ local function Upsert(g, list, snap)
     for e in list:gmatch("[^;]+") do
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
         if flag then
-            -- Sama zmiana statusu (nieznanego gracza dopisze nastepny pelny roster)
+            -- Status change only (the next full roster adds an unknown player)
             local m = g.members[statusName]
             if m then m.o = (flag == "+") end
         else
@@ -266,8 +268,8 @@ function Roster.HandlePacket(pType, payload, senderName)
         end
         Upsert(g, list, snap)
         g.updated = GetServerTime()
-        -- Komplet czesci: kogo nie bylo w pelnym rosterze, ten odszedl z gildii (albo jest offline,
-        -- gdy nadawca ma wylaczone "pokaz offline")
+        -- All parts received: anyone missing from the full roster left the guild (or is offline,
+        -- when the sender has "show offline" turned off)
         if inc.count >= total then
             for name, m in pairs(g.members) do
                 if m.s ~= snap then
@@ -292,7 +294,7 @@ function Roster.HandlePacket(pType, payload, senderName)
         if senderName ~= UnitName("player") and GetTime() >= readyAt and IsSender() then
             for gEnc in payload:gmatch("[^,]+") do
                 if Dec(gEnc) == MyGuild() then
-                    -- Chwila zwloki: kilka prosb naraz = jedna wysylka (cooldown)
+                    -- A short delay: several requests at once = one send (cooldown)
                     C_Timer.After(3, function()
                         if IsSender() and GetTime() - lastFull > FULL_COOLDOWN then SendFull() end
                     end)
@@ -305,9 +307,9 @@ function Roster.HandlePacket(pType, payload, senderName)
 end
 
 -- ============================================================================
--- PODSUMOWANIE GILDII (zakladka Guilds)
+-- GUILD SUMMARY (Guilds tab)
 -- ============================================================================
--- live = ktos z addonem z tej gildii jest teraz online (albo to moja gildia) - tylko wtedy status jest aktualny
+-- live = someone with the addon from this guild is online now (or it is my guild); only then is the status current
 function Roster.GetGuildSummary(guild)
     local g = rosters[guild]
     local live = (guild == MyGuild()) or Most.GetRelayName(guild) ~= nil
@@ -319,7 +321,7 @@ function Roster.GetGuildSummary(guild)
             if live and m.o then online = online + 1 end
         end
     end
-    -- Gracze z addonem, ktorych roster jeszcze nie doszedl
+    -- Players with the addon whose roster has not arrived yet
     if ctx then
         for _, p in ipairs(ctx.activePlayers) do
             if p.guild == guild and not seen[p.name] then
@@ -330,7 +332,7 @@ function Roster.GetGuildSummary(guild)
     return { live = live, total = total, online = online, updated = g and g.updated }
 end
 
--- Ranga gracza z rosterow gildii z listy (nazwa, indeks) albo nil - np. uprawnienia w wyciszenie.lua
+-- Player's rank from rosters of listed guilds (name, index) or nil, e.g. permissions in mute.lua
 function Roster.GetRank(name)
     for guild, g in pairs(rosters) do
         local m = g.members[name]
@@ -339,18 +341,30 @@ function Roster.GetRank(name)
     return nil, nil
 end
 
+-- Player's class and level from rosters of listed guilds, or nil (chat format in bridge.lua)
+function Roster.GetClassLevel(name)
+    for guild, g in pairs(rosters) do
+        local m = g.members[name]
+        if m and ctx and ctx.isGuildAllowed(guild) then return m.c, m.l end
+    end
+    return nil, nil
+end
+
 -- ============================================================================
--- LISTA DO ZAKLADKI CZLONKOWIE
+-- LIST FOR THE MEMBERS TAB
 -- ============================================================================
--- Gracze z addonem (activePlayers) + roster wszystkich gildii z listy. Status online gildii,
--- w ktorej nikt z addonem nie jest teraz online, jest nieaktualny -> pokazujemy jako offline.
+-- Players with the addon (activePlayers) + rosters of all listed guilds. The online status of a guild
+-- with nobody with the addon online now is out of date -> we show them as offline.
 function Roster.BuildList(showOffline)
     local list, seen = {}, {}
     if not ctx then return list end
     local myGuild = MyGuild()
     for _, p in ipairs(ctx.activePlayers) do
         seen[p.name] = true
-        table.insert(list, { name = p.name, class = p.class, level = p.level, guild = p.guild, rank = p.rank, rankIndex = tonumber(p.rankIndex), version = p.version, online = true })
+        -- Location: the game's roster for my guild (fresher), otherwise what the player sent
+        local own = p.guild == myGuild and rosters[myGuild] and rosters[myGuild].members[p.name]
+        local location = (own and own.z) or p.zone
+        table.insert(list, { name = p.name, class = p.class, level = p.level, guild = p.guild, rank = p.rank, rankIndex = tonumber(p.rankIndex), version = p.version, location = (location ~= "") and location or nil, online = true })
     end
     for guild, g in pairs(rosters) do
         if ctx.isGuildAllowed(guild) then
@@ -359,7 +373,7 @@ function Roster.BuildList(showOffline)
                 local online = m.o and live
                 if not seen[name] and (online or showOffline) then
                     seen[name] = true
-                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, online = online })
+                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = (online and guild == myGuild and m.z ~= "") and m.z or nil, online = online })
                 end
             end
         end
@@ -373,7 +387,7 @@ function Roster.BuildList(showOffline)
 end
 
 -- ============================================================================
--- ZDARZENIA
+-- EVENTS
 -- ============================================================================
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
@@ -386,11 +400,10 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         rosters = _G.JagodkiRosterDB
     elseif event == "PLAYER_LOGIN" then
         readyAt = GetTime() + READY_DELAY
-        -- Kanal globalny jest dolaczany po ok. 10 s (core.lua)
-        C_Timer.After(14, RequestStale)
+        -- core.lua sends the roster request (EventSync.LoginSync)
         C_Timer.NewTicker(20, Tick)
     elseif event == "GUILD_ROSTER_UPDATE" then
-        -- Blizzard potrafi wyslac to zdarzenie wiele razy pod rzad - przeliczamy raz na 2 s
+        -- Blizzard can fire this event many times in a row, so we recompute once per 2 s
         if not self.pending then
             self.pending = true
             C_Timer.After(2, function() self.pending = false RefreshLocal() end)
