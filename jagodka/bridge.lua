@@ -164,9 +164,13 @@ end
 -- ============================================================================
 -- SEND QUEUE (keeps the order and stays within Blizzard's limits)
 -- ============================================================================
--- DIAGNOSTICS (Settings tab): send results, received packets, rejected messages
-local debug = { sent = {}, recv = {}, rejected = {}, senders = {}, lastResult = {} }
-local function Count(t, key) t[key] = (t[key] or 0) + 1 end
+-- DIAGNOSTICS (Monitoring tab): rejected messages by reason
+local debug = { rejected = {} }
+local function Count(t, key)
+    t[key] = (t[key] or 0) + 1
+    -- A duplicate is normal, because our own messages come back; anything else goes to the log
+    if addonTable.Monitor and not key:find("duplicate", 1, true) then addonTable.Monitor.Note("Rejected: " .. key) end
+end
 
 local highQueue, lowQueue = {}, {}  -- high: current messages, low: history
 local guildLineQueue = {}           -- lines to post to /g (relay only)
@@ -209,13 +213,13 @@ local function PumpAddonQueue()
     if not item then return end
     local result, kind = SendRaw(item)
     local ok = IsOk(result)
-    Count(debug.sent, kind .. (ok and " ok" or " fail"))
-    debug.lastResult[kind] = tostring(result)
     -- On a temporary server limit we retry for a long time (about 30 s) so the message is not lost
     if ok or not IsThrottle(result) or item.tries >= 30 then
+        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result) end
         table.remove(queue, 1)
         tokens = tokens - 1
     else
+        if item.tries == 0 and addonTable.Monitor then addonTable.Monitor.Throttled(item.msg) end
         item.tries = item.tries + 1
         tokens = 0
     end
@@ -533,9 +537,6 @@ end
 -- PACKET HANDLING (called from core.lua); returns true if the packet was handled
 -- ============================================================================
 function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
-    -- Diagnostics: every received packet (channel kind + type) and recent senders
-    Count(debug.recv, tostring(channel) .. " " .. pType)
-    debug.senders[senderName] = GetTime()
     if pType == "GMSG" or pType == "HIST" then
         if pType == "HIST" then addonTable.Sync.Activity("history") end
         local senderInfo = IsKnownAllowedSender(senderName)
@@ -609,6 +610,8 @@ function Most.Route(text, channel, senderName)
     if pType ~= "FW" then
         -- Our own packets too: the game echoes them from GUILD, so there is one path for everyone
         if channel == "GUILD" and Most.IsRelay() then ForwardToOtherGuilds(senderName, text) end
+        -- Our own echo was already logged when sent
+        if senderName ~= MyName() and addonTable.Monitor then addonTable.Monitor.RX(text, channel, senderName) end
         return text, channel, senderName
     end
     -- Our own packet reposted to GUILD: we already handled it when the whisper arrived
@@ -626,12 +629,13 @@ function Most.Route(text, channel, senderName)
     elseif channel ~= "GUILD" then
         return nil
     end
+    if addonTable.Monitor then addonTable.Monitor.RX(inner, "FW", origin) end
     return inner, "FW", origin
 end
 
 -- Finding other guilds: the relay reads the channel member list and greets unknown players.
 -- The greeted player reposts the PING to their guild, and its relay then knows us and forwards packets.
-local listAskedAt, helloAt, channelMembers = 0, {}, 0
+local listAskedAt, helloAt, channelMembers = 0, {}, {}
 
 function Most.HasLinkedGuilds()
     return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
@@ -640,6 +644,15 @@ end
 function Most.Discover()
     if not _G.ListChannelByName or not Most.GetChannelId() or not Most.IsRelay() then return end
     listAskedAt = GetTime()
+    wipe(channelMembers)
+    _G.ListChannelByName(ChannelName())
+end
+
+-- For the Monitoring tab, also when we are not the relay; the answer stays out of the chat
+function Most.RefreshChannelList()
+    if not _G.ListChannelByName or not Most.GetChannelId() then return end
+    listAskedAt = GetTime()
+    wipe(channelMembers)
     _G.ListChannelByName(ChannelName())
 end
 
@@ -651,20 +664,19 @@ local function IsActivePlayer(name)
 end
 
 local function HandleChannelList(list)
-    if not ctx or not Most.IsRelay() then return end
-    local now, count = GetTime(), 0
+    if not ctx then return end
+    local now, isRelay = GetTime(), Most.IsRelay()
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
         local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
-        count = count + 1
+        if name ~= "" then channelMembers[name] = true end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
-        if name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
+        if isRelay and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello then
             helloAt[name] = now
             ctx.sendHello(name)
         end
     end
-    channelMembers = count
 end
 
 local function NameFromSystemMessage(pattern, message)
@@ -714,39 +726,21 @@ if _G.ChatFrame_AddMessageEventFilter then
 end
 
 -- ============================================================================
--- STATUS (Settings tab)
+-- STATUS (Monitoring tab, monitor.lua)
 -- ============================================================================
-function Most.GetStatusText()
-    local channelId = Most.GetChannelId()
-    local linked = {}
+function Most.GetMonitorInfo()
+    local linked, members = {}, {}
     if ctx then
         for guild, relay in pairs(OtherGuildRelays()) do table.insert(linked, guild .. " (" .. relay .. ")") end
         table.sort(linked)
     end
-    local lines = {
-        "Global channel: " .. (channelId and ("|cff00ff00connected|r (" .. ChannelName() .. ", /" .. channelId .. ", members seen: " .. channelMembers .. ")") or ("|cffff5555not connected|r" .. (channelProblem and (" - " .. channelProblem) or ""))),
-        "Your guild relay: " .. (Most.GetRelayName() or "-") .. (Most.IsRelay() and " |cff00ff00(you)|r" or ""),
-        "Linked guilds: " .. (#linked > 0 and table.concat(linked, ", ") or "-"),
-        "Packet queue: " .. (#highQueue + #lowQueue) .. "   /g queue: " .. #guildLineQueue,
-        "Messages in history: " .. #chatLog,
+    for name in pairs(channelMembers) do table.insert(members, name) end
+    table.sort(members)
+    return {
+        channelId = Most.GetChannelId(), channelName = ChannelName(), channelProblem = channelProblem, channelMembers = members,
+        relay = Most.GetRelayName(), isRelay = Most.IsRelay(), linked = linked, rejected = debug.rejected,
+        queueHigh = #highQueue, queueLow = #lowQueue, queueGuild = #guildLineQueue, history = #chatLog,
     }
-    -- Diagnostics: sorted "key=count", senders from the last 5 minutes
-    local function Pairs(t)
-        local out = {}
-        for k, v in pairs(t) do table.insert(out, k .. "=" .. v) end
-        table.sort(out)
-        return #out > 0 and table.concat(out, ", ") or "-"
-    end
-    local recent, now = {}, GetTime()
-    for name, t in pairs(debug.senders) do
-        if now - t < 300 then table.insert(recent, name) end
-    end
-    table.sort(recent)
-    table.insert(lines, "|cffffd100Debug|r  sent: " .. Pairs(debug.sent) .. "  (last result: " .. Pairs(debug.lastResult) .. ")")
-    table.insert(lines, "Received: " .. Pairs(debug.recv))
-    table.insert(lines, "Packets from (5 min): " .. (#recent > 0 and table.concat(recent, ", ") or "-"))
-    table.insert(lines, "Chat rejected: " .. Pairs(debug.rejected))
-    return table.concat(lines, "\n")
 end
 
 -- ============================================================================
@@ -786,11 +780,13 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             -- Someone took over the channel (password) or banned us: we do not keep retrying, we just report it
             channelProblem = (arg1 == "BANNED") and "banned from the channel" or "the channel has a different password"
             Warn("Global channel unavailable: " .. channelProblem .. ". Report this to an officer.")
+            if addonTable.Monitor then addonTable.Monitor.Error("Global channel unavailable: " .. channelProblem) end
         elseif arg1 == "YOU_LEFT" and not channelProblem then
             -- Another addon (e.g. one tidying channels) removed us: we come back after a moment
             C_Timer.After(5, Most.JoinChannel)
         elseif arg1 == "YOU_JOINED" or arg1 == "YOU_CHANGED" then
             channelProblem = nil
+            if addonTable.Monitor then addonTable.Monitor.Note("Joined the global channel") end
             -- The game may have added the channel to a chat window on join
             HideFromChat(channelBaseName)
         end

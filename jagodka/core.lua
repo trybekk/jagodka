@@ -168,7 +168,7 @@ OnlineText:SetText("Online: |cff00ff000|r")
 addonTable.Sync.Attach(MainFrame, OnlineText)
 
 local Panels = {}
-local tabNames = {"Chat", "Members", "Guilds", "Events", "Calendar", "Settings"}
+local tabNames = {"Chat", "Members", "Guilds", "Events", "Calendar", "Monitoring"}
 
 -- Column order; x and width are starting values, membersView.LayoutColumns fits them to the content.
 -- field = the row element placed at the column's position
@@ -260,6 +260,22 @@ local function SendEvent(ev, priority, target)
     local chunks = Most.EncodeChunks(ev.desc, 225 - #"EV_ADD:" - #pre - #post, 225 - #descHeader)
     while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
     Out("EV_ADD", pre .. chunks[1] .. ":" .. EncodeField(ev.creator) .. ":" .. EncodeField(ev.dungeon) .. ":" .. #chunks .. ":" .. EncodeField(ev.guild))
+    for i = 2, #chunks do
+        Out("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i])
+    end
+end
+
+-- EV_EDIT:id:rev:title:date:time:editor:instance:partCount:desc1 - a separate packet, because EV_ADD is
+-- ignored for a known event. rev = edit time, the newest wins. The rest of the description goes in EV_DESC.
+local function SendEventEdit(ev, priority, target)
+    local function Out(pType, data)
+        if target then Most.Whisper(target, pType, data, priority) else SendJagodkaNetworkPacket(pType, data, priority) end
+    end
+    local pre = table.concat({ EncodeField(ev.id), ev.rev, EncodeField(ev.title), EncodeField(ev.date), EncodeField(ev.time), EncodeField(ev.editor), EncodeField(ev.dungeon) }, ":") .. ":"
+    local descHeader = "EV_DESC:" .. EncodeField(ev.id) .. ":99:"
+    local chunks = Most.EncodeChunks(ev.desc, 225 - #"EV_EDIT:" - #pre - #"99:", 225 - #descHeader)
+    while #chunks > EVENT_MAX_DESC_PARTS do table.remove(chunks) end
+    Out("EV_EDIT", pre .. #chunks .. ":" .. chunks[1])
     for i = 2, #chunks do
         Out("EV_DESC", EncodeField(ev.id) .. ":" .. i .. ":" .. chunks[i])
     end
@@ -379,6 +395,11 @@ end
 
 local function GetColoredName(name)
     local idx = GetPlayerIndex(name)
+    -- Not online with the addon: the class from guild rosters, e.g. for sign-ups of offline players
+    if not idx then
+        local class = Roster.GetClassLevel(name)
+        if class and RAID_CLASS_COLORS[class] then return RAID_CLASS_COLORS[class]:WrapTextInColorCode(name) end
+    end
     if idx then
         local player = activePlayers[idx]
         if player.class and RAID_CLASS_COLORS[player.class] then
@@ -448,6 +469,28 @@ local function ShowEventError(text) UIErrorsFrame:AddMessage("Error: " .. text, 
 --  * Removed events are remembered for 30 days (they do not return from someone who was offline).
 --  * Events more than 2 days past their date disappear on their own.
 local EventSync = { pending = {}, pongPending = {}, lastRequest = 0, KEEP_DAYS = 2, TOMBSTONE_DAYS = 30 }
+-- Specs each class can sign up with, off-specs too. code = capital letters only (EV_SPEC, EV_ROS).
+EventSync.CLASS_SPECS = {
+WARRIOR = { { code = "ARMS", name = "Arms", role = "DPS" }, { code = "FURY", name = "Fury", role = "DPS" }, { code = "WPROT", name = "Protection", role = "TANK" } },
+PALADIN = { { code = "PHOLY", name = "Holy", role = "HEAL" }, { code = "PPROT", name = "Protection", role = "TANK" }, { code = "RET", name = "Retribution", role = "DPS" } },
+HUNTER = { { code = "BM", name = "Beast Mastery", role = "DPS" }, { code = "MM", name = "Marksmanship", role = "DPS" }, { code = "SURV", name = "Survival", role = "DPS" } },
+ROGUE = { { code = "ASSA", name = "Assassination", role = "DPS" }, { code = "COMBAT", name = "Combat", role = "DPS" }, { code = "SUB", name = "Subtlety", role = "DPS" } },
+PRIEST = { { code = "DISC", name = "Discipline", role = "HEAL" }, { code = "PRHOLY", name = "Holy", role = "HEAL" }, { code = "SHADOW", name = "Shadow", role = "DPS" } },
+SHAMAN = { { code = "ELE", name = "Elemental", role = "DPS" }, { code = "ENH", name = "Enhancement", role = "DPS" }, { code = "SRESTO", name = "Restoration", role = "HEAL" } },
+MAGE = { { code = "ARCANE", name = "Arcane", role = "DPS" }, { code = "FIRE", name = "Fire", role = "DPS" }, { code = "FROST", name = "Frost", role = "DPS" } },
+WARLOCK = { { code = "AFFLI", name = "Affliction", role = "DPS" }, { code = "DEMO", name = "Demonology", role = "DPS" }, { code = "DESTRO", name = "Destruction", role = "DPS" } },
+DRUID = { { code = "BALANCE", name = "Balance", role = "DPS" }, { code = "FERALT", name = "Feral Tank", role = "TANK" }, { code = "FERALD", name = "Feral DPS", role = "DPS" }, { code = "DRESTO", name = "Restoration", role = "HEAL" } },
+}
+-- Built from the specs: code -> spec with its class, and class -> roles it can play
+EventSync.SPECS, EventSync.CLASS_ROLES = {}, {}
+for class, specs in pairs(EventSync.CLASS_SPECS) do
+EventSync.CLASS_ROLES[class] = {}
+for _, spec in ipairs(specs) do
+spec.class = class
+EventSync.SPECS[spec.code] = spec
+EventSync.CLASS_ROLES[class][spec.role] = true
+end
+end
 -- Event time (noon of that day) from "DD.MM.YYYY" or the old "DD.MM" (current year)
 function EventSync.DayTime(dateText)
 local d, m, y = (dateText or ""):match("^(%d%d?)%.(%d%d?)%.?(%d*)$")
@@ -485,14 +528,37 @@ for id, t in pairs(removed) do
 if now - t > EventSync.TOMBSTONE_DAYS * 86400 then removed[id] = nil end
 end
 end
--- EV_ROS:id:Name=TANK,Name2=HEAL,... (several packets if needed)
+-- Sign-up state of one player: time of the last change, kept so the newest state wins during sync
+function EventSync.TouchSign(ev, name, t)
+ev.signTime = ev.signTime or {}
+ev.signTime[name] = t or GetServerTime()
+end
+-- Takes a player off an event (their role, spec, leader mark and sign-up time)
+function EventSync.ClearSign(ev, name)
+ev.roster[name] = nil
+if ev.specs then ev.specs[name] = nil end
+if ev.leaders then ev.leaders[name] = nil end
+if ev.signTime then ev.signTime[name] = nil end
+end
+-- EV_KICK:id:name:time:officer - a removal, kept so the player does not return from an old copy.
+-- Signing up again later is allowed: it is newer than the removal.
+function EventSync.SendKick(ev, name, target)
+local kick = ev.kicks and ev.kicks[name]
+if not kick then return end
+local data = EncodeField(ev.id) .. ":" .. EncodeField(name) .. ":" .. kick.ts .. ":" .. EncodeField(kick.by)
+if target then Most.Whisper(target, "EV_KICK", data, "low") else SendJagodkaNetworkPacket("EV_KICK", data, "high") end
+end
+-- EV_ROS:id:Name=TANK/WPROT;time;1,Name2=HEAL,... (several packets if needed). After the role, all optional:
+-- spec, sign-up time, 1 = raid leader. Versions before 0.9.2 read what they know and skip the rest.
 function EventSync.SendRoster(ev, target)
 local function Out(data)
 if target then Most.Whisper(target, "EV_ROS", data, "low") else SendJagodkaNetworkPacket("EV_ROS", data, "low") end
 end
 local header, chunk = EncodeField(ev.id) .. ":", ""
 for name, role in pairs(ev.roster or {}) do
-local entry = name .. "=" .. role
+local spec = ev.specs and ev.specs[name]
+local signedAt = ev.signTime and ev.signTime[name]
+local entry = name .. "=" .. role .. (spec and ("/" .. spec) or "") .. ";" .. (signedAt or 0) .. ";" .. ((ev.leaders and ev.leaders[name]) and "1" or "0")
 if chunk ~= "" and #header + #chunk + 1 + #entry > 215 then
 Out(header .. chunk)
 chunk = ""
@@ -519,6 +585,8 @@ EventSync.Prune()
 for id in pairs(EventSync.Removed()) do EventSync.SendRemoved(id, requester) end
 for _, ev in ipairs(eventsList) do
 SendEvent(ev, "low", requester)
+if ev.rev then SendEventEdit(ev, "low", requester) end
+for name in pairs(ev.kicks or {}) do EventSync.SendKick(ev, name, requester) end
 EventSync.SendRoster(ev, requester)
 end
 end)
@@ -875,6 +943,14 @@ local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
 if invite then invite(target) end
 end
 _G.UIDropDownMenu_AddButton(info, level)
+-- Event sign-up list: an officer can remove the player from that event
+if menuMember.event and IsPlayerOfficer() then
+local event = menuMember.event
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "|cffff5555Remove from event|r", true
+info.func = function() EventSync.Kick(event, target) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
 -- Mute / Unmute as in the chat menu (permissions: mute.lua)
 local muted, me = Mute.IsMuted(target), UnitName("player")
 if (muted and Mute.CanUnmute(me)) or (not muted and Mute.CanMute(me, target)) then
@@ -888,6 +964,11 @@ info.text, info.notCheckable = "Cancel", true
 info.func = function() _G.CloseDropDownMenus() end
 _G.UIDropDownMenu_AddButton(info, level)
 end, "MENU")
+-- The same menu for a row of an event's sign-up list
+membersView.OpenForEvent = function(name, online, event)
+menuMember = { name = name, online = online, event = event }
+_G.ToggleDropDownMenu(1, nil, MemberMenu, "cursor", 0, 0)
+end
 -- Shared with the "Online players" panel (the row has a member field from Roster.BuildList)
 membersView.OnRowClick = function(self, button)
 local m = self.member
@@ -1157,7 +1238,7 @@ for i = 1, MAX_GUILD_ROWS do
 local idx = i + offset local card = guildRows[i]
 if i <= visible and idx <= #guildOrder then
 local gName = guildOrder[idx] local stats = guildData[gName]
--- The relay is a technical detail (shown in Settings), so it is not shown here
+-- The relay is a technical detail (shown in Monitoring), so it is not shown here
 if stats.live then
 card:SetAlpha(1)
 card.nameText:SetText("|cffffffff" .. gName .. "|r")
@@ -1185,24 +1266,42 @@ end)
 -- 6. TAB 4: EVENTS PANEL
 -- ============================================================================
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
--- List: fixed width, height with the window. Details: remaining width, height with the window.
-ListContainer:SetWidth(270)
-ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, 0)
-ListContainer:SetPoint("BOTTOMLEFT", Panels[4], "BOTTOMLEFT", 0, 30)
+-- List: a table across the whole tab. Details: a separate window opened by clicking a row.
+ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, -38)
+ListContainer:SetPoint("BOTTOMRIGHT", Panels[4], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(ListContainer)
-local DetailsContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
-DetailsContainer:SetPoint("TOPLEFT", ListContainer, "TOPRIGHT", 10, -45)
-DetailsContainer:SetPoint("BOTTOMRIGHT", Panels[4], "BOTTOMRIGHT", 0, 30)
+local DetailsContainer = CreateFrame("Frame", "JagodkiEventDetails", Panels[4], "BackdropTemplate")
+DetailsContainer:SetSize(560, 520)
+DetailsContainer:SetPoint("CENTER", Panels[4], "CENTER", 0, 0)
+DetailsContainer:SetFrameStrata("DIALOG")
+DetailsContainer:SetClampedToScreen(true)
+DetailsContainer:SetMovable(true)
+DetailsContainer:EnableMouse(true)
+DetailsContainer:RegisterForDrag("LeftButton")
+DetailsContainer:SetScript("OnDragStart", DetailsContainer.StartMoving)
+DetailsContainer:SetScript("OnDragStop", DetailsContainer.StopMovingOrSizing)
 ApplyModernStyle(DetailsContainer)
-local LHeader = ListContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-LHeader:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 12, -12)
+DetailsContainer:SetBackdropColor(0.05, 0.05, 0.07, 0.98)
+DetailsContainer:Hide()
+-- Esc closes it, and closing (also with the tab) clears the selection
+table.insert(_G.UISpecialFrames, "JagodkiEventDetails")
+-- Hide(): when the tab or main window closes, the game would otherwise bring this window back with them
+DetailsContainer:SetScript("OnHide", function(self) selectedEventIndex = nil self:Hide() end)
+do
+local CloseDetails = CreateFrame("Button", nil, DetailsContainer, "UIPanelCloseButton")
+CloseDetails:SetPoint("TOPRIGHT", DetailsContainer, "TOPRIGHT", 0, 0)
+end
+local LHeader = Panels[4]:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+LHeader:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 4, -14)
 LHeader:SetText("Upcoming Events")
 local DHeader = DetailsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 DHeader:SetPoint("TOPLEFT", DetailsContainer, "TOPLEFT", 15, -15)
 local DDesc = DetailsContainer:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 DDesc:SetPoint("TOPLEFT", DetailsContainer, "TOPLEFT", 15, -45)
-DDesc:SetWidth(250)
+DDesc:SetWidth(530)
 DDesc:SetJustifyH("LEFT")
+DDesc:SetSpacing(4)
+DDesc:SetJustifyV("TOP")
 -- A long description is cut so it does not push the sign-up list; the full text is in a hover tooltip
 if DDesc.SetMaxLines then DDesc:SetMaxLines(7) end
 do
@@ -1233,8 +1332,10 @@ local TotalCountVal = CreateFrame("Frame", nil, CounterFrame):CreateFontString(n
 TotalCountVal:SetPoint("LEFT", TotalCountText, "RIGHT", 4, 0)
 TotalCountVal:SetText("0")
 local RosterContainer = CreateFrame("Frame", nil, DetailsContainer, "BackdropTemplate")
-RosterContainer:SetSize(252, 195)
+-- From under the counters down to a fixed line above the raid leader option: a short description
+-- leaves no empty space, because the list takes it, and a long one cannot push into the buttons
 RosterContainer:SetPoint("TOPLEFT", CounterFrame, "BOTTOMLEFT", 0, -5)
+RosterContainer:SetPoint("BOTTOMRIGHT", DetailsContainer, "BOTTOMRIGHT", -15, 70)
 ApplyModernStyle(RosterContainer)
 local filterButtons = {}
 local function CreateRosterFilterButton(label, filterType, xOffset)
@@ -1252,27 +1353,61 @@ local BtnTank = CreateRosterFilterButton("Tank", "TANK", 65)
 local BtnHeal = CreateRosterFilterButton("Heal", "HEAL", 125)
 local BtnDps = CreateRosterFilterButton("DPS", "DPS", 185)
 local rosterScrollFrame = CreateFrame("ScrollFrame", "JagodkiRosterScrollFrame", RosterContainer, "FauxScrollFrameTemplate")
-rosterScrollFrame:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 0, -5)
+rosterScrollFrame:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 0, -22)
 rosterScrollFrame:SetPoint("BOTTOMRIGHT", RosterContainer, "BOTTOMRIGHT", -25, 5)
+-- Sign-up columns: x in the row, width and the header
+local ROSTER_COLUMNS = {
+{ field = "roleText", x = 0, width = 24, title = "" },
+{ field = "text", x = 26, width = 105, title = "Name" },
+{ field = "levelText", x = 134, width = 28, title = "Lvl" },
+{ field = "specText", x = 165, width = 90, title = "Spec" },
+{ field = "guildText", x = 258, width = 115, title = "Guild" },
+{ field = "rankText", x = 376, width = 75, title = "Rank" },
+{ field = "statusText", x = 454, width = 45, title = "Status" },
+}
+for _, col in ipairs(ROSTER_COLUMNS) do
+local header = RosterContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+header:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 10 + col.x, -6)
+header:SetText(col.title)
+end
 -- Sign-up rows in advance; as many show as fit RosterContainer (visibleRows)
 local ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, rosterRows = 16, 45, {}
 for i = 1, MAX_ROSTER_ROWS do
 local row = CreateFrame("Frame", nil, RosterContainer)
-row:SetSize(220, ROSTER_ROW_HEIGHT) row:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 10, -5 - ((i-1) * ROSTER_ROW_HEIGHT))
-row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") row.text:SetPoint("LEFT", row, "LEFT", 0, 0)
-row.roleText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall") row.roleText:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+row:SetSize(500, ROSTER_ROW_HEIGHT) row:SetPoint("TOPLEFT", RosterContainer, "TOPLEFT", 10, -22 - ((i-1) * ROSTER_ROW_HEIGHT))
+for _, col in ipairs(ROSTER_COLUMNS) do
+local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+text:SetPoint("LEFT", row, "LEFT", col.x, 0)
+text:SetWidth(col.width) text:SetJustifyH("LEFT") text:SetWordWrap(false)
+row[col.field] = text
+end
+-- Right click: the usual player menu, plus removal from the event for officers
+row:EnableMouse(true)
+row:SetScript("OnMouseUp", function(self, button)
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if button == "RightButton" and ev and self.playerName then membersView.OpenForEvent(self.playerName, self.playerOnline, ev) end
+end)
 rosterRows[i] = row
 end
 UpdateRosterList = function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 local ev = eventsList[selectedEventIndex]
+-- Everything known about players: online list and guild rosters, the same data as the Members tab
+local known = {}
+for _, member in ipairs(Roster.BuildList(true)) do known[member.name] = member end
 local displayList = {}
 for name, role in pairs(ev.roster) do
 if currentRosterFilter == "ALL" or role == currentRosterFilter then
-table.insert(displayList, { name = name, role = role })
+table.insert(displayList, { name = name, role = role, spec = EventSync.SPECS[ev.specs and ev.specs[name] or ""], info = known[name] or {} })
 end
 end
-table.sort(displayList, function(a, b) return a.name < b.name end)
+-- Raid leaders first, then by name
+local leaders = ev.leaders or {}
+table.sort(displayList, function(a, b)
+local la, lb = leaders[a.name] and true or false, leaders[b.name] and true or false
+if la ~= lb then return la end
+return a.name < b.name
+end)
 local visible = RosterContainer.visibleRows or 11
 _G.FauxScrollFrame_Update(rosterScrollFrame, #displayList, visible, ROSTER_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(rosterScrollFrame)
@@ -1280,10 +1415,16 @@ for i = 1, MAX_ROSTER_ROWS do
 local idx = i + offset local row = rosterRows[i]
 if i <= visible and idx <= #displayList then
 local data = displayList[idx]
-row.text:SetText(GetColoredName(data.name))
+row.playerName, row.playerOnline = data.name, data.info.online
+row.text:SetText((leaders[data.name] and "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:12:12|t " or "") .. GetColoredName(data.name))
 if data.role == "TANK" then row.roleText:SetText("|cff00ccff[T]|r")
 elseif data.role == "HEAL" then row.roleText:SetText("|cff00ff00[H]|r")
 else row.roleText:SetText("|cffff4500[D]|r") end
+row.levelText:SetText(data.info.level or "-")
+row.specText:SetText(data.spec and data.spec.name or "|cff808080-|r")
+row.guildText:SetText(data.info.guild and ("|cffbf40ff" .. data.info.guild .. "|r") or "|cff808080-|r")
+row.rankText:SetText(data.info.rank and GetColoredRank(data.info.rank) or "|cff808080-|r")
+row.statusText:SetText(data.info.online and "|cff00ff00Online|r" or "|cff808080Offline|r")
 row:Show()
 else
 row:Hide()
@@ -1291,37 +1432,39 @@ end
 end
 end
 rosterScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, ROSTER_ROW_HEIGHT, UpdateRosterList) end)
--- A taller window = a longer sign-up list (at 390 px of details: 195 px, as before)
-DetailsContainer:SetScript("OnSizeChanged", function(self, w, h)
-if not h or h <= 0 then return end
-RosterContainer:SetHeight(math.max(195, h - 195))
-RosterContainer.visibleRows = MainFrame.FitRows(RosterContainer, 5, 5, ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, 11)
+RosterContainer:SetScript("OnSizeChanged", function(self)
+self.visibleRows = MainFrame.FitRows(self, 22, 5, ROSTER_ROW_HEIGHT, MAX_ROSTER_ROWS, 10)
 if self:IsVisible() then UpdateRosterList() end
 end)
-local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
-eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -35)
-eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 10)
--- Rows in advance; as many show as fit ListContainer (visibleRows)
-local EV_ROW_HEIGHT, MAX_EV_ROWS, eventRows = 40, 24, {}
-for i = 1, MAX_EV_ROWS do
-local btn = CreateFrame("Button", nil, ListContainer, "BackdropTemplate")
-btn:SetSize(240, EV_ROW_HEIGHT - 4) btn:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 8, -35 - ((i-1) * EV_ROW_HEIGHT))
-btn:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-btn:SetBackdropColor(0.09, 0.09, 0.12, 0.6) btn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.6)
-btn.title = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") btn.title:SetPoint("TOPLEFT", btn, "TOPLEFT", 8, -4)
-btn.time = btn:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall") btn.time:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 8, 4)
-btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") btn.count:SetPoint("RIGHT", btn, "RIGHT", -10, 0)
-btn:SetScript("OnClick", function() selectedEventIndex = btn.dataIndex UpdateEventDetails() end)
-eventRows[i] = btn
+-- One sign-up button per spec of my class (up to 4: Druid)
+EventSync.specButtons = {}
+for i = 1, 4 do
+local join = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
+join:SetSize(90, 24)
+join:SetPoint("BOTTOMLEFT", DetailsContainer, "BOTTOMLEFT", 10 + (i - 1) * 93, 15)
+join:SetScript("OnClick", function(self)
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if ev then EventSync.SignUp(ev, self.spec) end
+end)
+join:Hide()
+EventSync.specButtons[i] = join
 end
-local JoinTankBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
-JoinTankBtn:SetSize(60, 24) JoinTankBtn:SetPoint("BOTTOMLEFT", DetailsContainer, "BOTTOMLEFT", 10, 15) JoinTankBtn:SetText("Tank") JoinTankBtn:Hide()
-local JoinHealBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
-JoinHealBtn:SetSize(60, 24) JoinHealBtn:SetPoint("LEFT", JoinTankBtn, "RIGHT", 4, 0) JoinHealBtn:SetText("Heal") JoinHealBtn:Hide()
-local JoinDpsBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
-JoinDpsBtn:SetSize(60, 24) JoinDpsBtn:SetPoint("LEFT", JoinHealBtn, "RIGHT", 4, 0) JoinDpsBtn:SetText("DPS") JoinDpsBtn:Hide()
+-- "I am the raid leader": your own mark, can be taken off at any time; needs a sign-up
+EventSync.leaderCheck = CreateFrame("CheckButton", nil, DetailsContainer, "UICheckButtonTemplate")
+EventSync.leaderCheck:SetSize(22, 22)
+EventSync.leaderCheck:SetPoint("BOTTOMLEFT", DetailsContainer, "BOTTOMLEFT", 10, 42)
+EventSync.leaderCheck.label = EventSync.leaderCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+EventSync.leaderCheck.label:SetPoint("LEFT", EventSync.leaderCheck, "RIGHT", 2, 0)
+EventSync.leaderCheck.label:SetText("|TInterface\\GroupFrame\\UI-Group-LeaderIcon:12:12|t I am the raid leader")
+EventSync.leaderCheck:SetScript("OnClick", function(self)
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if ev then EventSync.SetLeader(ev, self:GetChecked() and true or false) end
+end)
+local EditEventBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
+EditEventBtn:SetSize(60, 24) EditEventBtn:SetText("Edit") EditEventBtn:Hide()
 local RemoveEventBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
-RemoveEventBtn:SetSize(70, 24) RemoveEventBtn:SetPoint("LEFT", JoinDpsBtn, "RIGHT", 6, 0) RemoveEventBtn:SetText("|cffff0000Remove|r") RemoveEventBtn:Hide()
+RemoveEventBtn:SetSize(70, 24) RemoveEventBtn:SetPoint("BOTTOMRIGHT", DetailsContainer, "BOTTOMRIGHT", -10, 15) RemoveEventBtn:SetText("|cffff0000Remove|r") RemoveEventBtn:Hide()
+EditEventBtn:SetPoint("RIGHT", RemoveEventBtn, "LEFT", -4, 0)
 local function UpdateFilterVisuals()
 for fType, btn in pairs(filterButtons) do
 if fType == currentRosterFilter then btn.text:SetTextColor(1, 0.82, 0) else btn.text:SetTextColor(0.6, 0.6, 0.6) end
@@ -1330,33 +1473,269 @@ if UpdateRosterList then UpdateRosterList() end
 end
 UpdateEventDetails = function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then
-DHeader:SetText("Details") DDesc:SetText("Select an event from the list on the left.")
-CounterFrame:Hide() RosterContainer:Hide() JoinTankBtn:Hide() JoinHealBtn:Hide() JoinDpsBtn:Hide() RemoveEventBtn:Hide() return
+DetailsContainer:Hide() return
 end
+DetailsContainer:Show()
 local ev = eventsList[selectedEventIndex] DHeader:SetText(ev.title)
 local guildStr = ev.guild and (" |cffbf40ff(" .. ev.guild .. ")|r") or ""
 local dungeonStr = (ev.dungeon and ev.dungeon ~= "") and ("\n|cffffffffInstance:|r |cffffd100" .. ev.dungeon .. "|r") or ""
 DDesc:SetText("|cffffffffAuthor:|r " .. ev.creator .. guildStr .. "  |cffffffffTime:|r " .. ev.date .. " " .. ev.time .. dungeonStr .. "\n|cffdecda5Description:|r " .. (ev.desc or ""))
+-- As tall as the text, up to 7 lines (the rest is cut and shown in the tooltip); the list takes what is left
+DDesc:SetHeight(0)
+DDesc:SetHeight(math.min(DDesc:GetStringHeight(), 115))
 local t, h, d, total = 0, 0, 0, 0
 for _, role in pairs(ev.roster) do total = total + 1 if role == "TANK" then t = t + 1 elseif role == "HEAL" then h = h + 1 else d = d + 1 end end
 TankCountText:SetText(t) HealCountText:SetText(h) DpsCountText:SetText(d) TotalCountVal:SetText("|cffffd100" .. total .. "|r")
-CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals() JoinTankBtn:Show() JoinHealBtn:Show() JoinDpsBtn:Show()
+CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals()
+-- Sign-up buttons: all specs of my class, the one I chose in green
+local mySpecs = EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}
+local myName = UnitName("player")
+local myCode = ev.roster[myName] and ev.specs and ev.specs[myName]
+for i, join in ipairs(EventSync.specButtons) do
+local spec = mySpecs[i]
+join.spec = spec
+if spec then
+join:SetText(myCode == spec.code and ("|cff00ff00" .. spec.name .. "|r") or spec.name)
+join:Show()
+else
+join:Hide()
+end
+end
+EventSync.leaderCheck:SetChecked(ev.leaders and ev.leaders[myName] and true or false)
+if ev.roster[myName] then EventSync.leaderCheck:Enable() else EventSync.leaderCheck:Disable() end
+EventSync.leaderCheck.label:SetAlpha(ev.roster[myName] and 1 or 0.45)
+if IsPlayerOfficer() then EditEventBtn:Show() else EditEventBtn:Hide() end
 if CanRemoveEvent(ev, UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
-UpdateEventsList = function()
-local visible = ListContainer.visibleRows or 10
-_G.FauxScrollFrame_Update(eventScrollFrame, #eventsList, visible, EV_ROW_HEIGHT)
-local offset = _G.FauxScrollFrame_GetOffset(eventScrollFrame)
+-- Events table, in a block so its helpers do not stay in the file's local variable limit.
+-- Rows show a sorted copy; row.dataIndex is the event's place in eventsList, which sync and the calendar use.
+do
+local EV_ROW_HEIGHT, MAX_EV_ROWS, eventRows = 22, 24, {}
+local EV_PADDING, EV_MIN_PADDING, EV_ROW_INSET, EV_FIRST_X = 16, 6, 5, 10
+local eventColumns = {
+{ name = "Date", key = "date", field = "dateText" },
+{ name = "Time", key = "time", field = "timeText" },
+{ name = "Event", key = "title", field = "titleText" },
+{ name = "Instance", key = "dungeon", field = "dungeonText" },
+{ name = "Guild", key = "guild", field = "guildText" },
+{ name = "Created by", key = "creator", field = "creatorText" },
+{ name = "Signed", key = "signed", field = "signedText" },
+{ name = "Your sign-up", key = "sign", field = "signBtn", icon = true, noSort = true },
+{ name = "Invite", key = "invite", field = "inviteBtn", icon = true, noSort = true },
+}
+-- Sign-up menu on the row's icon: the specs of my class, the current one checked
+local SignMenu = CreateFrame("Frame", "JagodkiSignMenu", UIParent, "UIDropDownMenuTemplate")
+_G.UIDropDownMenu_Initialize(SignMenu, function(self, level)
+local ev = SignMenu.event
+if not ev then return end
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.isTitle, info.notCheckable = ev.title, true, true
+_G.UIDropDownMenu_AddButton(info, level)
+local myName = UnitName("player")
+for _, spec in ipairs(EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}) do
+info = _G.UIDropDownMenu_CreateInfo()
+info.text = spec.name .. " (" .. spec.role .. ")"
+info.checked = ev.specs and ev.roster[myName] and ev.specs[myName] == spec.code
+info.func = function() EventSync.SignUp(ev, spec) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+-- Raid leader mark: your own, needs a sign-up
+info = _G.UIDropDownMenu_CreateInfo()
+info.text = "I am the raid leader"
+info.isNotRadio = true
+info.checked = ev.leaders and ev.leaders[myName] and true or false
+info.disabled = not ev.roster[myName]
+info.func = function() EventSync.SetLeader(ev, not (ev.leaders and ev.leaders[myName])) end
+_G.UIDropDownMenu_AddButton(info, level)
+end, "MENU")
+-- Default: nearest date first. Header click = ascending, second = descending, third = default.
+local eventsView = { sortKey = nil, desc = false }
+local eventScrollFrame = CreateFrame("ScrollFrame", "JagodkiEventScrollFrame", ListContainer, "FauxScrollFrameTemplate")
+eventScrollFrame:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", 0, -30)
+eventScrollFrame:SetPoint("BOTTOMRIGHT", ListContainer, "BOTTOMRIGHT", -26, 6)
+local NoEventsText = ListContainer:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+NoEventsText:SetPoint("CENTER", ListContainer, "CENTER", 0, 0)
+NoEventsText:SetText("No upcoming events")
+-- Rows in advance; as many show as fit ListContainer (visibleRows)
 for i = 1, MAX_EV_ROWS do
-local idx = i + offset local row = eventRows[i]
-if i <= visible and idx <= #eventsList then
-local ev = eventsList[idx]
-row.dataIndex = idx
-row.title:SetText("|cffffffff" .. ev.title .. "|r")
-row.time:SetText(ev.date .. " at " .. ev.time .. (ev.guild and ("  |cffbf40ff" .. ev.guild .. "|r") or ""))
-local totalSigned = 0
-for _ in pairs(ev.roster) do totalSigned = totalSigned + 1 end
-row.count:SetText(totalSigned .. " signed")
+local row = CreateFrame("Button", nil, ListContainer)
+row:SetHeight(EV_ROW_HEIGHT)
+row:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", EV_ROW_INSET, -30 - ((i-1) * EV_ROW_HEIGHT))
+row:SetPoint("RIGHT", ListContainer, "RIGHT", -25, 0)
+local tex = row:CreateTexture(nil, "BACKGROUND")
+tex:SetAllPoints()
+tex:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.02 or 0.04)
+row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+for _, col in ipairs(eventColumns) do
+if not col.icon then
+local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+text:SetJustifyH("LEFT") text:SetWordWrap(false)
+row[col.field] = text
+end
+end
+row:SetScript("OnClick", function(self) selectedEventIndex = self.dataIndex UpdateEventDetails() end)
+-- Sign-up button: "Sign up", or the current spec in green; a click opens the spec menu
+local signBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+signBtn:SetHeight(EV_ROW_HEIGHT - 3)
+signBtn:SetNormalFontObject("GameFontNormalSmall")
+signBtn:SetHighlightFontObject("GameFontHighlightSmall")
+signBtn:SetScript("OnClick", function(self)
+SignMenu.event = self.event
+_G.ToggleDropDownMenu(1, nil, SignMenu, "cursor", 0, 0)
+end)
+row.signBtn = signBtn
+-- Invite all: only for officers and this event's raid leaders
+local inviteBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+inviteBtn:SetHeight(EV_ROW_HEIGHT - 3)
+inviteBtn:SetNormalFontObject("GameFontNormalSmall")
+inviteBtn:SetHighlightFontObject("GameFontHighlightSmall")
+inviteBtn:SetDisabledFontObject("GameFontDisableSmall")
+inviteBtn:SetText("Invite all")
+inviteBtn:SetScript("OnClick", function(self) EventSync.InviteAll(self.event) end)
+row.inviteBtn = inviteBtn
+eventRows[i] = row
+end
+local function SignedCounts(ev)
+local t, h, d = 0, 0, 0
+for _, role in pairs(ev.roster or {}) do
+if role == "TANK" then t = t + 1 elseif role == "HEAL" then h = h + 1 else d = d + 1 end
+end
+return t, h, d
+end
+local function CellText(ev, key)
+if key == "signed" then
+local t, h, d = SignedCounts(ev)
+return (t + h + d) .. "  (T" .. t .. " H" .. h .. " D" .. d .. ")"
+end
+return ev[key] or "-"
+end
+-- Date and time of an event for sorting
+local function EventMoment(ev)
+local hour, minute = (ev.time or ""):match("^(%d+):(%d+)$")
+return (EventSync.DayTime(ev.date) or 0) + (tonumber(hour) or 0) * 3600 + (tonumber(minute) or 0) * 60
+end
+local function SortedEvents()
+local list = {}
+for idx, ev in ipairs(eventsList) do table.insert(list, { ev = ev, idx = idx, moment = EventMoment(ev) }) end
+local key, desc = eventsView.sortKey, eventsView.desc
+table.sort(list, function(a, b)
+local va, vb = a.moment, b.moment
+if key == "signed" then
+local at, ah, ad = SignedCounts(a.ev)
+local bt, bh, bd = SignedCounts(b.ev)
+va, vb = at + ah + ad, bt + bh + bd
+elseif key and key ~= "date" and key ~= "time" then
+va, vb = tostring(a.ev[key] or ""):lower(), tostring(b.ev[key] or ""):lower()
+end
+if va ~= vb then if desc then return va > vb end return va < vb end
+if a.moment ~= b.moment then return a.moment < b.moment end
+return a.idx < b.idx
+end)
+return list
+end
+local function UpdateEventHeaders()
+for _, col in ipairs(eventColumns) do
+local active = eventsView.sortKey == col.key
+col.header.text:SetText(col.name .. (active and (eventsView.desc and " v" or " ^") or ""))
+if active then col.header.text:SetTextColor(1, 1, 1) else col.header.text:SetTextColor(1, 0.82, 0) end
+end
+end
+for _, col in ipairs(eventColumns) do
+local h = CreateFrame("Button", nil, ListContainer)
+h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+h.text:SetPoint("LEFT", h, "LEFT", 0, 0)
+h:SetScript("OnClick", function()
+if col.noSort then return end
+if eventsView.sortKey ~= col.key then eventsView.sortKey, eventsView.desc = col.key, false
+elseif not eventsView.desc then eventsView.desc = true
+else eventsView.sortKey, eventsView.desc = nil, false end
+UpdateEventHeaders()
+UpdateEventsList()
+end)
+col.header = h
+end
+UpdateEventHeaders()
+-- As in the Members table: each column fits its longest text; a narrow window loses padding first, then text is cut
+local function LayoutEventColumns()
+local TextWidth = membersView.TextWidth
+local widths, content = {}, 0
+for _, col in ipairs(eventColumns) do
+local width = TextWidth(col.name .. " ^")
+if col.key == "invite" then
+width = math.max(width, TextWidth("Invite all") + 20)
+elseif col.icon then
+-- Room for the longest text the button can show, plus its edges
+width = math.max(width, TextWidth("Sign up") + 20)
+for _, spec in ipairs(EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}) do width = math.max(width, TextWidth(spec.name .. " v") + 20) end
+else
+for _, ev in ipairs(eventsList) do width = math.max(width, TextWidth(CellText(ev, col.key))) end
+end
+widths[col.key] = width
+content = content + width
+end
+local room = ListContainer:GetWidth() - 25 - EV_ROW_INSET - EV_FIRST_X
+local padding = math.max(EV_MIN_PADDING, math.min(EV_PADDING, math.floor((room - content) / (#eventColumns - 1))))
+local over = content + padding * (#eventColumns - 1) - room
+for _, cut in ipairs({ { "title", 90 }, { "dungeon", 70 }, { "creator", 60 }, { "guild", 70 } }) do
+if over > 0 then
+local take = math.min(over, math.max(0, widths[cut[1]] - cut[2]))
+widths[cut[1]] = widths[cut[1]] - take
+over = over - take
+end
+end
+local x = EV_FIRST_X
+for _, col in ipairs(eventColumns) do
+local width = widths[col.key]
+col.header:SetSize(width, 18)
+col.header:ClearAllPoints()
+col.header:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", x + EV_ROW_INSET, -6)
+for _, row in ipairs(eventRows) do
+row[col.field]:ClearAllPoints()
+row[col.field]:SetPoint("LEFT", row, "LEFT", x, 0)
+row[col.field]:SetWidth(width)
+end
+x = x + width + padding
+end
+end
+UpdateEventsList = function()
+LayoutEventColumns()
+local list = SortedEvents()
+local visible = ListContainer.visibleRows or 16
+_G.FauxScrollFrame_Update(eventScrollFrame, #list, visible, EV_ROW_HEIGHT)
+local offset = _G.FauxScrollFrame_GetOffset(eventScrollFrame)
+local myName = UnitName("player")
+if #list == 0 then NoEventsText:Show() else NoEventsText:Hide() end
+for i = 1, MAX_EV_ROWS do
+local item = list[i + offset] local row = eventRows[i]
+if i <= visible and item then
+local ev = item.ev
+row.dataIndex = item.idx
+for _, col in ipairs(eventColumns) do
+if not col.icon then row[col.field]:SetText(CellText(ev, col.key)) end
+end
+row.signBtn.event = ev
+row.inviteBtn.event = ev
+if EventSync.CanInvite(ev) then
+-- Inactive when there is nobody but me to invite
+local others = false
+for name in pairs(ev.roster or {}) do if name ~= myName then others = true break end end
+row.inviteBtn:SetEnabled(others)
+row.inviteBtn:Show()
+else
+row.inviteBtn:Hide()
+end
+local myRole = ev.roster and ev.roster[myName]
+if myRole then
+-- A sign-up from before 0.9.1 has only a role, until the player picks a spec
+local spec = EventSync.SPECS[ev.specs and ev.specs[myName] or ""]
+local label = spec and spec.name or ({ TANK = "Tank", HEAL = "Heal", DPS = "DPS" })[myRole] or myRole
+row.signBtn:SetText("|cff00ff00" .. label .. " v|r")
+else
+row.signBtn:SetText("Sign up")
+end
+-- Events I signed up for are green, as in the calendar
+if ev.roster and ev.roster[myName] then row.titleText:SetText("|cff00ff00" .. ev.title .. "|r") end
+if ev.guild then row.guildText:SetText("|cffbf40ff" .. ev.guild .. "|r") end
 row:Show()
 else row:Hide() end
 end
@@ -1365,13 +1744,16 @@ UpdateCalendar()
 end
 eventScrollFrame:SetScript("OnVerticalScroll", function(self, offset) _G.FauxScrollFrame_OnVerticalScroll(self, offset, EV_ROW_HEIGHT, UpdateEventsList) end)
 ListContainer:SetScript("OnSizeChanged", function(self)
-self.visibleRows = MainFrame.FitRows(self, 35, 10, EV_ROW_HEIGHT, MAX_EV_ROWS, 10)
+self.visibleRows = MainFrame.FitRows(self, 30, 6, EV_ROW_HEIGHT, MAX_EV_ROWS, 16)
 if self:IsVisible() then UpdateEventsList() end
 end)
+end
 local CreateEventBtn = CreateFrame("Button", nil, Panels[4], "GameMenuButtonTemplate")
 CreateEventBtn:SetSize(140, 28) CreateEventBtn:SetPoint("TOPRIGHT", Panels[4], "TOPRIGHT", 0, -5) CreateEventBtn:SetText("Create Event")
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
 CreatorFrame:SetSize(320, 450) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
+-- Above the event details window (DIALOG), below dropdown lists (FULLSCREEN_DIALOG)
+CreatorFrame:SetFrameStrata("FULLSCREEN")
 CreatorFrame:SetFrameLevel(MainFrame:GetFrameLevel() + 20)
 ApplyModernStyle(CreatorFrame) CreatorFrame:SetBackdropColor(0.05, 0.05, 0.07, 0.98)
 CreatorFrame.TitleText = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1464,14 +1846,33 @@ _G.UIDropDownMenu_SetText(DateDD, DayLabel(day))
 _G.UIDropDownMenu_SetText(HourDD, "20")
 _G.UIDropDownMenu_SetText(MinuteDD, "00")
 end
+-- Fills the pickers with an existing event's values (editing)
+function EventPicker.LoadEvent(ev)
+local hour, minute = (ev.time or ""):match("^(%d+):(%d+)$")
+EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = ev.date, tonumber(hour) or 20, tonumber(minute) or 0, ev.dungeon
+_G.UIDropDownMenu_SetText(DungeonDD, ev.dungeon or "(none / other)")
+local day = EventSync.DayTime(ev.date)
+_G.UIDropDownMenu_SetText(DateDD, day and DayLabel(day) or ev.date)
+_G.UIDropDownMenu_SetText(HourDD, string.format("%02d", EventPicker.hour))
+_G.UIDropDownMenu_SetText(MinuteDD, string.format("%02d", EventPicker.minute))
+end
 end
 -- X button and closing with Esc
 local CreatorCloseBtn = CreateFrame("Button", nil, CreatorFrame, "UIPanelCloseButton")
 CreatorCloseBtn:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -2, -2)
 table.insert(_G.UISpecialFrames, "JagodkiCreatorFrame")
 CreatorFrame:SetScript("OnShow", function() EventPicker.Reset() end)
+-- Closing the window ends editing, so the next opening creates a new event
+CreatorFrame:SetScript("OnHide", function()
+if EventPicker.editing then
+EventPicker.editing = nil
+EventPicker.ClearForm()
+end
+end)
 -- Opens the create window with a preset date (calendar); if already open, only the date changes
 function EventPicker.OpenFor(dayTime)
+-- An edit in progress ends here, so this cannot overwrite that event
+if EventPicker.editing then CreatorFrame:Hide() end
 EventPicker.presetDay = dayTime
 if CreatorFrame:IsShown() then EventPicker.Reset() else CreatorFrame:Show() end
 end
@@ -1508,6 +1909,21 @@ TitleInput:SetMaxBytes(50)
 local SubmitBtn = CreateFrame("Button", nil, CreatorFrame, "GameMenuButtonTemplate")
 SubmitBtn:SetSize(120, 30) SubmitBtn:SetPoint("BOTTOM", CreatorFrame, "BOTTOM", 0, 20) SubmitBtn:SetText("Create and Send")
 CreateEventBtn:SetScript("OnClick", function() if IsPlayerOfficer() then CreatorFrame:Show() else UIErrorsFrame:AddMessage("Error: Officer rank required!", 1.0, 0.1, 0.1, 1.0, 2) end end)
+-- Back to an empty "New Event" form
+function EventPicker.ClearForm()
+TitleInput:SetText("") DescInput:SetText("")
+CreatorFrame.TitleText:SetText("New Event")
+SubmitBtn:SetText("Create and Send")
+end
+-- Opens the same form for editing an event (officers)
+function EventPicker.OpenEdit(ev)
+if not CreatorFrame:IsShown() then CreatorFrame:Show() end
+EventPicker.editing = ev
+EventPicker.LoadEvent(ev)
+TitleInput:SetText(ev.title or "") DescInput:SetText(ev.desc or "")
+CreatorFrame.TitleText:SetText("Edit Event")
+SubmitBtn:SetText("Save Changes")
+end
 SubmitBtn:SetScript("OnClick", function()
 local title, desc = TitleInput:GetText(), DescInput:GetText()
 local eDate, eTime = EventPicker.date or "", string.format("%02d:%02d", EventPicker.hour, EventPicker.minute)
@@ -1518,6 +1934,23 @@ if title == "" and EventPicker.dungeon then title = EventPicker.dungeon end
 if title == "" then ShowEventError("Enter an event name or pick an instance.") return end
 if not IsValidEventDate(eDate) then ShowEventError("Date format: DD.MM or DD.MM.YYYY") return end
 if not IsValidEventTime(eTime) then ShowEventError("Time format: HH:MM") return end
+local editing = EventPicker.editing
+if editing then
+-- The event may have been removed while the window was open
+local exists = false
+for _, ev in ipairs(eventsList) do if ev == editing then exists = true break end end
+if not exists then ShowEventError("This event no longer exists.") CreatorFrame:Hide() return end
+editing.title, editing.desc, editing.date, editing.time, editing.dungeon = title, desc, eDate, eTime, EventPicker.dungeon
+editing.descParts, editing.descTotal = nil, nil
+-- At least 1 s newer than the known edit, so this change also wins with quick edits
+editing.rev, editing.editor = math.max(GetServerTime(), (editing.rev or 0) + 1), myName
+SendEventEdit(editing)
+Most.Publish("Ogolny", "Event edited by " .. myName .. " -> " .. title .. " : " .. (editing.dungeon and (editing.dungeon .. " ") or "") .. eDate .. " " .. eTime, "A", myName, myGuild)
+CreatorFrame:Hide()
+UpdateEventsList()
+if selectedEventIndex and eventsList[selectedEventIndex] == editing then UpdateEventDetails() end
+return
+end
 if CountEventsBy(myName) >= MAX_EVENTS_PER_CREATOR then ShowEventError("You already have " .. MAX_EVENTS_PER_CREATOR .. " events - remove old ones.") return end
 local eventID = myName .. "_" .. GetTime()
 local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, dungeon = EventPicker.dungeon, creator = myName, guild = myGuild, roster = {} }
@@ -1534,17 +1967,52 @@ BtnAll:SetScript("OnClick", function() SetRosterFilter("ALL") end)
 BtnTank:SetScript("OnClick", function() SetRosterFilter("TANK") end)
 BtnHeal:SetScript("OnClick", function() SetRosterFilter("HEAL") end)
 BtnDps:SetScript("OnClick", function() SetRosterFilter("DPS") end)
-local function SignUpForEvent(role)
-local ev = selectedEventIndex and eventsList[selectedEventIndex]
-if not ev or not VALID_ROLES[role] then return end
+-- Sign-up with any spec of my class. The role goes in EV_SIGN as before, so older versions still
+-- see it, and the spec in a separate EV_SPEC.
+function EventSync.SignUp(ev, spec)
+if not ev or not spec then return end
 if not IsPlayerGuildAllowed(Most.MyGuild()) then ShowEventError("Your guild is not on the Community list!") return end
-ev.roster[UnitName("player")] = role
-UpdateEventDetails() UpdateEventsList()
-SendJagodkaNetworkPacket("EV_SIGN", ev.id .. ":" .. role)
+local myName = UnitName("player")
+ev.roster[myName] = spec.role
+ev.specs = ev.specs or {}
+ev.specs[myName] = spec.code
+EventSync.TouchSign(ev, myName)
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+UpdateEventsList()
+SendJagodkaNetworkPacket("EV_SIGN", ev.id .. ":" .. spec.role)
+SendJagodkaNetworkPacket("EV_SPEC", EncodeField(ev.id) .. ":" .. spec.code)
 end
-JoinTankBtn:SetScript("OnClick", function() SignUpForEvent("TANK") end)
-JoinHealBtn:SetScript("OnClick", function() SignUpForEvent("HEAL") end)
-JoinDpsBtn:SetScript("OnClick", function() SignUpForEvent("DPS") end)
+-- Group invites for an event: officers and the event's raid leaders
+function EventSync.CanInvite(ev)
+return IsPlayerOfficer() or (ev and ev.leaders and ev.leaders[UnitName("player")] and true or false)
+end
+-- Your own raid leader mark; several people can have it
+function EventSync.SetLeader(ev, on)
+local myName = UnitName("player")
+if not ev or not ev.roster[myName] then return end
+ev.leaders = ev.leaders or {}
+ev.leaders[myName] = on and true or nil
+EventSync.TouchSign(ev, myName)
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+UpdateEventsList()
+SendJagodkaNetworkPacket("EV_RL", EncodeField(ev.id) .. ":" .. (on and "1" or "0"))
+end
+-- An officer takes a player off an event
+function EventSync.Kick(ev, name)
+if not ev or not IsPlayerOfficer() or not ev.roster[name] then return end
+ev.kicks = ev.kicks or {}
+-- At least 1 s newer than the player's sign-up, so the removal wins even right after it
+local signedAt = (ev.signTime and ev.signTime[name]) or 0
+ev.kicks[name] = { ts = math.max(GetServerTime(), signedAt + 1), by = UnitName("player") }
+EventSync.ClearSign(ev, name)
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+UpdateEventsList()
+EventSync.SendKick(ev, name)
+end
+EditEventBtn:SetScript("OnClick", function()
+local ev = selectedEventIndex and eventsList[selectedEventIndex]
+if ev and IsPlayerOfficer() then EventPicker.OpenEdit(ev) end
+end)
 RemoveEventBtn:SetScript("OnClick", function()
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 if not CanRemoveEvent(eventsList[selectedEventIndex], UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("You can only remove your own events (officers: any).") return end
@@ -1557,18 +2025,19 @@ Most.Publish("Ogolny", "Event removed by " .. myName .. " -> " .. removedEv.titl
 table.remove(eventsList, selectedEventIndex) selectedEventIndex = nil UpdateEventDetails() UpdateEventsList()
 end)
 -- ============================================================================
--- 6B. TAB 5: SETTINGS
+-- 6B. TAB 6: MONITORING (officers only, monitor.lua)
 -- ============================================================================
-local SettingsInfo = Panels[6]:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-SettingsInfo:SetPoint("TOPLEFT", Panels[6], "TOPLEFT", 10, -10)
-SettingsInfo:SetText("Bridge status (global channel <-> /g) - version " .. ADDON_VERSION)
-local SettingsStatus = Panels[6]:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-SettingsStatus:SetPoint("TOPLEFT", SettingsInfo, "BOTTOMLEFT", 0, -12)
-SettingsStatus:SetJustifyH("LEFT")
--- Panel width: long diagnostic lines wrap instead of going outside the window
-SettingsStatus:SetPoint("RIGHT", Panels[6], "RIGHT", -10, 0)
--- Status refreshes every second, only when the tab is visible
-C_Timer.NewTicker(1, function() if Panels[6]:IsVisible() then SettingsStatus:SetText(Most.GetStatusText()) end end)
+addonTable.Monitor.Attach(Panels[6], { activePlayers = activePlayers, applyStyle = ApplyModernStyle })
+-- The rank is known only some time after login and can change, so this runs on guild updates
+function EventSync.UpdateMonitoringTab()
+if IsPlayerOfficer() then
+menuButtons[6]:Show()
+else
+menuButtons[6]:Hide()
+if Panels[6]:IsShown() then ShowTab(1) end
+end
+end
+EventSync.UpdateMonitoringTab()
 -- ============================================================================
 -- 6C. TAB 5: CALENDAR (month 7x6, Monday-Sunday, events from the Events tab)
 -- ============================================================================
@@ -1599,6 +2068,15 @@ ShowTab(4)
 UpdateEventDetails()
 end
 local function ShowEventTooltip(self)
+-- The "+N more" line lists the whole day
+if self.dayList then
+_G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+_G.GameTooltip:AddLine(self.dayLabel, 1, 0.82, 0)
+for _, dayEvent in ipairs(self.dayList) do _G.GameTooltip:AddLine(dayEvent.time .. "  " .. dayEvent.title, 1, 1, 1) end
+_G.GameTooltip:AddLine("Click to see them all", 0.5, 0.5, 0.5)
+_G.GameTooltip:Show()
+return
+end
 local ev = self.event
 if not ev then return end
 local t, h, d = 0, 0, 0
@@ -1609,7 +2087,6 @@ _G.GameTooltip:AddLine(ev.date .. " " .. ev.time, 1, 1, 1)
 if ev.dungeon then _G.GameTooltip:AddLine("Instance: " .. ev.dungeon, 0.8, 0.8, 0.8) end
 _G.GameTooltip:AddLine("By: " .. ev.creator .. (ev.guild and (" (" .. ev.guild .. ")") or ""), 0.75, 0.25, 1)
 _G.GameTooltip:AddLine("Signed up: " .. (t + h + d) .. "  (T " .. t .. " / H " .. h .. " / D " .. d .. ")", 0, 1, 0)
-if self.more then _G.GameTooltip:AddLine(self.more, 0.8, 0.8, 0.8) end
 _G.GameTooltip:AddLine("Click to open the event", 0.5, 0.5, 0.5)
 _G.GameTooltip:Show()
 end
@@ -1630,12 +2107,86 @@ dayHeader:SetText(name)
 if i >= 6 then dayHeader:SetTextColor(1, 0.5, 0.5) end
 dayHeaders[i] = dayHeader
 end
+-- Small window with all events of a day, opened from the "+N more" line
+local DayPopup = CreateFrame("Frame", "JagodkiCalendarDay", Cal, "BackdropTemplate")
+DayPopup:SetWidth(240)
+DayPopup:SetFrameStrata("DIALOG")
+DayPopup:SetClampedToScreen(true)
+DayPopup:EnableMouse(true)
+DayPopup:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+DayPopup:SetBackdropColor(0.06, 0.06, 0.08, 0.97)
+DayPopup:SetBackdropBorderColor(0.3, 0.3, 0.38, 1)
+DayPopup:Hide()
+table.insert(_G.UISpecialFrames, "JagodkiCalendarDay")
+DayPopup.title = DayPopup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+DayPopup.title:SetPoint("TOPLEFT", DayPopup, "TOPLEFT", 10, -8)
+DayPopup.rows = {}
+do
+local close = CreateFrame("Button", nil, DayPopup, "UIPanelCloseButton")
+close:SetSize(22, 22)
+close:SetPoint("TOPRIGHT", DayPopup, "TOPRIGHT", 0, 0)
+-- A click outside closes it; its own "+N more" line handles the click itself
+local watcher = CreateFrame("Frame")
+pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
+watcher:SetScript("OnEvent", function()
+if DayPopup:IsShown() and not DayPopup:IsMouseOver() and not (DayPopup.anchor and DayPopup.anchor:IsMouseOver()) then DayPopup:Hide() end
+end)
+end
+function DayPopup:Fill(list, label)
+self.title:SetText(label)
+local myName = UnitName("player")
+for i, ev in ipairs(list) do
+local row = self.rows[i]
+if not row then
+row = CreateFrame("Button", nil, self)
+row:SetHeight(18)
+row:SetPoint("TOPLEFT", self, "TOPLEFT", 6, -28 - (i - 1) * 19)
+row:SetPoint("RIGHT", self, "RIGHT", -6, 0)
+row.bg = row:CreateTexture(nil, "BACKGROUND") row.bg:SetAllPoints()
+row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+row.text:SetPoint("LEFT", row, "LEFT", 4, 0) row.text:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+row.text:SetJustifyH("LEFT") row.text:SetWordWrap(false)
+row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+-- The same as a line in the calendar: left = open, right = menu, hover = tooltip
+row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+row:SetScript("OnClick", function(btn, button)
+if button == "RightButton" then
+DayPopup.OpenMenu(btn.event)
+else
+DayPopup:Hide()
+OpenEvent(btn.event)
+end
+end)
+row:SetScript("OnEnter", ShowEventTooltip)
+row:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+self.rows[i] = row
+end
+local signed = ev.roster and ev.roster[myName]
+row.event = ev
+row.text:SetText((signed and "|cff00ff00" or "|cffffffff") .. ev.time .. "  " .. ev.title .. "|r")
+row.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or 0.3)
+row:Show()
+end
+for i = #list + 1, #self.rows do self.rows[i]:Hide() end
+self:SetHeight(36 + #list * 19)
+end
+function DayPopup:Open(line)
+self.anchor, self.dayKey = line, line.dayKey
+self:Fill(line.dayList, line.dayLabel)
+self:ClearAllPoints()
+self:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 0, -2)
+self:Show()
+end
 -- 42 day cells, each with up to MAX_LINES event buttons (LINES are visible)
 -- Right click on an event: "Invite members" menu = group invites for everyone signed up.
 -- We skip ourselves, people already in the group and offline ones. A party has 5 spots: with more people,
 -- the group becomes a raid (at once or after the first accepted invite), then the rest are invited.
 local EventMenu = CreateFrame("Frame", "JagodkiCalendarEventMenu", UIParent, "UIDropDownMenuTemplate")
 local menuEvent, pendingInvites = nil, nil
+function DayPopup.OpenMenu(ev)
+menuEvent = ev
+_G.ToggleDropDownMenu(1, nil, EventMenu, "cursor", 0, 0)
+end
 local function Report(text) if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end end
 local function InviteName(name)
 local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
@@ -1684,6 +2235,10 @@ else
 Report(ev.title .. ": inviting " .. #toInvite .. " " .. summary)
 end
 end
+-- Used by the Invite all button in the events table
+function EventSync.InviteAll(ev)
+if ev and EventSync.CanInvite(ev) then InviteSignedUp(ev) end
+end
 local GroupWatcher = CreateFrame("Frame")
 GroupWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
 GroupWatcher:SetScript("OnEvent", function()
@@ -1705,6 +2260,7 @@ local ev = menuEvent
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.isTitle, info.notCheckable = ev.title .. "  " .. ev.date .. " " .. ev.time, true, true
 _G.UIDropDownMenu_AddButton(info, level)
+if EventSync.CanInvite(ev) then
 local n = SignedUpOthers(ev)
 info = _G.UIDropDownMenu_CreateInfo()
 info.text = (n > 0) and ("Invite members (" .. n .. ")") or "Invite members (no sign-ups)"
@@ -1712,6 +2268,7 @@ info.disabled = (n == 0)
 info.notCheckable = true
 info.func = function() InviteSignedUp(ev) end
 _G.UIDropDownMenu_AddButton(info, level)
+end
 info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.notCheckable = "Open event", true
 info.func = function() OpenEvent(ev) end
@@ -1768,6 +2325,11 @@ b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 -- Left = open the event, right = menu (Invite members / Open event)
 b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 b:SetScript("OnClick", function(self, button)
+if self.dayList then
+-- "+N more": the list of the whole day; a second click closes it
+if DayPopup:IsShown() and DayPopup.anchor == self then DayPopup:Hide() else DayPopup:Open(self) end
+return
+end
 if not self.event then return end
 if button == "RightButton" then
 menuEvent = self.event
@@ -1840,16 +2402,28 @@ for l, b in ipairs(cell.lines) do
 local ev = (l <= LINES) and list[l]
 if ev then
 b.event = ev
--- More events than lines: the last line = "+N more" (tooltip and click = that event)
+-- More events than lines: the last line = "+N more" (tooltip and click = the whole day)
 local hidden = (l == LINES) and (#list - LINES) or 0
-b.more = hidden > 0 and ("+" .. hidden .. " more on this day") or nil
+b.dayList, b.dayKey, b.dayLabel = nil, nil, nil
+if hidden > 0 then
+b.dayList, b.dayKey, b.dayLabel = list, key, string.format("Events on %02d.%02d.%d", d, cm, cy)
+end
 local signed = ev.roster and ev.roster[myName]
 b.text:SetText(hidden > 0 and ("|cffffd100+" .. (hidden + 1) .. " more|r") or ((signed and "|cff00ff00" or "|cffffffff") .. ev.time .. " " .. ev.title .. "|r"))
 b.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or 0.3)
 b:Show()
 else
-b.event = nil b:Hide()
+b.event, b.dayList = nil, nil b:Hide()
 end
+end
+end
+-- An open day window follows changes from sync; it closes when the day has no hidden events to show
+if DayPopup:IsShown() then
+local anchor = DayPopup.anchor
+if anchor and anchor:IsShown() and anchor.dayKey == DayPopup.dayKey and anchor.dayList then
+DayPopup:Fill(anchor.dayList, anchor.dayLabel)
+else
+DayPopup:Hide()
 end
 end
 end
@@ -2072,6 +2646,7 @@ if event == "PLAYER_GUILD_UPDATE" then Most.ResetGuild() end
 local g = GetGuildInfo("player")
 if announced and g ~= announcedGuild and (g or not IsInGuild()) then announced = false end
 RefreshMyGuildRoster()
+EventSync.UpdateMonitoringTab()
 TryAnnounce()
 PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
@@ -2166,8 +2741,27 @@ local evID, list = strsplit(":", payload, 2)
 evID = DecodeField(evID)
 for _, ev in ipairs(eventsList) do
 if ev.id == evID then
-for name, role in (list or ""):gmatch("([^,=]+)=(%u+)") do
-if VALID_ROLES[role] and not ev.roster[name] then ev.roster[name] = role end
+for name, role, spec, signedAt, leader in (list or ""):gmatch("([^,=]+)=(%u+)/?(%u*);?(%d*);?(%d?)") do
+signedAt = tonumber(signedAt) or 0
+local kick = ev.kicks and ev.kicks[name]
+-- Removed by an officer after this sign-up: the old copy does not bring the player back
+if VALID_ROLES[role] and not (kick and kick.ts >= signedAt) then
+local known = EventSync.SPECS[spec]
+local fits = known and known.role == role
+if not ev.roster[name] or signedAt > ((ev.signTime and ev.signTime[name]) or 0) then
+-- Missing here, or a newer state than ours: role, spec and leader mark all come from it
+ev.roster[name] = role
+ev.specs = ev.specs or {}
+ev.specs[name] = fits and spec or nil
+ev.leaders = ev.leaders or {}
+ev.leaders[name] = (leader == "1") or nil
+if signedAt > 0 then EventSync.TouchSign(ev, name, signedAt) end
+elseif fits and known.role == ev.roster[name] and not (ev.specs and ev.specs[name]) then
+-- The same or older state, but we had no spec yet
+ev.specs = ev.specs or {}
+ev.specs[name] = spec
+end
+end
 end
 if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
 if MainFrame:IsShown() then UpdateEventsList() end
@@ -2188,13 +2782,95 @@ if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventD
 break
 end
 end
+elseif pType == "EV_EDIT" then
+addonTable.Sync.Activity("events")
+local evID, rev, title, eDate, eTime, editor, dungeon, parts, desc = strsplit(":", payload, 9)
+evID, rev, title, eDate, eTime, editor, dungeon, desc = DecodeField(evID), tonumber(rev), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(editor), DecodeField(dungeon), DecodeField(desc) or ""
+-- From the editor: must be an officer. Forwarded (sync, the editor may be offline): from a known whitelisted player, as with EV_ADD.
+local allowed = (editor == senderName and senderIsOfficer) or (editor ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+if allowed and evID and rev and title and title ~= "" and IsValidEventDate(eDate) and IsValidEventTime(eTime) and not EventSync.IsExpired(eDate) then
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+-- The newest edit wins, so an old copy from sync does not overwrite it
+if rev > (ev.rev or 0) then
+ev.title, ev.date, ev.time, ev.dungeon, ev.desc = title, eDate, eTime, (dungeon ~= "") and dungeon or nil, desc
+ev.rev, ev.editor = rev, editor
+ev.descParts, ev.descTotal, ev.descFrom = { desc }, math.min(tonumber(parts) or 1, EVENT_MAX_DESC_PARTS), senderName
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+if MainFrame:IsShown() then UpdateEventsList() end
+end
+break
+end
+end
+end
+elseif pType == "EV_SPEC" then
+local evID, code = strsplit(":", payload, 2)
+evID = DecodeField(evID)
+local spec = EventSync.SPECS[code or ""]
+-- The sender's own spec only, fitting their class (when known) and their signed role
+if spec and (not senderInfo or not senderInfo.class or senderInfo.class == spec.class) then
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+if ev.roster[senderName] == spec.role then
+ev.specs = ev.specs or {}
+ev.specs[senderName] = code
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+end
+break
+end
+end
+end
+elseif pType == "EV_RL" then
+local evID, flag = strsplit(":", payload, 2)
+evID = DecodeField(evID)
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+-- The sender's own mark only, and only when signed up
+if ev.roster[senderName] then
+ev.leaders = ev.leaders or {}
+ev.leaders[senderName] = (flag == "1") or nil
+EventSync.TouchSign(ev, senderName)
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+if MainFrame:IsShown() then UpdateEventsList() end
+end
+break
+end
+end
+elseif pType == "EV_KICK" then
+local evID, name, kickedAt, by = strsplit(":", payload, 4)
+evID, name, kickedAt, by = DecodeField(evID), DecodeField(name), tonumber(kickedAt), DecodeField(by)
+-- From the officer: must be an officer. Forwarded (sync, the officer may be offline): from a known whitelisted player, as with EV_ADD.
+local allowed = (by == senderName and senderIsOfficer) or (by ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+if allowed and evID and name and kickedAt then
+for _, ev in ipairs(eventsList) do
+if ev.id == evID then
+ev.kicks = ev.kicks or {}
+if not ev.kicks[name] or kickedAt > ev.kicks[name].ts then ev.kicks[name] = { ts = kickedAt, by = by } end
+-- A live removal always applies: sign-up times here are when the packet arrived, so a delayed sign-up could
+-- look newer than it is. A removal from sync (whisper) may be old, so a newer sign-up stays then.
+if ev.roster[name] and (channel ~= "WHISPER" or kickedAt >= ((ev.signTime and ev.signTime[name]) or 0)) then
+EventSync.ClearSign(ev, name)
+if name == myName and by == senderName and _G.DEFAULT_CHAT_FRAME then
+_G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. by .. " removed you from the event: " .. ev.title)
+end
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
+if MainFrame:IsShown() then UpdateEventsList() end
+end
+break
+end
+end
+end
 elseif pType == "EV_SIGN" then
 local evID, role = strsplit(":", payload, 2)
 -- Known roles only; the sender signs up only themselves (roster[senderName])
 if not VALID_ROLES[role] then return end
+-- A role the sender's class cannot play is rejected when the class is known
+local senderRoles = senderInfo and EventSync.CLASS_ROLES[senderInfo.class]
+if senderRoles and not senderRoles[role] then return end
 for _, ev in ipairs(eventsList) do
 if ev.id == evID then
 ev.roster[senderName] = role
+EventSync.TouchSign(ev, senderName)
 if selectedEventIndex and eventsList[selectedEventIndex].id == evID then UpdateEventDetails() end
 if MainFrame:IsShown() then UpdateEventsList() end
 break

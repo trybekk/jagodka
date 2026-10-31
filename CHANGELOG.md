@@ -426,3 +426,69 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - Zone names come in the language of the sender's client.
 - Everyone in the listed guilds with the addon can see your location; there is no option to hide it yet.
 - Compatibility: the status packet has a new field. Clients older than 0.8.9 cannot read the rank index from it, and fall back to the rank name for officer checks, so everyone should update.
+
+---
+
+# 0.9.0 – Events tab: table, details window, class-based sign-ups
+
+- **Table:** Upcoming Events is now a table across the whole tab, built like Members. Columns: Date, Time, Event, Instance, Guild, Created by, Signed. Widths fit the content, the nearest event is first, and headers sort. Events you signed up for are green.
+- **Details window:** clicking a row opens a separate window that can be dragged, with the description, sign-up list and buttons. It closes with X or Esc, and also when the tab or main window closes or the event is removed.
+- **Sign-ups:** you sign up as the logged-in character, and only the roles of your class are offered, with your current role in green. Warrior: Tank, DPS. Paladin and Druid: Tank, Heal, DPS. Priest and Shaman: Heal, DPS. Hunter, Rogue, Mage and Warlock: DPS.
+- A received `EV_SIGN` with a role the sender's class cannot play is rejected when the class is known.
+- Sign-up lists use class colors also for offline players, from guild rosters.
+- **Unchanged:** event packets, saved data, and the Calendar link. Calendar clicks open the same details window.
+
+**Limitations:**
+- There is no way to withdraw from an event yet, only to change the role.
+- Sign-ups already saved with a role outside these rules stay as they are.
+- Limits: `core.lua` 182/200.
+
+---
+
+# 0.9.1 – specs, sign-up icon, wider details, event editing
+
+- **Sign-up by spec:** you can pick any spec of your class, including an off-spec, and the role follows from it. The role still goes in `EV_SIGN`, and the spec in a new `EV_SPEC`. Older versions keep seeing the role.
+- **Your sign-up column:** a new column in the events table with a small button: `Sign up`, or your current spec in green with a `v` (e.g. `Protection v`). A click opens a menu of your specs. A sign-up from before 0.9.1 shows its role instead of a spec.
+- **Details window:** wider (560 px), and the sign-up list now shows role, name, level, spec, guild, rank and online status. Data comes from the online list and guild rosters. Unknown values show `-`.
+- **Editing (officers):** an Edit button in the details window opens the create form with the event's values. Saving sends a new `EV_EDIT` packet and an "Event edited by ..." message on General. The sign-ups are kept.
+- **Edit sync:** each edit has a time (`rev`), and the newest one wins. `EV_REQ` answers also include edits, so people who were offline get them. An edit is accepted from the officer who made it, or forwarded by a known whitelisted player, the same trust as `EV_ADD`.
+
+**Limitations:**
+- Clients older than 0.9.1 ignore edits and specs, and keep the old event data.
+- Sign-ups saved before 0.9.1 have no spec until the player signs up again.
+- Limits: `core.lua` 181/200.
+
+---
+
+# 0.9.2 – raid leader mark, player menu and removal on sign-up lists
+
+- **Raid leader:** a signed-up player can mark themselves with "I am the raid leader" in the details window or the sign-up menu, and take it off at any time. Several players can have it. It shows a crown next to the name, and leaders are first on the list. New packet: `EV_RL`.
+- **Right click on the sign-up list:** the usual player menu (Whisper, Invite, Mute rules as before).
+- **Remove from event (officers):** a new menu entry takes a player off the event, with a new `EV_KICK` packet. The removed player gets a chat message if online, and can sign up again.
+- **Sync:** sign-ups now have a time, sent in `EV_ROS` with the spec and leader mark. The newest state wins, so changes reach people who were offline, and a removed player does not return from an old copy. Removals are also sent in answers to `EV_REQ`.
+
+**Limitations:**
+- Older versions ignore the leader mark and removals, and can keep showing a removed player.
+- Sign-ups saved before 0.9.2 have no time, so any sign-up with a time beats them.
+- A removal is accepted when forwarded by any known whitelisted player, the same trust as `EV_ADD`.
+
+**Invite all:** a new Invite column in the events table has an `Invite all` button, visible only to officers and that event's raid leaders, and inactive when nobody else is signed up. It uses the calendar's existing invite logic: it skips you, people in the group and offline players, and converts the group to a raid when needed. "Invite members" in the calendar now follows the same permission. The game still requires the group leader or a raid assistant to invite.
+
+**Details window layout:** the description is as tall as its text, up to 7 lines; a longer one is cut, and hovering shows it in full. The sign-up list takes the remaining space down to a fixed line, so a short description leaves no gap, and the raid leader option and buttons always stay in place.
+
+**Calendar, many events on one day:** the "+N more" line now lists the whole day on hover, and a click opens a small window with all that day's events. Left click opens an event, right click opens its menu. It closes with a click outside, Esc, X or another click on the line.
+
+---
+
+# 0.9.3 – Monitoring tab
+
+- The Settings tab is now **Monitoring**, and only players with an officer rank see it (new file `monitor.lua`). The button appears or disappears when the rank changes.
+- **Log:** every addon packet sent and received (`TX` / `RX`), with time, route, packet type and player, plus errors and changes of the relay, linked guilds and channel. It contains no message contents. The last 500 entries are kept for the session, and older ones are overwritten.
+- **Log controls:** filters All, Chat, Events, Rosters, Mutes, Presence and Errors; the mouse wheel scrolls 3 lines (Shift = page, Ctrl = start or end); `Latest` jumps to the newest entry; `Clear` empties the log.
+- **Statistics under the log, refreshed every second:** channel state and who is on it, guild relay, linked guilds, TX and RX (packets, data, rate per minute, failures, limit hits), queues, chat log size, addon users and versions, uptime, busiest packet types, rejected packets and errors.
+- While the tab is open the addon reads the channel member list every 30 s, also for a player who is not the relay.
+- The old status text and its diagnostics were removed; the new tab covers them.
+
+**Limitations:**
+- The log starts at login and is not saved.
+- Hiding the tab is only a client-side view: the data comes from that player's own client and packets are not restricted by it.
