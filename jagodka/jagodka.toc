@@ -2,7 +2,7 @@
 ## Title: Jagodki Nadina - Community
 ## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with shared chat linked to guild chat, a combined member list, and synced events with sign-ups and a calendar.
 ## Author: trybekk & Lasarr
-## Version: 0.9.4
+## Version: 0.9.5
 ## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 
 Libs\LibStub\LibStub.lua

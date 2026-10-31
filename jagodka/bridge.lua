@@ -179,12 +179,12 @@ local tokens, MAX_TOKENS, TOKENS_PER_SEC = 10, 10, 1
 local whisperedAt = {}              -- name -> time of the last addon whisper (to recognize "player offline")
 
 function Most.Send(pType, payload, priority)
-    local item = { msg = pType .. ":" .. payload, tries = 0 }
+    local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
     table.insert(priority == "low" and lowQueue or highQueue, item)
 end
 
 function Most.Whisper(target, pType, payload, priority)
-    table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
+    table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0, queued = GetTime() })
 end
 
 -- Older API returns a bool, newer a code from Enum.SendAddonMessageResult (0 = success)
@@ -215,7 +215,7 @@ local function PumpAddonQueue()
     local ok = IsOk(result)
     -- On a temporary server limit we retry for a long time (about 30 s) so the message is not lost
     if ok or not IsThrottle(result) or item.tries >= 30 then
-        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result) end
+        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result, GetTime() - item.queued, item.tries) end
         table.remove(queue, 1)
         tokens = tokens - 1
     else
@@ -420,6 +420,7 @@ local function BridgeToGuild(e)
     local line = BridgePrefix(e.guild, e.author, level) .. e.text
     if #line > 255 then line = Utf8Cut(line, 255) end
     table.insert(guildLineQueue, line)
+    if addonTable.Monitor then addonTable.Monitor.Relay("Queued for my /g: line from " .. e.author .. " (" .. tostring(e.guild) .. ")") end
 end
 
 -- Whether a /g line was posted by the bridge (rather than written by a player)
@@ -625,11 +626,11 @@ function Most.Route(text, channel, senderName)
             Count(debug.rejected, "forward from unknown")
             return nil
         end
-        table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0 })
+        table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = GetTime() })
     elseif channel ~= "GUILD" then
         return nil
     end
-    if addonTable.Monitor then addonTable.Monitor.RX(inner, "FW", origin) end
+    if addonTable.Monitor then addonTable.Monitor.RX(inner, "FW", origin, senderName, channel) end
     return inner, "FW", origin
 end
 
@@ -674,6 +675,7 @@ local function HandleChannelList(list)
         if isRelay and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello then
             helloAt[name] = now
+            if addonTable.Monitor then addonTable.Monitor.Relay("On the channel but unknown, greeting " .. name) end
             ctx.sendHello(name)
         end
     end
@@ -696,6 +698,7 @@ local function HandlePlayerNotFound(message)
     local name = NameFromSystemMessage(_G.ERR_CHAT_PLAYER_NOT_FOUND_S, message)
     if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
     RemoveActivePlayer(name)
+    if addonTable.Monitor then addonTable.Monitor.Relay("Whisper to " .. name .. " failed: player offline, removed from the list") end
     return true
 end
 
@@ -740,6 +743,9 @@ function Most.GetMonitorInfo()
         channelId = Most.GetChannelId(), channelName = ChannelName(), channelProblem = channelProblem, channelMembers = members,
         relay = Most.GetRelayName(), isRelay = Most.IsRelay(), linked = linked, rejected = debug.rejected,
         queueHigh = #highQueue, queueLow = #lowQueue, queueGuild = #guildLineQueue, history = #chatLog,
+        queueOldest = (highQueue[1] or lowQueue[1]) and GetTime() - (highQueue[1] or lowQueue[1]).queued or nil,
+        relayReadyIn = (relayReadyAt ~= math.huge and GetTime() < relayReadyAt) and relayReadyAt - GetTime() or nil,
+        greeted = helloAt, helloRetry = HELLO_RETRY, listAskedAt = (listAskedAt > 0) and listAskedAt or nil,
     }
 end
 
@@ -811,12 +817,16 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             -- Another relay already posted this line -> we do not post it again
             if author ~= MyName() then
                 for i = #guildLineQueue, 1, -1 do
-                    if guildLineQueue[i] == text then table.remove(guildLineQueue, i) end
+                    if guildLineQueue[i] == text then
+                        table.remove(guildLineQueue, i)
+                        if addonTable.Monitor then addonTable.Monitor.Relay(author .. " already posted this /g line, ours dropped") end
+                    end
                 end
             end
             return
         end
         if Most.IsRelay() then
+            if addonTable.Monitor then addonTable.Monitor.Relay("Publishing a /g line from " .. author .. " (you are the relay)") end
             Most.Publish("Ogolny", text, "G", author, MyGuild())
         elseif CanForward() then
             -- BACKUP RELAY: if the main relay does not forward this line within a few seconds
@@ -826,6 +836,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             local firstPart = SplitForPublish(text, guild, author, "Ogolny", "G")[1]
             C_Timer.After(BACKUP_MIN_DELAY + math.random() * (BACKUP_MAX_DELAY - BACKUP_MIN_DELAY), function()
                 if CanForward() and not HasRecentGuildLine(guild, author, firstPart, ts) then
+                    if addonTable.Monitor then addonTable.Monitor.Relay("Backup relay: the main relay did not publish a /g line from " .. author .. ", publishing it") end
                     Most.Publish("Ogolny", text, "G", author, guild, ts)
                 end
             end)

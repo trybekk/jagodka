@@ -134,7 +134,7 @@ WindowLogo:SetPoint("LEFT", HeaderBar, "LEFT", 12, 0)
 WindowLogo:SetTexture("Interface\\AddOns\\jagodka\\Media\\blueberry.tga")
 
 TitleText:SetPoint("LEFT", WindowLogo, "RIGHT", 8, 0)
-TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community")
+TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community |cffdecda5-|r Alpha-" .. ADDON_VERSION)
 
 local CloseBtn = CreateFrame("Button", nil, MainFrame, "UIPanelCloseButton")
 CloseBtn:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -2, -2)
@@ -2700,11 +2700,12 @@ if addonTable.Notes.HandlePacket(pType, payload, senderName) then return end
 if addonTable.Professions.HandlePacket(pType, payload, senderName) then return end
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk, ver, rIdx, zone = strsplit(":", payload, 7)
-if not IsPlayerGuildAllowed(gld) then return end
+if not IsPlayerGuildAllowed(gld) then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": guild not listed (" .. tostring(gld) .. ")") return end
 -- Someone claims to be in my guild but is not in its roster -> rejected
 if gld == GetGuildInfo("player") and senderName ~= myName and myGuildRosterLoaded and myGuildRoster[senderName] == nil then
 if not spoofWarned[senderName] then
 spoofWarned[senderName] = true
+addonTable.Monitor.Note("Ignored " .. senderName .. ": claims your guild but is not in its roster")
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. senderName .. " claims to be in your guild but is not in its roster - ignored.|r") end
 end
 return
@@ -2728,7 +2729,7 @@ end)
 end
 else
 local senderIdx = GetPlayerIndex(senderName)
-if not senderIdx and senderName ~= myName then return end
+if not senderIdx and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
 -- Sender data (guild, rank) from their status packet, used to check permissions
 local senderInfo = senderIdx and activePlayers[senderIdx]
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")

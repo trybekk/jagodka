@@ -505,3 +505,20 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - If nobody with newer data is online, the lock ends and the old data stays.
 - Two officers editing one event at the same time can still overwrite each other: the later save wins.
+
+# 0.9.5 – more detailed Monitoring
+
+## Log
+- Each packet shows its route (relay, repost, greeting, who it came from), what it is about, its size, and how long it waited in the queue with its retries. Message and note contents are still not logged.
+- New entries: relay changes in every guild, greetings, whispers to offline players, publishing `/g` lines, backup relay takeovers, dropped duplicates, players appearing on and leaving the online list.
+- Sync stages are logged with their time and packet count, or "no answer", as is the moment officer actions become available.
+- Packets ignored by `core.lua` (unknown sender, guild not listed, not in the roster) are now logged.
+- New `Relay` and `Sync` filters; the log keeps 1000 entries instead of 500.
+
+## Network view
+- New `Network` button: relays and online players per guild, your direct traffic with each player, players with version and last signal, channel members who have not answered, sync stages, and traffic per packet type.
+- Each client sees only its own links; relays of other guilds come from the rule everyone computes.
+- The buttons now take two rows, because they did not fit in the panel.
+
+## Window
+- The window title shows the version: `Jagodki Nadina - Community - Alpha-0.9.5`.
