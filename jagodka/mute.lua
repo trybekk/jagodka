@@ -132,6 +132,7 @@ end
 
 -- Mute / unmute (checks permissions locally; receivers check them again)
 function Mute.Set(name, on, reason)
+    if addonTable.Sync.Blocked() then return end
     local me = MyName()
     reason = CleanReason(reason)
     if on and (reason == "" or not Mute.CanMute(me, name)) then return end
@@ -180,6 +181,7 @@ _G.StaticPopupDialogs["JAGODKA_MUTE_REASON"] = {
 }
 
 function Mute.AskReason(name)
+    if addonTable.Sync.Blocked() then return end
     _G.StaticPopup_Show("JAGODKA_MUTE_REASON", name, nil, name)
 end
 

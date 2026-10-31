@@ -1505,6 +1505,7 @@ EventSync.leaderCheck:SetChecked(ev.leaders and ev.leaders[myName] and true or f
 if ev.roster[myName] then EventSync.leaderCheck:Enable() else EventSync.leaderCheck:Disable() end
 EventSync.leaderCheck.label:SetAlpha(ev.roster[myName] and 1 or 0.45)
 if IsPlayerOfficer() then EditEventBtn:Show() else EditEventBtn:Hide() end
+EventSync.UpdateLockButtons()
 if CanRemoveEvent(ev, UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
 -- Events table, in a block so its helpers do not stay in the file's local variable limit.
@@ -1871,6 +1872,7 @@ end
 end)
 -- Opens the create window with a preset date (calendar); if already open, only the date changes
 function EventPicker.OpenFor(dayTime)
+if addonTable.Sync.Blocked() then return end
 -- An edit in progress ends here, so this cannot overwrite that event
 if EventPicker.editing then CreatorFrame:Hide() end
 EventPicker.presetDay = dayTime
@@ -1908,7 +1910,29 @@ end
 TitleInput:SetMaxBytes(50)
 local SubmitBtn = CreateFrame("Button", nil, CreatorFrame, "GameMenuButtonTemplate")
 SubmitBtn:SetSize(120, 30) SubmitBtn:SetPoint("BOTTOM", CreatorFrame, "BOTTOM", 0, 20) SubmitBtn:SetText("Create and Send")
-CreateEventBtn:SetScript("OnClick", function() if IsPlayerOfficer() then CreatorFrame:Show() else UIErrorsFrame:AddMessage("Error: Officer rank required!", 1.0, 0.1, 0.1, 1.0, 2) end end)
+CreateEventBtn:SetScript("OnClick", function()
+if addonTable.Sync.Blocked() then return end
+if IsPlayerOfficer() then CreatorFrame:Show() else UIErrorsFrame:AddMessage("Error: Officer rank required!", 1.0, 0.1, 0.1, 1.0, 2) end
+end)
+-- Officer buttons are gray until the first sync after login ends, with the reason on hover
+function EventSync.UpdateLockButtons()
+local locked = addonTable.Sync.LoginLocked()
+CreateEventBtn:SetEnabled(IsPlayerOfficer() and not locked)
+EditEventBtn:SetEnabled(not locked)
+RemoveEventBtn:SetEnabled(not locked)
+end
+for _, lockedBtn in ipairs({ CreateEventBtn, EditEventBtn, RemoveEventBtn }) do
+lockedBtn:SetMotionScriptsWhileDisabled(true)
+lockedBtn:HookScript("OnEnter", function(self)
+if not addonTable.Sync.LoginLocked() then return end
+_G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+_G.GameTooltip:SetText("Syncing - available in a moment", 1, 0.82, 0)
+_G.GameTooltip:Show()
+end)
+lockedBtn:HookScript("OnLeave", function() _G.GameTooltip:Hide() end)
+end
+-- Runs for about the longest lock, then the buttons stay as they are
+C_Timer.NewTicker(1, EventSync.UpdateLockButtons, 120)
 -- Back to an empty "New Event" form
 function EventPicker.ClearForm()
 TitleInput:SetText("") DescInput:SetText("")
@@ -1917,6 +1941,7 @@ SubmitBtn:SetText("Create and Send")
 end
 -- Opens the same form for editing an event (officers)
 function EventPicker.OpenEdit(ev)
+if addonTable.Sync.Blocked() then return end
 if not CreatorFrame:IsShown() then CreatorFrame:Show() end
 EventPicker.editing = ev
 EventPicker.LoadEvent(ev)
@@ -1999,6 +2024,7 @@ SendJagodkaNetworkPacket("EV_RL", EncodeField(ev.id) .. ":" .. (on and "1" or "0
 end
 -- An officer takes a player off an event
 function EventSync.Kick(ev, name)
+if addonTable.Sync.Blocked() then return end
 if not ev or not IsPlayerOfficer() or not ev.roster[name] then return end
 ev.kicks = ev.kicks or {}
 -- At least 1 s newer than the player's sign-up, so the removal wins even right after it
@@ -2014,6 +2040,7 @@ local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if ev and IsPlayerOfficer() then EventPicker.OpenEdit(ev) end
 end)
 RemoveEventBtn:SetScript("OnClick", function()
+if addonTable.Sync.Blocked() then return end
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 if not CanRemoveEvent(eventsList[selectedEventIndex], UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("You can only remove your own events (officers: any).") return end
 local removedEv = eventsList[selectedEventIndex]
@@ -2540,6 +2567,7 @@ end
 function EventSync.LoginSync()
 if EventSync.loginSynced then return end
 EventSync.loginSynced = true
+addonTable.Sync.StartLoginLock()
 local function SyncAll()
 Most.RequestHistory()
 Mute.Request()
@@ -2913,7 +2941,7 @@ end)
 -- FIX: points to the specific fourth index of the panel table
 Panels[4]:SetScript("OnShow", function()
 if _G.JagodkiEventsDB then eventsList = _G.JagodkiEventsDB end
-if IsPlayerOfficer() then CreateEventBtn:Enable() else CreateEventBtn:Disable() end
+EventSync.UpdateLockButtons()
 if UpdateEventsList then UpdateEventsList() end
 EventSync.Request()
 end)

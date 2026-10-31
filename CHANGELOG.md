@@ -492,3 +492,16 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - The log starts at login and is not saved.
 - Hiding the tab is only a client-side view: the data comes from that player's own client and packets are not restricted by it.
+
+---
+
+# 0.9.4 – officer actions wait for the first sync
+
+- After login, creating, editing and removing events, removing players from events, and mute and unmute are unavailable until the first sync ends. This stops actions on old data, such as an old edit form overwriting a newer edit.
+- The lock lasts at least 16 s, then until the sync stages finish, and at most 45 s, so it also ends for someone alone online.
+- Create Event, Edit and Remove are gray with a hover message. Actions from menus show "Syncing - available in a moment" when clicked.
+- Chat, browsing, sign-ups and Monitoring work during the lock. It applies only after login, not to later syncs.
+
+**Limitations:**
+- If nobody with newer data is online, the lock ends and the old data stays.
+- Two officers editing one event at the same time can still overwrite each other: the later save wins.

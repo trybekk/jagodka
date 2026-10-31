@@ -88,6 +88,33 @@ local function Update()
     return anyStarted, anyActive
 end
 
+-- ============================================================================
+-- LOGIN LOCK: officer actions wait for the first sync, so nobody acts on old data
+-- ============================================================================
+-- At least LOCK_MIN seconds (covers the repeated request for a relay that found other guilds at 14 s), then
+-- until the stages finish, and never over LOCK_MAX, so it always ends, also for someone alone online.
+local LOCK_MIN, LOCK_MAX = 16, 45
+local lockStart = nil
+
+-- From login, and again when the guild becomes known and the first sync really starts
+function Sync.StartLoginLock() lockStart = GetTime() end
+
+function Sync.LoginLocked()
+    if not lockStart then return false end
+    local elapsed = GetTime() - lockStart
+    if elapsed >= LOCK_MAX then return false end
+    if elapsed < LOCK_MIN then return true end
+    local _, anyActive = Update()
+    return anyActive
+end
+
+-- For officer actions: true = locked, with a message on the screen
+function Sync.Blocked()
+    if not Sync.LoginLocked() then return false end
+    if _G.UIErrorsFrame then _G.UIErrorsFrame:AddMessage("Syncing - available in a moment", 1, 0.82, 0, 1, 2) end
+    return true
+end
+
 local function Render()
     if not bar then return end
     local anyStarted, anyActive = Update()
@@ -145,7 +172,10 @@ end
 -- Global channel: stage from login until joining the channel
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:SetScript("OnEvent", function() Sync.Start("channel") end)
+Listener:SetScript("OnEvent", function()
+    Sync.Start("channel")
+    Sync.StartLoginLock()
+end)
 
 -- State is also updated with the window closed (cheap, every 1 s), so opening it does not show old stages
 C_Timer.NewTicker(1, Update)
