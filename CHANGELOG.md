@@ -522,3 +522,11 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 
 ## Window
 - The window title shows the version: `Jagodki Nadina - Community - Alpha-0.9.5`.
+
+# 0.9.6 – faster event sync between guilds
+
+- Relays now forward sign-ups, spec changes, raid leader marks, removals from events, and new, edited and removed events ahead of bulk sync, as they already did for chat. Before, these waited behind rosters and sign-up lists, on both relays.
+
+**Limitations:**
+- Both relays need this version, because each one queues forwarded packets by its own rules.
+- The send limit stays at about 1 packet per second, so a burst of chat and sign-ups can still take longer.

@@ -581,8 +581,13 @@ end
 -- ============================================================================
 -- The relay wraps a GUILD packet as "FW:sender:packet" and whispers it to relays of other guilds.
 -- The receiver reposts it unchanged to its own GUILD. Nobody forwards wrapped packets again.
+-- Things people do right now go ahead of bulk sync (rosters, sign-up lists), so they arrive within seconds
+local LIVE_PACKETS = {
+    GMSG = true, EV_ADD = true, EV_DESC = true, EV_EDIT = true, EV_REM = true,
+    EV_SIGN = true, EV_SPEC = true, EV_RL = true, EV_KICK = true,
+}
 local function ForwardPriority(text)
-    return text:sub(1, 5) == "GMSG:" and "high" or "low"
+    return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"
 end
 
 -- Relays of other guilds from the online player list: guild -> name
