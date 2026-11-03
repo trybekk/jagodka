@@ -47,9 +47,7 @@ end
 -- ============================================================================
 -- 0B. SHARED CHANNEL AND GUILD WHITELIST CONFIGURATION
 -- ============================================================================
-local AllowedGuilds = {
-    ["Testowo"] = true,
-}
+local AllowedGuilds = {}
 -- Community guilds: "Jagódki Nadina", "Jagódki Nadina II", "... III", "... IV".
 -- Another guild = another suffix (e.g. " V") and an addon version bump.
 for _, suffix in ipairs({ "", " II", " III", " IV" }) do

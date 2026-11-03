@@ -326,7 +326,6 @@ local GUILD_TAGS = {
     ["Jagódki Nadina II"] = "JN2",
     ["Jagódki Nadina III"] = "JN3",
     ["Jagódki Nadina IV"] = "JN4",
-    ["Testowo"] = "TEST",
 }
 -- "[JN]" with a gray bracket and a muted purple tag
 local function GuildLabel(guild)

@@ -576,6 +576,7 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - **Preserve logs:** a new button in Monitoring saves everything the log shows, as plain text, in `JagodkiMonitorDB`. It is off by default and stays on after `/reload` and the next login, until it is turned off.
 - **Full picture:** while recording, the statistics and the Network view are added every 60 s, including the queue, relays, players and channel. The channel list is also read while the tab is closed.
 - **Network view:** times show as minutes and hours instead of seconds, and players no longer on the addon list are marked in the direct traffic list.
+- **Guild list:** the test guild `Testowo` is removed, so whoever founds a guild with that name no longer joins the community as an officer.
 - **Separate file:** the log is saved per character in `WTF\Account\<account>\<server>\<character>\SavedVariables\jagodka.lua`, without chat history or rosters. `Clear saved` empties it.
 
 **Limitations:**
