@@ -8,6 +8,8 @@
 --    We only see our own links: relays of other guilds come from the same rule everyone computes.
 --  * The last LOG_SIZE entries are kept in memory for this session; older ones are overwritten.
 --  * Statistics and the Network view refresh once a second while the tab is visible.
+--  * Preserve logs: the same log as plain text in JagodkiMonitorDB, with the statistics and the Network
+--    view every SAVE_STATE_INTERVAL. Per character, so it is alone in its file. Off by default.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -23,6 +25,8 @@ local ipairs, pairs, tostring, tonumber = _G.ipairs, _G.pairs, _G.tostring, _G.t
 local table, math, string, wipe = _G.table, _G.math, _G.string, _G.wipe
 
 local LOG_SIZE = 1000
+local SAVED_LOG_SIZE = 50000      -- entries in the saved log; the oldest are overwritten
+local SAVE_STATE_INTERVAL = 60    -- how often the saved log gets the statistics and the Network view (s)
 local STATS_HEIGHT = 145
 local WATCH_INTERVAL = 5          -- how often we check the relay and linked guilds (s)
 local CHANNEL_LIST_INTERVAL = 30  -- how often an open tab reads the channel member list (s)
@@ -52,6 +56,7 @@ addonTable.Monitor = Monitor
 -- Context from core.lua: activePlayers
 local ctx, logFrame, statsText, filterButtons = nil, nil, nil, {}
 local netScroll, netChild, netText, networkBtn = nil, nil, nil, nil
+local savedLog, preserveBtn = nil, nil   -- JagodkiMonitorDB: { recording, lines, nextIndex, total }
 local entries = {}           -- { cat, err, relay, text }
 local currentFilter = "all"
 local showNetwork = false
@@ -71,7 +76,17 @@ local function Matches(entry)
     return entry.cat == currentFilter
 end
 
+-- lines is a ring: once total exceeds SAVED_LOG_SIZE, the oldest entry is at nextIndex
+local function Save(kind, text)
+    if not savedLog or not savedLog.recording then return end
+    local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    savedLog.lines[savedLog.nextIndex] = date("%d.%m %H:%M:%S") .. " [" .. kind .. "] " .. plain
+    savedLog.nextIndex = savedLog.nextIndex % SAVED_LOG_SIZE + 1
+    savedLog.total = savedLog.total + 1
+end
+
 local function Add(cat, err, text, relay)
+    Save(err and "error" or cat, text)
     local entry = { cat = cat, err = err, relay = relay, text = "|cff808080" .. date("%H:%M:%S") .. "|r " .. text }
     table.insert(entries, entry)
     if #entries > LOG_SIZE then table.remove(entries, 1) end
@@ -247,7 +262,11 @@ local function Kilobytes(bytes)
 end
 
 local function Ago(t)
-    return t and (math.floor(GetTime() - t) .. " s ago") or "never"
+    if not t then return "never" end
+    local s = math.floor(GetTime() - t)
+    if s < 60 then return s .. " s ago" end
+    if s < 3600 then return math.floor(s / 60) .. " min ago" end
+    return math.floor(s / 3600) .. " h " .. math.floor(s % 3600 / 60) .. " min ago"
 end
 
 -- Sorted list of the packet types: { type, counters }
@@ -275,7 +294,7 @@ local function BuildStats()
     table.insert(lines, string.format("|cff66ccffTX:|r %d packets, %s, %d/min, %d failed, %d limited   |cff66ff99RX:|r %d packets, %s, %d/min",
         stats.tx, Kilobytes(stats.txBytes), RecentCount(stats.txTimes), stats.txFailed, stats.throttled, stats.rx, Kilobytes(stats.rxBytes), RecentCount(stats.rxTimes)))
     table.insert(lines, "|cffffd100Queue:|r " .. info.queueHigh .. " high, " .. info.queueLow .. " low"
-        .. (info.queueOldest and string.format(" (oldest %.0f s)", info.queueOldest) or "") .. ", " .. info.queueGuild .. " /g lines   |cffffd100Chat log:|r " .. info.history .. " messages")
+        .. (info.queueOldest and string.format(" (oldest %.0f s)", info.queueOldest) or "") .. "   |cffffd100Chat log:|r " .. info.history .. " messages")
     -- Who has which version
     local versions, online = {}, 0
     for _, p in ipairs(ctx.activePlayers) do
@@ -350,9 +369,12 @@ local function BuildNetwork()
     for name in pairs(peers) do table.insert(peerNames, name) end
     table.sort(peerNames, function(a, b) return peers[a].tx + peers[a].rx > peers[b].tx + peers[b].rx end)
     if #peerNames == 0 then table.insert(lines, "-") end
+    local listed = {}
+    for _, p in ipairs(ctx.activePlayers) do listed[p.name] = true end
     for _, name in ipairs(peerNames) do
         local peer = peers[name]
-        table.insert(lines, string.format("%s: %d (%d) / %d (%d), last sent %s, last received %s", name, peer.tx, peer.fwTx, peer.rx, peer.fwRx, Ago(peer.lastTx), Ago(peer.lastRx)))
+        table.insert(lines, string.format("%s: %d (%d) / %d (%d), last sent %s, last received %s%s", name, peer.tx, peer.fwTx, peer.rx, peer.fwRx, Ago(peer.lastTx), Ago(peer.lastRx),
+            listed[name] and "" or " |cff808080(not on the addon list)|r"))
     end
 
     Heading(lines, "Players with the addon")
@@ -372,8 +394,9 @@ local function BuildNetwork()
     end
 
     Heading(lines, "Channel: no answer yet")
-    local silent = {}
+    local silent, onChannel = {}, {}
     for _, name in ipairs(info.channelMembers) do
+        onChannel[name] = true
         if name ~= me and not isOnline[name] then
             local greeted = info.greeted[name]
             table.insert(silent, name .. " |cff808080(" .. (greeted and ("greeted " .. Ago(greeted)) or "not greeted") .. ")|r")
@@ -381,6 +404,17 @@ local function BuildNetwork()
     end
     table.insert(lines, #silent > 0 and table.concat(silent, ", ") or "-")
     table.insert(lines, "List read " .. Ago(info.listAskedAt) .. ". Only a relay greets, every " .. info.helloRetry .. " s per player.")
+
+    Heading(lines, "Addon players not on the channel list")
+    local missing = {}
+    for _, p in ipairs(players) do
+        if not onChannel[p.name] then table.insert(missing, p.name) end
+    end
+    if #info.channelMembers == 0 then
+        table.insert(lines, "List not read yet")
+    else
+        table.insert(lines, #missing > 0 and table.concat(missing, ", ") or "-")
+    end
 
     Heading(lines, "Sync")
     table.insert(lines, "Officer actions: " .. (Sync.LoginLocked() and "|cffff9933locked|r" or "|cff00ff00available|r"))
@@ -403,6 +437,83 @@ local function RefreshNetwork()
     netText:SetText(BuildNetwork())
     netChild:SetHeight(netText:GetStringHeight() + 4)
 end
+
+-- ============================================================================
+-- SAVED LOG
+-- ============================================================================
+local function IsRecording()
+    return savedLog ~= nil and savedLog.recording
+end
+
+-- A diagnostic must never break anything, so a failed view only leaves a line in the log
+local function SaveView(kind, build)
+    local ok, text = pcall(build)
+    Save(ok and kind or "error", ok and text or ("Could not read " .. kind .. ": " .. tostring(text)))
+end
+
+local function SaveState()
+    if not ctx or not IsRecording() then return end
+    SaveView("state", BuildStats)
+    SaveView("network", BuildNetwork)
+end
+
+local function SaveSessionLine(text)
+    local version = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata or _G.GetAddOnMetadata)(addonName, "Version")
+    Save("session", text .. ", " .. date("%Y-%m-%d %H:%M:%S") .. ", v" .. tostring(version) .. ", " .. tostring(UnitName("player")))
+end
+
+local function UpdatePreserveButton()
+    if not preserveBtn then return end
+    if IsRecording() then
+        preserveBtn:SetText("Preserve logs: ON (" .. math.min(savedLog.total, SAVED_LOG_SIZE) .. ")")
+    else
+        preserveBtn:SetText("Preserve logs: OFF")
+    end
+end
+
+-- The game gives no account name, so that part stays a placeholder
+local function SavedFilePath()
+    return "World of Warcraft\\_classic_era_\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\\SavedVariables\\jagodka.lua"
+end
+
+local function TogglePreserve()
+    if not savedLog then return end
+    if savedLog.recording then
+        SaveSessionLine("Recording stopped")
+        savedLog.recording = false
+        _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording stopped. The log is written on /reload, logout or exit, to: " .. SavedFilePath())
+    else
+        savedLog.recording = true
+        SaveSessionLine("Recording started")
+        addonTable.Most.RefreshChannelList()
+        SaveState()
+        _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording started.")
+    end
+    UpdatePreserveButton()
+end
+
+local function ClearSavedLog()
+    if not savedLog then return end
+    wipe(savedLog.lines)
+    savedLog.nextIndex, savedLog.total = 1, 0
+    SaveSessionLine("Saved log cleared")
+    UpdatePreserveButton()
+end
+
+local SavedLogLoader = CreateFrame("Frame")
+SavedLogLoader:RegisterEvent("ADDON_LOADED")
+SavedLogLoader:SetScript("OnEvent", function(self, _, name)
+    if name ~= addonName then return end
+    self:UnregisterEvent("ADDON_LOADED")
+    local db = _G.JagodkiMonitorDB or {}
+    _G.JagodkiMonitorDB = db
+    db.lines = db.lines or {}
+    db.nextIndex = db.nextIndex or 1
+    db.total = db.total or 0
+    savedLog = db
+    SaveSessionLine("Session started")
+    UpdatePreserveButton()
+end)
 
 -- Logs changes of the relays, linked guilds and players, also while the tab is closed
 local function WatchLinks()
@@ -477,6 +588,22 @@ function Monitor.Attach(panel, c)
     networkBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -26)
     networkBtn:SetText("Network")
     networkBtn:SetScript("OnClick", function() showNetwork = true Rebuild() end)
+    preserveBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    preserveBtn:SetSize(170, 22)
+    preserveBtn:SetPoint("LEFT", networkBtn, "RIGHT", 2, 0)
+    preserveBtn:SetScript("OnClick", TogglePreserve)
+    preserveBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Saves this log for this character.\nThe game writes the file on /reload, logout or exit.\nFile: " .. SavedFilePath(), 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    preserveBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    UpdatePreserveButton()
+    local clearSaved = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    clearSaved:SetSize(85, 22)
+    clearSaved:SetPoint("LEFT", preserveBtn, "RIGHT", 2, 0)
+    clearSaved:SetText("Clear saved")
+    clearSaved:SetScript("OnClick", ClearSavedLog)
     local clear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     clear:SetSize(50, 22)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -26)
@@ -546,10 +673,11 @@ function Monitor.Attach(panel, c)
         if panel:IsVisible() then
             statsText:SetText(BuildStats())
             if showNetwork then RefreshNetwork() end
+            UpdatePreserveButton()
         end
     end)
     C_Timer.NewTicker(CHANNEL_LIST_INTERVAL, function()
-        if panel:IsVisible() then addonTable.Most.RefreshChannelList() end
+        if panel:IsVisible() or IsRecording() then addonTable.Most.RefreshChannelList() end
     end)
     panel:HookScript("OnShow", function()
         addonTable.Most.RefreshChannelList()
@@ -557,4 +685,5 @@ function Monitor.Attach(panel, c)
         if showNetwork then RefreshNetwork() end
     end)
     C_Timer.NewTicker(WATCH_INTERVAL, WatchLinks)
+    C_Timer.NewTicker(SAVE_STATE_INTERVAL, SaveState)
 end

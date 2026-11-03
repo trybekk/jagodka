@@ -229,7 +229,7 @@ end
 -- ============================================================================
 -- 1B. NETWORK FUNCTIONS OVER STABLE BLIZZARD CHANNELS
 -- ============================================================================
--- Transport, global channel and the /g bridge are in bridge.lua (loaded before core.lua)
+-- Transport, global channel and the shared chat are in bridge.lua (loaded before core.lua)
 local Most = addonTable.Most
 local Roster = addonTable.Roster
 local Mute = addonTable.Mute
@@ -684,8 +684,8 @@ chatInput:SetPoint("BOTTOMLEFT", ChatPanel, "BOTTOMLEFT", 12, 10)
 chatInput:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -95, 10)
 chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
--- bridge.lua splits longer messages into parts itself (255 bytes per packet)
-chatInput:SetMaxBytes(255)
+-- The game's own chat limit; bridge.lua splits a message into parts that fit a packet
+chatInput:SetMaxBytes(Most.MAX_CHAT_BYTES)
 -- Shift + click on an item / spell / profession inserts a link into the field when it is active
 -- (the game only inserts links into its own chat window)
 hooksecurefunc("ChatEdit_InsertLink", function(link) if link and chatInput:HasFocus() then chatInput:Insert(link) end end)
@@ -728,7 +728,7 @@ local guildName = Most.MyGuild()
 if Mute.IsMuted(UnitName("player")) then
 chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
--- Sent over GUILD and relays of other guilds; relays post the message to their /g
+-- Sent over GUILD and relays of other guilds
 Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
 elseif not guildName and IsInGuild() then
 chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
@@ -1211,16 +1211,17 @@ insets = { left = 0, right = 0, top = 0, bottom = 0 }
 card:SetBackdropColor(0.09, 0.09, 0.12, 0.8)
 card:SetBackdropBorderColor(0.2, 0.2, 0.25, 0.6)
 card.icon = card:CreateTexture(nil, "ARTWORK")
-card.icon:SetSize(24, 26)
-card.icon:SetPoint("LEFT", card, "LEFT", 15, 0)
-card.icon:SetTexture("Interface\\GuildFrame\\GuildFrame")
-card.icon:SetTexCoord(0.63, 0.69, 0.60, 0.73)
+card.icon:SetSize(26, 26)
+card.icon:SetPoint("LEFT", card, "LEFT", 12, 0)
+card.icon:SetTexture("Interface\\Icons\\INV_Shirt_GuildTabard_01")
+card.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 card.nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 15, 1)
+card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 12, 0)
+-- Columns start at a fixed distance from the right edge, so they line up between cards
 card.activeText = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-card.activeText:SetPoint("RIGHT", card, "RIGHT", -150, 0)
+card.activeText:SetPoint("LEFT", card, "RIGHT", -280, 0)
 card.inactiveText = card:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-card.inactiveText:SetPoint("RIGHT", card, "RIGHT", -25, 0)
+card.inactiveText:SetPoint("LEFT", card, "RIGHT", -155, 0)
 guildRows[i] = card
 end
 UpdateGuildTable = function()
@@ -1981,7 +1982,7 @@ local eventID = myName .. "_" .. GetTime()
 local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, dungeon = EventPicker.dungeon, creator = myName, guild = myGuild, roster = {} }
 table.insert(eventsList, newEvent) UpdateEventsList()
 SendEvent(newEvent)
--- Announcement on the main chat (General -> all listed guilds and their /g):
+-- Announcement on the main chat (General -> all listed guilds):
 -- "Event created by Name -> Title : Instance 05.11 20:00"
 local where = newEvent.dungeon and (newEvent.dungeon .. " ") or ""
 Most.Publish("Ogolny", "Event created by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime, "A", myName, myGuild)

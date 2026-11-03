@@ -15,6 +15,7 @@ local C_Timer = _G.C_Timer
 local CreateFrame = _G.CreateFrame
 local GetGuildInfo = _G.GetGuildInfo
 local GetServerTime = _G.GetServerTime
+local GetTime = _G.GetTime
 local UnitName = _G.UnitName
 local Ambiguate = _G.Ambiguate
 local strsplit = _G.strsplit
@@ -25,8 +26,9 @@ local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
 local ICON = "Interface\\Icons\\INV_Misc_Note_01"
-local REQUEST_COOLDOWN = 60  -- how often we ask about the same player (s)
-local ANSWER_TIMEOUT = 4     -- how long the popup shows "Loading..." (s)
+local REQUEST_COOLDOWN = 60  -- how often we refresh a note we got an answer for (s)
+local RETRY_AFTER = 10       -- how soon we ask again when there was no answer (s)
+local ANSWER_TIMEOUT = 4     -- how long the popup shows "Loading..." (s); a later answer is still accepted
 local POPUP_WIDTH = 260
 
 local Notes = {}
@@ -38,6 +40,8 @@ local ownNotes = {}        -- own guild: name -> { public, officer }; memory onl
 local savedNotes = {}      -- other guilds: name -> { t = public note, ts = time }; JagodkiChatDB.publicNotes
 local pending = {}         -- name -> guild of an unanswered request
 local requestedAt = {}     -- name -> time of the last request
+local answeredAt = {}      -- name -> time of the last answer
+local loadingUntil = {}    -- name -> until when the popup shows "Loading..."
 local popup = nil
 
 local function MyGuild() return (GetGuildInfo("player")) end
@@ -82,16 +86,14 @@ end
 -- ============================================================================
 local function RequestNote(member)
     local name, guild, now = member.name, member.guild, GetServerTime()
-    if not guild or not ctx.isGuildAllowed(guild) or now - (requestedAt[name] or 0) < REQUEST_COOLDOWN then return end
+    if not guild or not ctx.isGuildAllowed(guild) then return end
+    if now - (answeredAt[name] or 0) < REQUEST_COOLDOWN or now - (requestedAt[name] or 0) < RETRY_AFTER then return end
     local relay = Most.GetRelayName(guild)
     if not relay or relay == UnitName("player") then return end
-    requestedAt[name], pending[name] = now, guild
+    requestedAt[name], pending[name], loadingUntil[name] = now, guild, GetTime() + ANSWER_TIMEOUT
     Most.Whisper(relay, "NREQ", Enc(name), "high")
     C_Timer.After(ANSWER_TIMEOUT, function()
-        if pending[name] then
-            pending[name] = nil
-            if popup and popup:IsShown() and popup.member and popup.member.name == name then popup:Fill() end
-        end
+        if popup and popup:IsShown() and popup.member and popup.member.name == name then popup:Fill() end
     end)
 end
 
@@ -102,7 +104,7 @@ function Notes.HandlePacket(pType, payload, senderName)
         local name = Dec(payload)
         local own = name and ownNotes[name]
         if sender and ctx.isGuildAllowed(sender.guild) and own then
-            Most.Whisper(senderName, "NOTE", Enc(name) .. ":" .. Enc(own.public), "low")
+            Most.Whisper(senderName, "NOTE", Enc(name) .. ":" .. Enc(own.public), "high")
         end
         return true
     elseif pType == "NOTE" then
@@ -111,7 +113,8 @@ function Notes.HandlePacket(pType, payload, senderName)
         local sender = FindPlayer(senderName)
         -- Only an answer we asked for, from someone in that guild
         if name and text and pending[name] and sender and sender.guild == pending[name] then
-            pending[name] = nil
+            pending[name], loadingUntil[name] = nil, nil
+            answeredAt[name] = GetServerTime()
             savedNotes[name] = { t = text, ts = GetServerTime() }
             if popup and popup:IsShown() and popup.member and popup.member.name == name then popup:Fill() end
             if ctx.onChanged then ctx.onChanged() end
@@ -135,9 +138,11 @@ local function PublicText(member)
         return own and NoteText(own.public) or "|cff808080No data|r"
     end
     local saved = savedNotes[member.name]
-    if saved then return NoteText(saved.t) .. (pending[member.name] and " |cff808080(refreshing...)|r" or "") end
-    if pending[member.name] then return "|cff808080Loading...|r" end
-    return "|cff808080Not available - nobody from this guild answered|r"
+    local loading = loadingUntil[member.name] and GetTime() < loadingUntil[member.name]
+    if saved then return NoteText(saved.t) .. (loading and " |cff808080(refreshing...)|r" or "") end
+    if loading then return "|cff808080Loading...|r" end
+    if not member.guild or not Most.GetRelayName(member.guild) then return "|cff808080Not available - nobody from this guild is online|r" end
+    return "|cff808080No answer yet - hover again in a moment|r"
 end
 
 local function BuildPopup()

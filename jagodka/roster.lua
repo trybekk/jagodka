@@ -6,7 +6,8 @@
 --    (a "random" choice, but computed the same by everyone) to spread the traffic over everyone.
 --  * Everyone compares their guild's roster with the previous one every 20 s; only the sender sends.
 --    A status change is "+Name" / "-Name"; a new member / level / rank: "Name,W603+".
---  * Full roster: on request from a fresh login (data > 10 min old) and once per 30 min.
+--  * Full roster: once per 30 min to everyone. On request from a fresh login (data > 10 min old) by
+--    whisper to that player, which skips the relays; from BROADCAST_FROM requests at once, to everyone.
 --  * Packets have low priority (chat goes first).
 --  * Everyone keeps the last known roster in JagodkiRosterDB.
 -- ============================================================================
@@ -29,7 +30,12 @@ local Enc, Dec = Most.EncodeField, Most.DecodeField
 
 local MAX_ADDON_BYTES = 225
 local FULL_INTERVAL = 1800   -- full roster every 30 min
-local FULL_COOLDOWN = 60     -- at most once per minute (several logins at once = one send)
+local FULL_COOLDOWN = 60     -- at most once per minute, to everyone and to each player
+local BROADCAST_FROM = 3     -- this many requests at once are answered once to everyone instead of by whispers
+local WHISPER_QUEUE_LIMIT = 60 -- with this many low-priority packets waiting we do not add a whispered roster; the player asks again
+local RETRY_AFTER = 70       -- after this many seconds we ask again for a roster that did not arrive whole (> FULL_COOLDOWN)
+local MAX_RETRIES = 2        -- how many times we ask again
+local STILL_ARRIVING = 20    -- a roster with a part newer than this many seconds is still on its way
 local STALE_AFTER = 600      -- after login we request the roster of a guild whose data is > 10 min old
 local READY_DELAY = 15       -- after login we wait until we know the others (otherwise everyone thinks they are the sender)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
@@ -135,16 +141,19 @@ end
 -- ============================================================================
 -- SENDING (sender only)
 -- ============================================================================
-local function SendFull()
+-- target: whisper to one player. It does not count as the regular send, so the change tracking stays as it is.
+local function SendFull(target)
     local guild = MyGuild()
     local g = guild and rosters[guild]
     if not g then return end
-    lastFull = GetTime()
-    wipe(lastSent)
+    if not target then
+        lastFull = GetTime()
+        wipe(lastSent)
+    end
     local entries = {}
     for name, m in pairs(g.members) do
         local e = EncodeEntry(name, m)
-        lastSent[name] = e
+        if not target then lastSent[name] = e end
         table.insert(entries, e)
     end
     local rankParts = {}
@@ -155,7 +164,27 @@ local function SendFull()
     local header = #"RF:" + #Enc(guild) + 1 + #snap + 1 + 3 + 1 + 3 + 1 + 2 + 1
     local chunks = Chunk(entries, MAX_ADDON_BYTES - header - #ranks, MAX_ADDON_BYTES - header)
     for i, chunk in ipairs(chunks) do
-        Most.Send("RF", table.concat({ Enc(guild), snap, i, #chunks, g.complete and "1" or "0", (i == 1) and ranks or "", chunk }, ":"), "low")
+        local payload = table.concat({ Enc(guild), snap, i, #chunks, g.complete and "1" or "0", (i == 1) and ranks or "", chunk }, ":")
+        if target then Most.Whisper(target, "RF", payload, "low") else Most.Send("RF", payload, "low") end
+    end
+end
+
+-- Requests for our guild's full roster, answered together after a short delay
+local requesters, requestsPending, whisperedFullAt = {}, false, {}
+
+local function AnswerRequests()
+    local names, count = requesters, 0
+    requesters, requestsPending = {}, false
+    if not IsSender() then return end
+    for _ in pairs(names) do count = count + 1 end
+    if count >= BROADCAST_FROM and GetTime() - lastFull > FULL_COOLDOWN then SendFull() return end
+    for name in pairs(names) do
+        if Most.GetLowQueueSize() >= WHISPER_QUEUE_LIMIT then
+            if addonTable.Monitor then addonTable.Monitor.Note("Queue busy, roster for " .. name .. " not sent, they will ask again") end
+        elseif GetTime() - (whisperedFullAt[name] or -FULL_COOLDOWN) >= FULL_COOLDOWN then
+            whisperedFullAt[name] = GetTime()
+            SendFull(name)
+        end
     end
 end
 
@@ -203,17 +232,58 @@ local function Tick()
     SendDelta(isSender)
 end
 
+-- Guilds we asked for a roster: guild -> time of the first request. A guild leaves when its whole roster
+-- arrives, or at a retry when nobody from it is online. Parts can be lost or rejected (sender not known yet),
+-- and one part already makes the data look fresh, so the check needs a whole roster (fullAt).
+local asked, retries, retryPending = {}, 0, false
+local RetryRequests
+
+local function ScheduleRetry()
+    if retryPending then return end
+    retryPending = true
+    C_Timer.After(RETRY_AFTER, RetryRequests)
+end
+
+RetryRequests = function()
+    retryPending = false
+    local list, waiting = {}, false
+    for guild, askedAt in pairs(asked) do
+        local g, inc = rosters[guild], incoming[guild]
+        if (g and (g.fullAt or 0) >= askedAt) or not Most.GetRelayName(guild) then
+            asked[guild] = nil
+        elseif inc and GetTime() - (inc.last or 0) < STILL_ARRIVING then
+            waiting = true
+        else
+            table.insert(list, guild)
+        end
+    end
+    if #list > 0 and retries >= MAX_RETRIES then
+        for _, guild in ipairs(list) do asked[guild] = nil end
+        if addonTable.Monitor then addonTable.Monitor.Note("Roster not received after " .. MAX_RETRIES .. " retries: " .. table.concat(list, ", ")) end
+    elseif #list > 0 then
+        retries = retries + 1
+        for i, guild in ipairs(list) do list[i] = Enc(guild) end
+        Most.Send("RQ", table.concat(list, ","), "low")
+        waiting = true
+    end
+    if waiting then ScheduleRetry() end
+end
+
 -- After login: request rosters of guilds we have no fresh data for
 local function RequestStale()
     if not ctx then return end
     local now, list = GetServerTime(), {}
     for guild in pairs(ctx.allowedGuilds) do
         local g = rosters[guild]
-        if guild ~= MyGuild() and (not g or now - (g.updated or 0) > STALE_AFTER) then table.insert(list, Enc(guild)) end
+        if guild ~= MyGuild() and (not g or now - (g.updated or 0) > STALE_AFTER) then
+            table.insert(list, Enc(guild))
+            asked[guild] = asked[guild] or now
+        end
     end
     if #list > 0 then
         Most.Send("RQ", table.concat(list, ","), "low")
         addonTable.Sync.Start("rosters") -- sync bar (sync.lua)
+        ScheduleRetry()
     end
 end
 Roster.RequestStale = RequestStale
@@ -258,6 +328,7 @@ function Roster.HandlePacket(pType, payload, senderName)
             inc = { id = snap, got = {}, count = 0 }
             incoming[guild] = inc
         end
+        inc.last = GetTime()
         if not inc.got[idx] then
             inc.got[idx] = true
             inc.count = inc.count + 1
@@ -277,6 +348,7 @@ function Roster.HandlePacket(pType, payload, senderName)
                 end
             end
             incoming[guild] = nil
+            g.fullAt = GetServerTime()
         end
         Changed()
         return true
@@ -294,10 +366,12 @@ function Roster.HandlePacket(pType, payload, senderName)
         if senderName ~= UnitName("player") and GetTime() >= readyAt and IsSender() then
             for gEnc in payload:gmatch("[^,]+") do
                 if Dec(gEnc) == MyGuild() then
-                    -- A short delay: several requests at once = one send (cooldown)
-                    C_Timer.After(3, function()
-                        if IsSender() and GetTime() - lastFull > FULL_COOLDOWN then SendFull() end
-                    end)
+                    -- A short delay collects requests made at the same moment
+                    requesters[senderName] = true
+                    if not requestsPending then
+                        requestsPending = true
+                        C_Timer.After(3, AnswerRequests)
+                    end
                 end
             end
         end

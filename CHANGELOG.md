@@ -530,3 +530,56 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - Both relays need this version, because each one queues forwarded packets by its own rules.
 - The send limit stays at about 1 packet per second, so a burst of chat and sign-ups can still take longer.
+
+# 0.9.7 – shared chat separated from guild chat
+
+- **No more syncing with `/g`:** what people write in guild chat stays in their guild, and the shared chat no longer posts to `/g`. The shared chat is written only from the addon, and everyone in listed guilds sees it there.
+- **Writing from the chat tab:** `Jagodki Nadina - General` has its own subtle input marked `Jagódki:`, always visible under the window and independent of other chat addons. A click on the input or the tab, or Enter, starts writing, and the message goes to the shared chat. The input keeps focus after sending, until a click elsewhere, Esc or Enter on an empty input. Item links and arrow-key history work. Text starting with `/` moves to the game's input, so `/w`, `/g` and other commands still work.
+- **Relays stay:** they still link guilds by carrying addon packets. They no longer handle `/g` lines, and there is no backup relay for them.
+- Event and mute announcements appear only on the shared chat.
+- Copies of `/g` lines saved in the chat history by older versions are removed at login.
+- **Guilds tab:** a guild tabard icon on each card, and the member counts and Active / Inactive statuses line up in columns.
+- Messages on the shared chat are limited to 255 bytes, the same as the game's chat, in the addon window and the chat tab. A message that does not fit one packet is sent in parts and put back together by the receiver, also in chat history, so it shows as one message. If a part is missing after 8 s, the message shows what arrived, and a late part gets its own line.
+
+**Limitations:**
+- Everyone needs this version. An older relay still copies between `/g` and the shared chat. Its `/g` lines are rejected by this version, but shared chat messages still reach that guild's `/g`.
+- Mute no longer stops anything in guild chat, only on the shared chat.
+- Older versions show the parts of a long message as separate lines.
+- If the tab is selected during combat, Enter opens the normal input until combat ends. Clicking the input still works.
+
+# 0.9.8 – notes, status packets, less roster traffic
+
+- **Notes from other guilds:** the answer now has high priority, a late answer is accepted, and with no answer you can ask again after 10 s instead of 60 s. The popup says whether nobody from that guild is online or there is no answer yet.
+- **Status packets:** relays forward `PING` and `PONG` ahead of rosters, so a busy queue does not make players look offline.
+- **Full rosters:** a request from a fresh login is answered by whisper to that player, which skips both relays. Three or more requests at once get one send to the guild. The send every 30 minutes stays.
+- **Channel list:** names expire after 70 s instead of the list being cleared on each read, so overlapping reads no longer shorten it.
+- **Monitoring:** the Network view lists addon players missing from the channel list.
+
+**Limitations:**
+- A relay needs this version to forward status packets first, and a roster sender to answer by whisper. Older versions keep the old behavior, and the two work together.
+- Each whispered roster is sent separately, so two requests at once cost the sender twice the packets.
+- A player who leaves the channel stays on our list for up to 70 s.
+
+# 0.9.9 – safeguards for roster and status traffic
+
+- **Asking again for a roster:** if a requested guild roster has not arrived whole after 70 s and someone from that guild is online, the addon asks again, up to 2 times. A roster still arriving is not asked for again.
+- **Online signals:** a forwarded `PONG` still waiting in a relay's queue is replaced by a newer one from the same player, so a busy queue holds at most one per player and destination. `PING` is never replaced, because others answer it.
+- **Whispered rosters:** a sender with 60 or more low-priority packets waiting does not add another whispered roster. The player gets it by asking again.
+- **Monitoring:** the log shows replaced signals, rosters skipped because of a busy queue, and rosters not received after all retries.
+
+**Limitations:**
+- After the second retry the addon stops asking until the next login. The send every 30 minutes can still bring the roster.
+- A roster from a guild with nobody online is not requested again until the next login.
+
+# 0.10.0 – saved Monitoring log
+
+- **Preserve logs:** a new button in Monitoring saves everything the log shows, as plain text, in `JagodkiMonitorDB`. It is off by default and stays on after `/reload` and the next login, until it is turned off.
+- **Full picture:** while recording, the statistics and the Network view are added every 60 s, including the queue, relays, players and channel. The channel list is also read while the tab is closed.
+- **Network view:** times show as minutes and hours instead of seconds, and players no longer on the addon list are marked in the direct traffic list.
+- **Separate file:** the log is saved per character in `WTF\Account\<account>\<server>\<character>\SavedVariables\jagodka.lua`, without chat history or rosters. `Clear saved` empties it.
+
+**Limitations:**
+- The game writes the file only on `/reload`, logout or exit, so a crash loses everything since the last write.
+- The log keeps 50,000 entries, and older ones are overwritten.
+- The first update needs a full game restart, because the game reads the new `.toc` line only at startup.
+- The button is in the Monitoring tab, so only players who can open that tab can record.
