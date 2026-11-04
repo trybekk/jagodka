@@ -27,8 +27,6 @@ local UIErrorsFrame = _G.UIErrorsFrame
 local RAID_CLASS_COLORS = _G.RAID_CLASS_COLORS
 local CLASS_ICON_TCOORDS = _G.CLASS_ICON_TCOORDS
 local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
-local IsInRaid = _G.IsInRaid
-local IsInGroup = _G.IsInGroup
 local IsInGuild = _G.IsInGuild
 local C_Timer = _G.C_Timer
 

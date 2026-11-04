@@ -137,7 +137,6 @@ end
 local function ChannelName()
     return (_G.UnitFactionGroup("player") == "Horde") and COMM_CHANNEL_HORDE or COMM_CHANNEL_ALLIANCE
 end
-Most.ChannelName = ChannelName
 
 function Most.GetChannelId()
     local id = GetChannelName(ChannelName())

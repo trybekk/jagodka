@@ -3,7 +3,7 @@
 -- ============================================================================
 -- English names (as in the EU client), level range in parentheses.
 -- To add a new instance, just add it to the right group.
-local addonName, addonTable = ...
+local _, addonTable = ...
 
 addonTable.Instances = {
     {

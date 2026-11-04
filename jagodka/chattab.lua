@@ -14,7 +14,7 @@
 --    Names are links (click = whisper, right click = menu), item links work as in the game.
 --  * After login it shows the latest messages from history, then new ones as they arrive.
 -- ============================================================================
-local addonName, addonTable = ...
+local _, addonTable = ...
 
 local _G = _G
 local C_Timer = _G.C_Timer

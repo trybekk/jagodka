@@ -7,7 +7,7 @@
 --  * Global channel: checked here directly (whether the addon has joined it yet).
 --  * When everything is finished: "Synced" for a few seconds, then the bar disappears.
 -- ============================================================================
-local addonName, addonTable = ...
+local _, addonTable = ...
 
 local _G = _G
 local C_Timer = _G.C_Timer
@@ -56,11 +56,6 @@ end
 function Sync.Activity(key)
     local s = state[key]
     if s and not s.done then s.last = GetTime() s.packets = s.packets + 1 end
-end
-
-function Sync.Done(key)
-    local s = state[key]
-    if s then s.done = true end
 end
 
 -- ============================================================================
