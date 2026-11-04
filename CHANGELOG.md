@@ -694,3 +694,11 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - Someone from our guilds can pass the key on (e.g. a former member). `/jagodka key` then moves everyone to a new channel.
 - A player who was offline during a key change is on the old channel for the first seconds after login, until the new key arrives.
 - A player of another guild sees a key from an officer only once that officer's guild roster has arrived; until then they stay on the public channel.
+
+# 0.13.1 – guilds joining later (fresh server)
+
+- **Key without a relog:** checks for the key run every minute, not only at login. An officer of a guild created during the session (e.g. on a fresh server) creates the first key 2 minutes after login, without relogging.
+- **Joining a guild:** a player who joins a listed guild during the session asks it for the key 5 s later, instead of waiting for the relay's next regular send (up to 10 minutes).
+- **Relay passes a new key on at once:** a relay that gets a newer key (e.g. in answer to its own request) sends it to its guild and the other relays right away. Without a key, only the relay asks again every minute; its request also reaches the other guilds.
+- **Key from an officer of a guild we do not know yet:** it is remembered, the missing guild rosters are requested at once (at most every 5 minutes), and the key is accepted as soon as that officer is known. Before, this could take until the next full roster (up to 30 minutes), and guilds could stay on different channels meanwhile.
+- **Only listed guilds create keys:** an officer of a guild outside the list does not create one.

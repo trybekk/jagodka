@@ -39,6 +39,9 @@ local KEY_SHARE_INTERVAL = 600  -- how often the relay sends the key to everyone
 local ANSWER_COOLDOWN = 60      -- at most this often the relay sends the key again to someone with an older one (s)
 local ROTATE_COOLDOWN = 600     -- an officer's client creates a new key by itself at most this often (s)
 local OWNER_CHECK_INTERVAL = 60 -- how often an officer reads the chat channel's member list (s)
+local KEYLESS_CHECK_INTERVAL = 60 -- without a key: how often we ask our guild again and check whether to create one (s)
+local GUILD_JOIN_DELAY = 5      -- after joining a guild, seconds before we ask it for the key
+local ROSTER_ASK_COOLDOWN = 300 -- at most this often a key from an unknown officer makes us ask for rosters (s)
 local KEY_LENGTH = 16
 local CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -56,6 +59,9 @@ local lastShared = -ANSWER_COOLDOWN
 local warned = false
 local keySeen = false    -- a KEY packet arrived (accepted or not)
 local lastOwner = nil    -- chat channel owner last written to the log
+local loginAt = math.huge
+local KeylessCheck       -- defined below, run every minute
+local KeepPending        -- defined below, used when a key from an unknown officer arrives
 
 local function MyName() return UnitName("player") end
 local function Monitor() return addonTable.Monitor end
@@ -164,7 +170,7 @@ end
 
 -- A new key from this officer's client. force: "/jagodka key", without the cooldown.
 function Key.Create(reason, force)
-    if not ctx or not ctx.isMeOfficer() then return false end
+    if not ctx or not ctx.isMeOfficer() or not Most.IsGuildAllowed(Most.MyGuild()) then return false end
     if not force and GetTime() - lastRotation < ROTATE_COOLDOWN then return false end
     lastRotation = GetTime()
     local ts = math.max(GetServerTime(), ((current and current.ts) or 0) + 1)
@@ -189,10 +195,14 @@ function Key.HandlePacket(pType, payload, senderName)
         -- From the officer who created it, or passed on by a known player; the officer must be one by the rosters
         local fromKnown = senderName == by or Most.FindKnownPlayer(senderName) ~= nil
         if not (fromKnown and ctx and ctx.isKnownOfficer(by)) then
-            if Monitor() then Monitor().Channel("Ignored a chat channel key from " .. senderName .. ": " .. by .. " is not an officer by the rosters") end
+            if Monitor() then Monitor().Channel("Ignored a chat channel key from " .. senderName .. ": " .. by .. " is not an officer by the rosters (kept, rosters requested)") end
+            if fromKnown or not current then KeepPending(k, ts, by) end
             return true
         end
-        if not Apply(k, ts, by) and current and current.ts > ts and Most.IsRelay() and GetTime() - lastShared >= ANSWER_COOLDOWN then
+        if Apply(k, ts, by) then
+            -- The relay passes a new key on at once (to its guild and the other relays), e.g. one it got by whisper
+            if Most.IsRelay() and senderName ~= MyName() then Share() end
+        elseif current and current.ts > ts and Most.IsRelay() and GetTime() - lastShared >= ANSWER_COOLDOWN then
             -- Someone still has an older key: we send ours to everyone
             Share()
             if Monitor() then Monitor().Channel(senderName .. " sent an older chat channel key, ours sent to everyone") end
@@ -247,11 +257,47 @@ function Key.OnNotice(notice)
 end
 
 -- ============================================================================
+-- WITHOUT A KEY (checked every minute, not only at login, so guilds created later on a fresh server work too)
+-- ============================================================================
+-- A key we could not accept yet, because its officer's guild roster has not arrived: { k, ts, by }
+local pendingKey = nil
+local lastRosterAsk = -ROSTER_ASK_COOLDOWN
+
+-- Called when a key from an unknown officer arrives: we remember it and ask for the missing rosters,
+-- so it is accepted within a minute instead of after the next full roster (up to 30 min)
+KeepPending = function(k, ts, by)
+    if not pendingKey or ts > pendingKey.ts then pendingKey = { k = k, ts = ts, by = by } end
+    if GetTime() - lastRosterAsk >= ROSTER_ASK_COOLDOWN and addonTable.Roster then
+        lastRosterAsk = GetTime()
+        addonTable.Roster.RequestStale()
+    end
+end
+
+KeylessCheck = function()
+    -- The remembered key, once its officer is known from the rosters
+    if pendingKey and ctx and ctx.isKnownOfficer(pendingKey.by) then
+        local p = pendingKey
+        pendingKey = nil
+        if Apply(p.k, p.ts, p.by) then
+            if Monitor() then Monitor().Channel("Accepted the remembered chat channel key: " .. p.by .. " is now known as an officer") end
+            if Most.IsRelay() then Share() end
+        end
+    end
+    if current or not _G.IsInGuild() or not Most.IsGuildAllowed(Most.MyGuild()) then return end
+    -- Only the relay asks again (its request also reaches other guilds); the rest of the guild gets the key
+    -- from the relay as soon as it has one (HandlePacket)
+    if Most.IsRelay() then Most.Send("KREQ", "0", "high") end
+    -- Nobody in the community has a key yet: an officer creates one
+    if not keySeen and GetTime() - loginAt >= KEY_WAIT then Key.Create("no key in the community yet") end
+end
+
+-- ============================================================================
 -- EVENTS
 -- ============================================================================
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("PLAYER_LOGIN")
+Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
 Listener:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
@@ -266,9 +312,8 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         for _, delay in ipairs(REQUEST_DELAYS) do
             C_Timer.After(delay, function() Most.Send("KREQ", tostring((current and current.ts) or 0), "high") end)
         end
-        C_Timer.After(KEY_WAIT, function()
-            if not current and not keySeen then Key.Create("no key in the community yet") end
-        end)
+        loginAt = GetTime()
+        C_Timer.NewTicker(KEYLESS_CHECK_INTERVAL, KeylessCheck)
         C_Timer.NewTicker(KEY_SHARE_INTERVAL, function()
             if Most.IsRelay() then Share() end
         end)
@@ -276,5 +321,13 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         C_Timer.NewTicker(OWNER_CHECK_INTERVAL, function()
             if ctx and ctx.isMeOfficer() and Key.ChannelId() then Most.ListChannel(Key.ChannelName()) end
         end)
+    elseif event == "PLAYER_GUILD_UPDATE" then
+        -- Joined a guild during the session (e.g. a guild just created on a fresh server): ask it for the key
+        -- at once instead of waiting for the relay's next regular send
+        if not current and _G.IsInGuild() then
+            C_Timer.After(GUILD_JOIN_DELAY, function()
+                if not current and _G.IsInGuild() then Most.Send("KREQ", "0", "high") end
+            end)
+        end
     end
 end)
