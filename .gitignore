@@ -1,0 +1,4 @@
+.idea
+dist/
+RELEASE_NOTES.md
+build.ps1

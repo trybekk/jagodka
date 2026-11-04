@@ -47,9 +47,7 @@ end
 -- ============================================================================
 -- 0B. SHARED CHANNEL AND GUILD WHITELIST CONFIGURATION
 -- ============================================================================
-local AllowedGuilds = {
-    ["Testowo"] = true,
-}
+local AllowedGuilds = {}
 -- Community guilds: "Jagódki Nadina", "Jagódki Nadina II", "... III", "... IV".
 -- Another guild = another suffix (e.g. " V") and an addon version bump.
 for _, suffix in ipairs({ "", " II", " III", " IV" }) do
@@ -134,7 +132,7 @@ WindowLogo:SetPoint("LEFT", HeaderBar, "LEFT", 12, 0)
 WindowLogo:SetTexture("Interface\\AddOns\\jagodka\\Media\\blueberry.tga")
 
 TitleText:SetPoint("LEFT", WindowLogo, "RIGHT", 8, 0)
-TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community")
+TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community |cffdecda5-|r v" .. ADDON_VERSION)
 
 local CloseBtn = CreateFrame("Button", nil, MainFrame, "UIPanelCloseButton")
 CloseBtn:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -2, -2)
@@ -229,7 +227,7 @@ end
 -- ============================================================================
 -- 1B. NETWORK FUNCTIONS OVER STABLE BLIZZARD CHANNELS
 -- ============================================================================
--- Transport, global channel and the /g bridge are in bridge.lua (loaded before core.lua)
+-- Transport, global channel and the shared chat are in bridge.lua (loaded before core.lua)
 local Most = addonTable.Most
 local Roster = addonTable.Roster
 local Mute = addonTable.Mute
@@ -684,8 +682,8 @@ chatInput:SetPoint("BOTTOMLEFT", ChatPanel, "BOTTOMLEFT", 12, 10)
 chatInput:SetPoint("BOTTOMRIGHT", ChatPanel, "BOTTOMRIGHT", -95, 10)
 chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
--- bridge.lua splits longer messages into parts itself (255 bytes per packet)
-chatInput:SetMaxBytes(255)
+-- The game's own chat limit; bridge.lua splits a message into parts that fit a packet
+chatInput:SetMaxBytes(Most.MAX_CHAT_BYTES)
 -- Shift + click on an item / spell / profession inserts a link into the field when it is active
 -- (the game only inserts links into its own chat window)
 hooksecurefunc("ChatEdit_InsertLink", function(link) if link and chatInput:HasFocus() then chatInput:Insert(link) end end)
@@ -728,7 +726,7 @@ local guildName = Most.MyGuild()
 if Mute.IsMuted(UnitName("player")) then
 chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
--- Sent over GUILD and relays of other guilds; relays post the message to their /g
+-- Sent over GUILD and relays of other guilds
 Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
 elseif not guildName and IsInGuild() then
 chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
@@ -1211,16 +1209,16 @@ insets = { left = 0, right = 0, top = 0, bottom = 0 }
 card:SetBackdropColor(0.09, 0.09, 0.12, 0.8)
 card:SetBackdropBorderColor(0.2, 0.2, 0.25, 0.6)
 card.icon = card:CreateTexture(nil, "ARTWORK")
-card.icon:SetSize(24, 26)
-card.icon:SetPoint("LEFT", card, "LEFT", 15, 0)
-card.icon:SetTexture("Interface\\GuildFrame\\GuildFrame")
-card.icon:SetTexCoord(0.63, 0.69, 0.60, 0.73)
+card.icon:SetSize(26, 26)
+card.icon:SetPoint("LEFT", card, "LEFT", 12, 0)
+card.icon:SetTexture("Interface\\AddOns\\jagodka\\Media\\blueberry_one.tga")
 card.nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 15, 1)
+card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 12, 0)
+-- Columns start at a fixed distance from the right edge, so they line up between cards
 card.activeText = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-card.activeText:SetPoint("RIGHT", card, "RIGHT", -150, 0)
+card.activeText:SetPoint("LEFT", card, "RIGHT", -280, 0)
 card.inactiveText = card:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-card.inactiveText:SetPoint("RIGHT", card, "RIGHT", -25, 0)
+card.inactiveText:SetPoint("LEFT", card, "RIGHT", -155, 0)
 guildRows[i] = card
 end
 UpdateGuildTable = function()
@@ -1981,7 +1979,7 @@ local eventID = myName .. "_" .. GetTime()
 local newEvent = { id = eventID, title = title, date = eDate, time = eTime, desc = desc, dungeon = EventPicker.dungeon, creator = myName, guild = myGuild, roster = {} }
 table.insert(eventsList, newEvent) UpdateEventsList()
 SendEvent(newEvent)
--- Announcement on the main chat (General -> all listed guilds and their /g):
+-- Announcement on the main chat (General -> all listed guilds):
 -- "Event created by Name -> Title : Instance 05.11 20:00"
 local where = newEvent.dungeon and (newEvent.dungeon .. " ") or ""
 Most.Publish("Ogolny", "Event created by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime, "A", myName, myGuild)
@@ -2618,6 +2616,7 @@ if cmp < 0 then
 text = name .. " has an older addon version (" .. (version or "unknown") .. ", yours: " .. ADDON_VERSION .. ") - they need to update."
 else
 text = name .. " has a newer addon version (" .. version .. ") - please update yours (" .. ADDON_VERSION .. ")."
+addonTable.Update.Show(version)
 end
 Most.AddSystem(text)
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
@@ -2700,11 +2699,12 @@ if addonTable.Notes.HandlePacket(pType, payload, senderName) then return end
 if addonTable.Professions.HandlePacket(pType, payload, senderName) then return end
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk, ver, rIdx, zone = strsplit(":", payload, 7)
-if not IsPlayerGuildAllowed(gld) then return end
+if not IsPlayerGuildAllowed(gld) then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": guild not listed (" .. tostring(gld) .. ")") return end
 -- Someone claims to be in my guild but is not in its roster -> rejected
 if gld == GetGuildInfo("player") and senderName ~= myName and myGuildRosterLoaded and myGuildRoster[senderName] == nil then
 if not spoofWarned[senderName] then
 spoofWarned[senderName] = true
+addonTable.Monitor.Note("Ignored " .. senderName .. ": claims your guild but is not in its roster")
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. senderName .. " claims to be in your guild but is not in its roster - ignored.|r") end
 end
 return
@@ -2728,7 +2728,7 @@ end)
 end
 else
 local senderIdx = GetPlayerIndex(senderName)
-if not senderIdx and senderName ~= myName then return end
+if not senderIdx and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
 -- Sender data (guild, rank) from their status packet, used to check permissions
 local senderInfo = senderIdx and activePlayers[senderIdx]
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")

@@ -1,9 +1,13 @@
-## Interface: 11509
+## Interface: 11509, 16001
 ## Title: Jagodki Nadina - Community
-## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with shared chat linked to guild chat, a combined member list, and synced events with sign-ups and a calendar.
+## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with a shared chat, a combined member list, and synced events with sign-ups and a calendar.
 ## Author: trybekk & Lasarr
-## Version: 0.9.4
+## Version: 0.10.4
+## Category: Guild
+## X-Curse-Project-ID: 1775157
+## IconTexture: Interface\AddOns\jagodka\Media\blueberry_one
 ## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
+## SavedVariablesPerCharacter: JagodkiMonitorDB
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
@@ -19,4 +23,5 @@ notes.lua
 professions.lua
 chattab.lua
 instances.lua
-core.lua
+update.lua
+core.lua

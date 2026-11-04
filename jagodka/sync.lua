@@ -48,13 +48,14 @@ local bar = nil
 -- ============================================================================
 function Sync.Start(key)
     local now = GetTime()
-    state[key] = { started = now, last = nil, done = false }
+    state[key] = { started = now, last = nil, done = false, packets = 0 }
+    if addonTable.Monitor then addonTable.Monitor.SyncStage(key, "started") end
     finishedAt = nil
 end
 
 function Sync.Activity(key)
     local s = state[key]
-    if s and not s.done then s.last = GetTime() end
+    if s and not s.done then s.last = GetTime() s.packets = s.packets + 1 end
 end
 
 function Sync.Done(key)
@@ -65,6 +66,17 @@ end
 -- ============================================================================
 -- STATE
 -- ============================================================================
+-- For the Monitoring tab: how a stage ended
+local function ReportDone(key, s, now)
+    if not addonTable.Monitor then return end
+    local took = _G.string.format("%.1f s", now - s.started)
+    local text
+    if key == "channel" then text = (s.limit and "gave up after " or "joined after ") .. took
+    elseif s.packets > 0 then text = "finished after " .. took .. ", " .. s.packets .. " packets" .. (s.limit and " (time limit)" or "")
+    else text = "no answer after " .. took end
+    addonTable.Monitor.SyncStage(key, text)
+end
+
 local function Update()
     local now = GetTime()
     local anyActive, anyStarted = false, false
@@ -80,8 +92,8 @@ local function Update()
                 -- Nobody answered (e.g. nobody else is online or we already have everything)
                 s.done = true
             end
-            if not s.done and now - s.started > (t.max or 30) then s.done = true end
-            if not s.done then anyActive = true end
+            if not s.done and now - s.started > (t.max or 30) then s.done = true s.limit = true end
+            if s.done then ReportDone(key, s, now) else anyActive = true end
         end
     end
     if anyStarted and not anyActive and not finishedAt then finishedAt = now end

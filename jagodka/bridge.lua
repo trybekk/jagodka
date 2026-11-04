@@ -1,12 +1,13 @@
 -- ============================================================================
--- BRIDGE: shared addon chat <-> guild chats (/g) of all listed guilds
+-- BRIDGE: transport of addon packets and the shared addon chat of all listed guilds
 -- ============================================================================
 -- Rules:
 --  * Every message has a unique ID, so the receiver drops duplicates.
 --  * In each guild one person with the addon is the RELAY (the alphabetically first name
---    among online players with the addon). The relay carries /g <-> addon and links guilds:
---    it whispers GUILD packets to the relays of other guilds, who repost them to their GUILD.
---  * The relay posts messages from other guilds to its own /g (from a queue, one by one).
+--    among online players with the addon). The relay links guilds: it whispers GUILD packets
+--    to the relays of other guilds, who repost them to their GUILD.
+--  * The shared chat is written only from the addon (window or chat tab). Guild chat (/g) stays
+--    in its own guild: nothing is carried between /g and the shared chat.
 --  * A new player gets the history from someone online after logging in.
 -- ============================================================================
 local addonName, addonTable = ...
@@ -21,7 +22,6 @@ local GetServerTime = _G.GetServerTime
 local GetTime = _G.GetTime
 local UnitName = _G.UnitName
 local Ambiguate = _G.Ambiguate
-local SendChatMessage = _G.SendChatMessage
 local IsInGuild = _G.IsInGuild
 local strsplit = _G.strsplit
 local date = _G.date
@@ -39,23 +39,24 @@ local OLD_COMM_CHANNEL = "JagodkaWspolnota" -- left when joining the new channel
 -- It is visible in the addon code, so it stops random people, not someone who has the addon.
 local COMM_PASSWORD = "jgdk7Wsp0lnota"
 local ONLINE_TIMEOUT = 150            -- seconds without a signal after which a player is offline
-local BRIDGED_TABS = { ["Ogolny"] = true } -- addon tabs linked to /g (Handel etc. stay in the addon)
 local MAX_LOG = 300                   -- how many messages we keep (memory + SavedVariables)
 local HISTORY_SYNC_MAX = 30           -- how many of the latest messages we send to a new player
-local CONTENT_DEDUP_WINDOW = 15       -- window (s): the same /g line from two forwarders = one message
-local BACKUP_MIN_DELAY, BACKUP_MAX_DELAY = 2, 5 -- the backup relay waits a random number of seconds in this range for the main one
 local MAX_ADDON_BYTES = 225           -- addon packet limit is 255 bytes, this leaves room for the "FW:name:" header
 local DISCOVER_INTERVAL, HELLO_RETRY = 30, 120 -- how often the relay reads the channel list and repeats a greeting (s)
+local CHANNEL_MEMBER_TTL = 70         -- seconds a name stays on our channel list without being seen again (lists are read every 30 s)
 local RELAY_READY_DELAY = 5           -- after login we wait for answers from others before treating ourselves as relay
-local MAX_GUILD_LINE_BYTES = 250      -- /g line limit is 255 bytes
 
 local Most = {}
 addonTable.Most = Most
 Most.ONLINE_TIMEOUT = ONLINE_TIMEOUT
+Most.MAX_CHAT_BYTES = 255             -- message limit on the shared chat, the same as the game's chat
+local MAX_MESSAGE_PARTS = 10          -- a message in more parts is rejected by the receiver
+local PARTS_WAIT = 8                  -- how long the receiver waits for all parts of a message (s)
 
 -- Context from core.lua: activePlayers, isGuildAllowed, onChatChanged, sendHello
 local ctx = nil
 function Most.Init(c) ctx = c end
+function Most.IsGuildAllowed(guild) return ctx ~= nil and ctx.isGuildAllowed(guild) end
 
 -- Check against the guild roster whether a guildmate is online (true/false, nil = unknown).
 -- Lets us exclude a logged-out relay at once, without waiting for ONLINE_TIMEOUT.
@@ -173,19 +174,19 @@ local function Count(t, key)
 end
 
 local highQueue, lowQueue = {}, {}  -- high: current messages, low: history
-local guildLineQueue = {}           -- lines to post to /g (relay only)
-local postedLines = {}              -- lines we posted to /g -> time (loop protection)
 local tokens, MAX_TOKENS, TOKENS_PER_SEC = 10, 10, 1
 local whisperedAt = {}              -- name -> time of the last addon whisper (to recognize "player offline")
 
 function Most.Send(pType, payload, priority)
-    local item = { msg = pType .. ":" .. payload, tries = 0 }
+    local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
     table.insert(priority == "low" and lowQueue or highQueue, item)
 end
 
 function Most.Whisper(target, pType, payload, priority)
-    table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0 })
+    table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0, queued = GetTime() })
 end
+
+function Most.GetLowQueueSize() return #lowQueue end
 
 -- Older API returns a bool, newer a code from Enum.SendAddonMessageResult (0 = success)
 local function IsOk(result) return result == nil or result == true or result == 0 end
@@ -215,7 +216,7 @@ local function PumpAddonQueue()
     local ok = IsOk(result)
     -- On a temporary server limit we retry for a long time (about 30 s) so the message is not lost
     if ok or not IsThrottle(result) or item.tries >= 30 then
-        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result) end
+        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result, GetTime() - item.queued, item.tries) end
         table.remove(queue, 1)
         tokens = tokens - 1
     else
@@ -223,13 +224,6 @@ local function PumpAddonQueue()
         item.tries = item.tries + 1
         tokens = 0
     end
-end
-
-local function PumpGuildLines()
-    local line = table.remove(guildLineQueue, 1)
-    if not line then return end
-    postedLines[line] = GetTime()
-    SendChatMessage(line, "GUILD")
 end
 
 -- ============================================================================
@@ -284,7 +278,7 @@ end
 -- ============================================================================
 -- MESSAGE LOG (single source of truth for the shared chat view)
 -- ============================================================================
-local chatLog = {}       -- { id, ts, guild, author, tab, src ("G" from /g, "A" from the addon, "S" system), text }
+local chatLog = {}       -- { id, ts, guild, author, tab, src ("A" from the addon, "S" system), text }
 local seenIds = {}
 local msgSeq = 0
 
@@ -332,21 +326,16 @@ local GUILD_TAGS = {
     ["Jagódki Nadina II"] = "JN2",
     ["Jagódki Nadina III"] = "JN3",
     ["Jagódki Nadina IV"] = "JN4",
-    ["Testowo"] = "TEST",
 }
-local TAG_GUILDS = {}
-for guild, tag in pairs(GUILD_TAGS) do TAG_GUILDS[tag] = guild end
-
 -- "[JN]" with a gray bracket and a muted purple tag
 local function GuildLabel(guild)
     return "|cff808080[|r|cff9d7fc0" .. (GUILD_TAGS[guild] or guild) .. "|r|cff808080]|r"
 end
 
 -- "[60] Name" with a gray level and the name in the class color, as a player link (click = whisper,
--- right click = menu). level: the level from a /g line; without it the known level, and without that no brackets.
-local function AuthorLabel(name, level)
-    local class, knownLevel = AuthorInfo(name)
-    level = level or knownLevel
+-- right click = menu). Without a known level, no brackets.
+local function AuthorLabel(name)
+    local class, level = AuthorInfo(name)
     local color = class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class]
     local label = color and color:WrapTextInColorCode(name) or name
     if level then label = "|cff808080[" .. level .. "]|r " .. label end
@@ -368,7 +357,7 @@ local entryListeners = {}
 function Most.OnNewEntry(fn) table.insert(entryListeners, fn) end
 
 -- ============================================================================
--- RELAY: one person with the addon per guild carries messages /g <-> addon
+-- RELAY: one person with the addon per guild links it to other guilds
 -- ============================================================================
 -- Relay of any guild (the same rule is computed by everyone, so everyone sees the same result)
 function Most.GetRelayName(guild)
@@ -388,7 +377,7 @@ function Most.GetRelayName(guild)
 end
 
 -- Whether I can forward messages (I am in a listed guild and a moment has passed since login).
--- Without this delay a fresh login knows nobody yet, treats itself as relay and duplicates lines in /g.
+-- Without this delay a fresh login knows nobody yet, treats itself as relay and forwards packets needlessly.
 local relayReadyAt = math.huge
 local function CanForward()
     if not ctx or GetTime() < relayReadyAt or not IsInGuild() then return false end
@@ -399,63 +388,17 @@ function Most.IsRelay()
     return CanForward() and Most.GetRelayName() == MyName()
 end
 
-local function BridgePrefix(guild, author, level)
-    return "[" .. (GUILD_TAGS[guild] or guild) .. "] " .. (level and ("[" .. level .. "] ") or "") .. author .. ": "
-end
-
--- A /g line posted by the bridge: guild, author, level (nil when absent), text.
--- The last pattern is the format of versions before 0.8.5.
-local function ParseBridgeLine(text)
-    local guild, level, author, body = text:match("^%[(.-)%] %[(%d+)%] ([^%s:]+): (.*)$")
-    if not guild then guild, author, body = text:match("^%[(.-)%] ([^%s:]+): (.*)$") end
-    return TAG_GUILDS[guild] or guild, author, tonumber(level), body
-end
-
--- Message from the shared chat -> /g of my guild (relay only, bridged tabs only)
-local function BridgeToGuild(e)
-    if not BRIDGED_TABS[e.tab] or not Most.IsRelay() then return end
-    -- A message from /g of my guild is already there
-    if e.src == "G" and e.guild == MyGuild() then return end
-    local _, level = AuthorInfo(e.author)
-    local line = BridgePrefix(e.guild, e.author, level) .. e.text
-    if #line > 255 then line = Utf8Cut(line, 255) end
-    table.insert(guildLineQueue, line)
-end
-
--- Whether a /g line was posted by the bridge (rather than written by a player)
-local function IsBridgeLine(text, author)
-    if author == MyName() and postedLines[text] then return true end
-    local tagGuild = text:match("^%[(.-)%] [^:]+: ")
-    return tagGuild ~= nil and ctx ~= nil and ctx.isGuildAllowed(TAG_GUILDS[tagGuild] or tagGuild)
-end
-
 -- ============================================================================
 -- RECEIVING MESSAGES (deduplication by ID)
 -- ============================================================================
--- Whether the log already has the same /g line (guild + author + text) from around the same time.
--- Catches duplicates when the relay and a backup relay forwarded the same line (different ID, same text).
-local function HasRecentGuildLine(guild, author, text, ts)
-    for i = #chatLog, math.max(1, #chatLog - 60), -1 do
-        local e = chatLog[i]
-        if e.src == "G" and e.guild == guild and e.author == author and e.text == text and math.abs((e.ts or 0) - ts) <= CONTENT_DEDUP_WINDOW then
-            return true
-        end
-    end
-    return false
-end
-
 local function Ingest(e, live)
     if seenIds[e.id] then return false end
-    -- Muted player (mute.lua): their messages reach neither the log nor /g of other guilds
+    -- Muted player (mute.lua): their messages do not reach the log
     if addonTable.Mute and addonTable.Mute.IsMuted(e.author) then return false end
     seenIds[e.id] = true
-    -- Applies to current messages and history, so a duplicate does not return through sync either
-    if e.src == "G" and HasRecentGuildLine(e.guild, e.author, e.text, e.ts) then return false end
     -- Always by time written, so a late message (e.g. from a backup relay) lands in its proper place
     InsertByTime(e)
     TrimLog()
-    -- History never goes to /g again, only current messages do
-    if live then BridgeToGuild(e) end
     NotifyChat(e.tab)
     for _, fn in ipairs(entryListeners) do fn(e, live) end
     return true
@@ -473,23 +416,75 @@ local function DecodeMessage(payload)
     return { id = P(Dec(id)), ts = tonumber(ts) or 0, guild = P(Dec(guild)), author = P(Dec(author)), tab = P(Dec(tab)), src = src, text = Most.SanitizeChat(text) }
 end
 
--- Splits the text into parts. Does not depend on the sender's name (fixed header length),
--- so the relay and backup relay split a line identically, which matters for detecting duplicates.
-local function SplitForPublish(text, guild, author, tab, src)
-    local header = string.format("GMSG:%s.ffffffff.ffff:%d:%s:%s:%s:%s:", string.rep("x", 24), 2000000000, Enc(guild), Enc(author), Enc(tab), src)
-    local maxText = math.min(MAX_ADDON_BYTES - #header, MAX_GUILD_LINE_BYTES - #BridgePrefix(guild, author, 60))
-    return SplitText(text, maxText)
+-- Packets of one message. Text that does not fit one packet goes in parts with the ID "id#part/total",
+-- which the receiver puts back together (AcceptPacket). The header is counted at its longest.
+local function EncodeParts(e)
+    local header = string.format("GMSG:%s.ffffffff.ffff#10/10:%d:%s:%s:%s:%s:", string.rep("x", 24), 2000000000, Enc(e.guild), Enc(e.author), Enc(e.tab), e.src)
+    local parts, packets = SplitText(e.text, MAX_ADDON_BYTES - #header), {}
+    for i, part in ipairs(parts) do
+        local id = (#parts > 1) and (e.id .. "#" .. i .. "/" .. #parts) or e.id
+        packets[i] = EncodeMessage({ id = id, ts = e.ts, guild = e.guild, author = e.author, tab = e.tab, src = e.src, text = part })
+    end
+    return packets
 end
 
--- Publishes a new message to the shared chat (from the addon or from /g through the relay)
+-- Parts of messages still being received: id -> { author, guild, tab, src, ts, live, total, count, got = { part -> text } }
+local partial = {}
+-- Messages shown without all their parts: id -> { part -> true }. A late part is then shown on its own line.
+local shownIncomplete = {}
+
+local function FinishParts(id)
+    local p = partial[id]
+    if not p then return end
+    partial[id] = nil
+    local text = {}
+    for i = 1, p.total do
+        if p.got[i] then table.insert(text, p.got[i]) end
+    end
+    if p.count < p.total then
+        shownIncomplete[id] = {}
+        for i in pairs(p.got) do shownIncomplete[id][i] = true end
+        if addonTable.Monitor then addonTable.Monitor.Note("Message from " .. p.author .. " shown without all parts (" .. p.count .. "/" .. p.total .. ")") end
+    end
+    Ingest({ id = id, ts = p.ts, guild = p.guild, author = p.author, tab = p.tab, src = p.src, text = table.concat(text) }, p.live)
+end
+
+-- A received packet: a whole message goes straight to the log, a part waits for the rest.
+-- Returns false for a duplicate or a part that does not fit.
+local function AcceptPacket(e, live)
+    local id, part, total = e.id:match("^(.+)#(%d+)/(%d+)$")
+    if not id then return Ingest(e, live) end
+    part, total = tonumber(part), tonumber(total)
+    if part < 1 or part > total or total > MAX_MESSAGE_PARTS then return false end
+    if shownIncomplete[id] then
+        if shownIncomplete[id][part] then return false end
+        shownIncomplete[id][part] = true
+        return Ingest(e, live)
+    end
+    if seenIds[id] then return false end
+    local p = partial[id]
+    if not p then
+        p = { author = e.author, guild = e.guild, tab = e.tab, src = e.src, ts = e.ts, live = live, total = total, count = 0, got = {} }
+        partial[id] = p
+        C_Timer.After(PARTS_WAIT, function() FinishParts(id) end)
+    elseif p.author ~= e.author or p.guild ~= e.guild or p.tab ~= e.tab or p.total ~= total then
+        return false
+    end
+    if p.got[part] then return false end
+    p.got[part] = e.text
+    p.count = p.count + 1
+    if p.count >= total then FinishParts(id) end
+    return true
+end
+
+-- Publishes a new message to the shared chat
 function Most.Publish(tab, text, src, author, guild, ts)
     if not text or text == "" or not guild then return end
     -- Time must be a number (log sorting); anything else = now
     ts = tonumber(ts) or GetServerTime()
-    for _, part in ipairs(SplitForPublish(text, guild, author, tab, src)) do
-        local e = { id = NewMessageId(), ts = ts, guild = guild, author = author, tab = tab, src = src, text = part }
-        -- If the same line is already in the log (someone else forwarded it), we do not send it again
-        if Ingest(e, true) then Most.Send("GMSG", EncodeMessage(e), "high") end
+    local e = { id = NewMessageId(), ts = ts, guild = guild, author = author, tab = tab, src = src, text = text }
+    if Ingest(e, true) then
+        for _, packet in ipairs(EncodeParts(e)) do Most.Send("GMSG", packet, "high") end
     end
 end
 
@@ -529,7 +524,9 @@ local function HandleHistoryRequest(sender, rawSender, since)
         if not pendingHistory[sender] then return end
         pendingHistory[sender] = nil
         Most.Send("HCLAIM", sender, "high")
-        for _, e in ipairs(list) do Most.Whisper(rawSender, "HIST", EncodeMessage(e)) end
+        for _, e in ipairs(list) do
+            for _, packet in ipairs(EncodeParts(e)) do Most.Whisper(rawSender, "HIST", packet) end
+        end
     end)
 end
 
@@ -543,9 +540,11 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
         local e = DecodeMessage(payload)
         if not e then Count(debug.rejected, "bad format") return true end
         if not ctx.isGuildAllowed(e.guild) then Count(debug.rejected, "guild not listed: " .. tostring(e.guild)) return true end
+        -- A /g line carried by an older version: guild chat no longer reaches the shared chat
+        if e.src ~= "A" then Count(debug.rejected, "/g line from an older version") return true end
         if pType == "GMSG" then
-            -- From the addon only the author writes; from /g only someone from the same guild forwards
-            if e.src == "A" and e.author ~= senderName then Count(debug.rejected, "author ~= sender") return true end
+            -- Only the author writes their own message
+            if e.author ~= senderName then Count(debug.rejected, "author ~= sender") return true end
             if senderInfo and senderInfo.guild ~= e.guild then Count(debug.rejected, "sender guild mismatch") return true end
             -- Sender still unknown (their status packet has not arrived): we do NOT lose the message.
             -- We trust it as much as a status packet: it names a listed guild; if it claims to be
@@ -561,7 +560,7 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
             return true
         end
         -- Our own messages come back from GUILD and also end up here
-        if not Ingest(e, pType == "GMSG") then Count(debug.rejected, "duplicate / own echo / muted") end
+        if not AcceptPacket(e, pType == "GMSG") then Count(debug.rejected, "duplicate / own echo / muted") end
         return true
     elseif pType == "HREQ" then
         if senderName ~= MyName() and IsKnownAllowedSender(senderName) then
@@ -580,8 +579,32 @@ end
 -- ============================================================================
 -- The relay wraps a GUILD packet as "FW:sender:packet" and whispers it to relays of other guilds.
 -- The receiver reposts it unchanged to its own GUILD. Nobody forwards wrapped packets again.
+-- Things people do right now go ahead of bulk sync (rosters, sign-up lists), so they arrive within seconds
+local LIVE_PACKETS = {
+    GMSG = true, EV_ADD = true, EV_DESC = true, EV_EDIT = true, EV_REM = true,
+    EV_SIGN = true, EV_SPEC = true, EV_RL = true, EV_KICK = true,
+    -- A delayed status packet would make the player look offline, and their packets would be ignored
+    PING = true, PONG = true,
+}
 local function ForwardPriority(text)
-    return text:sub(1, 5) == "GMSG:" and "high" or "low"
+    return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"
+end
+
+-- A forwarded online signal (PONG) still waiting in the queue is replaced by a newer one from the same player:
+-- only the latest matters, so a busy queue holds at most one per player. A PING is never replaced,
+-- because others answer it. target = nil for a repost to our guild.
+local function ReplaceQueuedStatus(msg, target)
+    local origin = msg:match("^FW:([^:]+):PONG:")
+    if not origin then return false end
+    local prefix = "FW:" .. origin .. ":PONG:"
+    for _, item in ipairs(highQueue) do
+        if item.target == target and item.msg:sub(1, #prefix) == prefix then
+            item.msg = msg
+            if addonTable.Monitor then addonTable.Monitor.Relay("Online signal of " .. origin .. " still queued, replaced by a newer one") end
+            return true
+        end
+    end
+    return false
 end
 
 -- Relays of other guilds from the online player list: guild -> name
@@ -599,7 +622,7 @@ local function ForwardToOtherGuilds(origin, text)
     local payload = origin .. ":" .. text
     if #payload + #"FW:" > 255 then Count(debug.rejected, "too long to forward") return end
     for _, relay in pairs(OtherGuildRelays()) do
-        Most.Whisper(relay, "FW", payload, ForwardPriority(text))
+        if not ReplaceQueuedStatus("FW:" .. payload, relay) then Most.Whisper(relay, "FW", payload, ForwardPriority(text)) end
     end
 end
 
@@ -625,16 +648,20 @@ function Most.Route(text, channel, senderName)
             Count(debug.rejected, "forward from unknown")
             return nil
         end
-        table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0 })
+        if not ReplaceQueuedStatus(text, nil) then
+            table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = GetTime() })
+        end
     elseif channel ~= "GUILD" then
         return nil
     end
-    if addonTable.Monitor then addonTable.Monitor.RX(inner, "FW", origin) end
+    if addonTable.Monitor then addonTable.Monitor.RX(inner, "FW", origin, senderName, channel) end
     return inner, "FW", origin
 end
 
 -- Finding other guilds: the relay reads the channel member list and greets unknown players.
 -- The greeted player reposts the PING to their guild, and its relay then knows us and forwards packets.
+-- channelMembers: name -> when last seen on the list. A name expires by time instead of the list being
+-- cleared on each read, because the answer can come in parts and reads can overlap.
 local listAskedAt, helloAt, channelMembers = 0, {}, {}
 
 function Most.HasLinkedGuilds()
@@ -644,7 +671,6 @@ end
 function Most.Discover()
     if not _G.ListChannelByName or not Most.GetChannelId() or not Most.IsRelay() then return end
     listAskedAt = GetTime()
-    wipe(channelMembers)
     _G.ListChannelByName(ChannelName())
 end
 
@@ -652,7 +678,6 @@ end
 function Most.RefreshChannelList()
     if not _G.ListChannelByName or not Most.GetChannelId() then return end
     listAskedAt = GetTime()
-    wipe(channelMembers)
     _G.ListChannelByName(ChannelName())
 end
 
@@ -669,11 +694,12 @@ local function HandleChannelList(list)
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
         local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
-        if name ~= "" then channelMembers[name] = true end
+        if name ~= "" then channelMembers[name] = now end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
         if isRelay and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello then
             helloAt[name] = now
+            if addonTable.Monitor then addonTable.Monitor.Relay("On the channel but unknown, greeting " .. name) end
             ctx.sendHello(name)
         end
     end
@@ -696,6 +722,7 @@ local function HandlePlayerNotFound(message)
     local name = NameFromSystemMessage(_G.ERR_CHAT_PLAYER_NOT_FOUND_S, message)
     if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
     RemoveActivePlayer(name)
+    if addonTable.Monitor then addonTable.Monitor.Relay("Whisper to " .. name .. " failed: player offline, removed from the list") end
     return true
 end
 
@@ -705,23 +732,6 @@ if _G.ChatFrame_AddMessageEventFilter then
     end)
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
         if HandlePlayerNotFound(message) then return true end
-    end)
-    -- A bridged /g line without the relay's name: the game adds that name outside the text, so we
-    -- hide the original and print our own. Only from a known addon user: a line typed by hand to look
-    -- like this from someone without the addon keeps its real sender, so nobody can fake another author.
-    _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_GUILD", function(frame, _, message, sender)
-        if not ctx then return end
-        local guild, author, level, text = ParseBridgeLine(message)
-        if not guild or not ctx.isGuildAllowed(guild) or not IsKnownAllowedSender(Ambiguate(sender or "", "none")) then return end
-        -- The game's own "[Guild]" label (localized, clickable), in the guild chat color passed below
-        local label = _G.CHAT_GUILD_GET and _G.CHAT_GUILD_GET:match("^(.-)%s*%%s") or "[Guild]"
-        local line = label .. " " .. GuildLabel(guild) .. " " .. AuthorLabel(author, level) .. ": " .. text
-        -- The game's own timestamps (Interface options) are added only to messages it prints itself
-        local stamp = _G.GetCVar("showTimestamps")
-        if stamp and stamp ~= "none" and _G.BetterDate then line = _G.BetterDate(stamp, _G.time()) .. line end
-        local info = _G.ChatTypeInfo and _G.ChatTypeInfo.GUILD
-        frame:AddMessage(line, info and info.r, info and info.g, info and info.b)
-        return true
     end)
 end
 
@@ -734,17 +744,23 @@ function Most.GetMonitorInfo()
         for guild, relay in pairs(OtherGuildRelays()) do table.insert(linked, guild .. " (" .. relay .. ")") end
         table.sort(linked)
     end
-    for name in pairs(channelMembers) do table.insert(members, name) end
+    local now = GetTime()
+    for name, seenAt in pairs(channelMembers) do
+        if now - seenAt <= CHANNEL_MEMBER_TTL then table.insert(members, name) end
+    end
     table.sort(members)
     return {
         channelId = Most.GetChannelId(), channelName = ChannelName(), channelProblem = channelProblem, channelMembers = members,
         relay = Most.GetRelayName(), isRelay = Most.IsRelay(), linked = linked, rejected = debug.rejected,
-        queueHigh = #highQueue, queueLow = #lowQueue, queueGuild = #guildLineQueue, history = #chatLog,
+        queueHigh = #highQueue, queueLow = #lowQueue, history = #chatLog,
+        queueOldest = (highQueue[1] or lowQueue[1]) and GetTime() - (highQueue[1] or lowQueue[1]).queued or nil,
+        relayReadyIn = (relayReadyAt ~= math.huge and GetTime() < relayReadyAt) and relayReadyAt - GetTime() or nil,
+        greeted = helloAt, helloRetry = HELLO_RETRY, listAskedAt = (listAskedAt > 0) and listAskedAt or nil,
     }
 end
 
 -- ============================================================================
--- EVENTS: loading history, capturing /g, cleanup
+-- EVENTS: loading history, channel state
 -- ============================================================================
 local function Warn(text)
     if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
@@ -752,7 +768,6 @@ end
 
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
-Listener:RegisterEvent("CHAT_MSG_GUILD")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
@@ -798,47 +813,16 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         local saved = _G.JagodkiChatDB.log or {}
         chatLog = {}
         for _, e in ipairs(saved) do
-            if e.src ~= "S" and e.id and not seenIds[e.id] then
+            -- Copies of /g lines saved by older versions are dropped: they do not belong on the shared chat
+            if e.src == "A" and e.id and not seenIds[e.id] then
                 seenIds[e.id] = true
                 table.insert(chatLog, e)
             end
         end
         TrimLog()
         _G.JagodkiChatDB.log = chatLog
-    elseif event == "CHAT_MSG_GUILD" then
-        local text, author = arg1, Ambiguate(arg2 or "", "none")
-        if IsBridgeLine(text, author) then
-            -- Another relay already posted this line -> we do not post it again
-            if author ~= MyName() then
-                for i = #guildLineQueue, 1, -1 do
-                    if guildLineQueue[i] == text then table.remove(guildLineQueue, i) end
-                end
-            end
-            return
-        end
-        if Most.IsRelay() then
-            Most.Publish("Ogolny", text, "G", author, MyGuild())
-        elseif CanForward() then
-            -- BACKUP RELAY: if the main relay does not forward this line within a few seconds
-            -- (it logged out, has not finished logging in, etc.), we forward it ourselves.
-            -- Whoever is first sends it; the others see the line in the log and give up.
-            local guild, ts = MyGuild(), GetServerTime()
-            local firstPart = SplitForPublish(text, guild, author, "Ogolny", "G")[1]
-            C_Timer.After(BACKUP_MIN_DELAY + math.random() * (BACKUP_MAX_DELAY - BACKUP_MIN_DELAY), function()
-                if CanForward() and not HasRecentGuildLine(guild, author, firstPart, ts) then
-                    Most.Publish("Ogolny", text, "G", author, guild, ts)
-                end
-            end)
-        end
     end
 end)
 
 C_Timer.NewTicker(0.2, PumpAddonQueue)
-C_Timer.NewTicker(0.8, PumpGuildLines)
 C_Timer.NewTicker(DISCOVER_INTERVAL, Most.Discover)
-C_Timer.NewTicker(10, function()
-    local now = GetTime()
-    for k, t in pairs(postedLines) do
-        if now - t > 60 then postedLines[k] = nil end
-    end
-end)

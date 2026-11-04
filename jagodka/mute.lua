@@ -1,9 +1,9 @@
 -- ============================================================================
 -- MUTE: mute on the shared chat (officers and GMs of listed guilds)
 -- ============================================================================
---  * A muted player cannot write on the community chat (addon window), and their /g lines
---    are not carried to other guilds. Each client rejects their messages on its own
---    (bridge.lua, Ingest), so this does not depend on who the relay is.
+--  * A muted player cannot write on the community chat. Guild chat (/g) is not affected. Each
+--    client rejects their messages on its own (bridge.lua, Ingest), so this does not depend
+--    on who the relay is.
 --  * Permissions: mute - officer (cannot mute another officer or themselves), GM - anyone
 --    except themselves; unmute - any officer. Checked locally and by every packet receiver.
 --  * Mute requires a reason (dialog with a text field); the reason shows in the icon tooltip
@@ -141,7 +141,7 @@ function Mute.Set(name, on, reason)
     local ts = math.max(GetServerTime(), ((mutes[name] and mutes[name].ts) or 0) + 1)
     if not Apply(name, on, ts, me, reason) then return end
     Most.Send("MUTE", Encode(name, mutes[name]), "high")
-    -- A regular message on the community chat (like "Event created by ..."), relays also post it to /g
+    -- A regular message on the community chat (like "Event created by ...")
     local text = on and ("Muted " .. name .. " on the community chat (reason: " .. reason .. ")")
         or ("Unmuted " .. name .. " on the community chat")
     Most.Publish("Ogolny", text, "A", me, (GetGuildInfo("player")))

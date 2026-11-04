@@ -505,3 +505,119 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - If nobody with newer data is online, the lock ends and the old data stays.
 - Two officers editing one event at the same time can still overwrite each other: the later save wins.
+
+# 0.9.5 – more detailed Monitoring
+
+## Log
+- Each packet shows its route (relay, repost, greeting, who it came from), what it is about, its size, and how long it waited in the queue with its retries. Message and note contents are still not logged.
+- New entries: relay changes in every guild, greetings, whispers to offline players, publishing `/g` lines, backup relay takeovers, dropped duplicates, players appearing on and leaving the online list.
+- Sync stages are logged with their time and packet count, or "no answer", as is the moment officer actions become available.
+- Packets ignored by `core.lua` (unknown sender, guild not listed, not in the roster) are now logged.
+- New `Relay` and `Sync` filters; the log keeps 1000 entries instead of 500.
+
+## Network view
+- New `Network` button: relays and online players per guild, your direct traffic with each player, players with version and last signal, channel members who have not answered, sync stages, and traffic per packet type.
+- Each client sees only its own links; relays of other guilds come from the rule everyone computes.
+- The buttons now take two rows, because they did not fit in the panel.
+
+## Window
+- The window title shows the version: `Jagodki Nadina - Community - Alpha-0.9.5`.
+
+# 0.9.6 – faster event sync between guilds
+
+- Relays now forward sign-ups, spec changes, raid leader marks, removals from events, and new, edited and removed events ahead of bulk sync, as they already did for chat. Before, these waited behind rosters and sign-up lists, on both relays.
+
+**Limitations:**
+- Both relays need this version, because each one queues forwarded packets by its own rules.
+- The send limit stays at about 1 packet per second, so a burst of chat and sign-ups can still take longer.
+
+# 0.9.7 – shared chat separated from guild chat
+
+- **No more syncing with `/g`:** what people write in guild chat stays in their guild, and the shared chat no longer posts to `/g`. The shared chat is written only from the addon, and everyone in listed guilds sees it there.
+- **Writing from the chat tab:** `Jagodki Nadina - General` has its own subtle input marked `Jagódki:`, always visible under the window and independent of other chat addons. A click on the input or the tab, or Enter, starts writing, and the message goes to the shared chat. The input keeps focus after sending, until a click elsewhere, Esc or Enter on an empty input. Item links and arrow-key history work. Text starting with `/` moves to the game's input, so `/w`, `/g` and other commands still work.
+- **Relays stay:** they still link guilds by carrying addon packets. They no longer handle `/g` lines, and there is no backup relay for them.
+- Event and mute announcements appear only on the shared chat.
+- Copies of `/g` lines saved in the chat history by older versions are removed at login.
+- **Guilds tab:** a guild tabard icon on each card, and the member counts and Active / Inactive statuses line up in columns.
+- Messages on the shared chat are limited to 255 bytes, the same as the game's chat, in the addon window and the chat tab. A message that does not fit one packet is sent in parts and put back together by the receiver, also in chat history, so it shows as one message. If a part is missing after 8 s, the message shows what arrived, and a late part gets its own line.
+
+**Limitations:**
+- Everyone needs this version. An older relay still copies between `/g` and the shared chat. Its `/g` lines are rejected by this version, but shared chat messages still reach that guild's `/g`.
+- Mute no longer stops anything in guild chat, only on the shared chat.
+- Older versions show the parts of a long message as separate lines.
+- If the tab is selected during combat, Enter opens the normal input until combat ends. Clicking the input still works.
+
+# 0.9.8 – notes, status packets, less roster traffic
+
+- **Notes from other guilds:** the answer now has high priority, a late answer is accepted, and with no answer you can ask again after 10 s instead of 60 s. The popup says whether nobody from that guild is online or there is no answer yet.
+- **Status packets:** relays forward `PING` and `PONG` ahead of rosters, so a busy queue does not make players look offline.
+- **Full rosters:** a request from a fresh login is answered by whisper to that player, which skips both relays. Three or more requests at once get one send to the guild. The send every 30 minutes stays.
+- **Channel list:** names expire after 70 s instead of the list being cleared on each read, so overlapping reads no longer shorten it.
+- **Monitoring:** the Network view lists addon players missing from the channel list.
+
+**Limitations:**
+- A relay needs this version to forward status packets first, and a roster sender to answer by whisper. Older versions keep the old behavior, and the two work together.
+- Each whispered roster is sent separately, so two requests at once cost the sender twice the packets.
+- A player who leaves the channel stays on our list for up to 70 s.
+
+# 0.9.9 – safeguards for roster and status traffic
+
+- **Asking again for a roster:** if a requested guild roster has not arrived whole after 70 s and someone from that guild is online, the addon asks again, up to 2 times. A roster still arriving is not asked for again.
+- **Online signals:** a forwarded `PONG` still waiting in a relay's queue is replaced by a newer one from the same player, so a busy queue holds at most one per player and destination. `PING` is never replaced, because others answer it.
+- **Whispered rosters:** a sender with 60 or more low-priority packets waiting does not add another whispered roster. The player gets it by asking again.
+- **Monitoring:** the log shows replaced signals, rosters skipped because of a busy queue, and rosters not received after all retries.
+
+**Limitations:**
+- After the second retry the addon stops asking until the next login. The send every 30 minutes can still bring the roster.
+- A roster from a guild with nobody online is not requested again until the next login.
+
+# 0.10.0 – saved Monitoring log
+
+- **Preserve logs:** a new button in Monitoring saves everything the log shows, as plain text, in `JagodkiMonitorDB`. It is off by default and stays on after `/reload` and the next login, until it is turned off.
+- **Full picture:** while recording, the statistics and the Network view are added every 60 s, including the queue, relays, players and channel. The channel list is also read while the tab is closed.
+- **Network view:** times show as minutes and hours instead of seconds, and players no longer on the addon list are marked in the direct traffic list.
+- **Guild list:** the test guild `Testowo` is removed, so whoever founds a guild with that name no longer joins the community as an officer.
+- **Separate file:** the log is saved per character in `WTF\Account\<account>\<server>\<character>\SavedVariables\jagodka.lua`, without chat history or rosters. `Clear saved` empties it.
+
+**Limitations:**
+- The game writes the file only on `/reload`, logout or exit, so a crash loses everything since the last write.
+- The log keeps 50,000 entries, and older ones are overwritten.
+- The first update needs a full game restart, because the game reads the new `.toc` line only at startup.
+- The button is in the Monitoring tab, so only players who can open that tab can record.
+
+# 0.10.1 – update window
+
+- **Outdated addon:** when a player with a newer version is seen, a window in the middle of the screen says the addon is outdated, shows both versions and the download link. A click on the link selects it for Ctrl+C. The chat warning stays.
+- **Once per version:** the window shows once per newer version in a session, and in combat it waits until the fight ends. It does not take the keyboard, so movement keys keep working.
+- **Preview:** the `Update popup` button in Monitoring shows the same window.
+- The link is set in `update.lua` (`DOWNLOAD_URL`).
+
+**Limitations:**
+- Only 0.10.1 and newer show the window. Older versions keep only the chat warning.
+- The version comes from other players, so a newer one is noticed only when someone who has it is online.
+
+# 0.10.2 – WoW Forever client
+
+- **Forever:** the `.toc` lists `## Interface: 11509, 16001`. Classic Era takes `11509`, and the WoW Forever client (1.60.1) takes `16001`, so it no longer shows the addon as incompatible. The retail number `120100` from 0.10.1 is removed, because the addon is not made for retail.
+- **AddOns list:** `## Category: Guild` puts the addon under a Guild header, in clients that show categories. CurseForge categories (Guild, with Chat & Communication as an extra one) are set on the project page, not in the `.toc`.
+- **CurseForge:** `## X-Curse-Project-ID: 1775157` links the installed addon with its CurseForge project, so the CurseForge app can recognize and update it.
+- **Icon:** the AddOns list shows `Media\blueberry_one.tga` instead of a question mark (`## IconTexture`).
+
+**Limitations:**
+- Confirmed only in the AddOns list of the Forever client. Its API may differ from Classic Era 1.15, so Lua errors there are still possible.
+- A new Forever patch changes its number, and the `.toc` then needs the new one.
+
+# 0.10.3 – ready for CurseForge
+
+- **Download link:** the update window now points to the CurseForge page, `https://www.curseforge.com/wow/addons/jagodki-nadina-community`.
+- **Window title:** shows `v0.10.3` instead of `Alpha-0.10.3`. Whether a version is alpha, beta or a release is now set on CurseForge.
+- **License:** `LICENSE.txt` in the addon folder, All Rights Reserved. The bundled libraries keep their own licenses.
+- **Upload zip:** `build.ps1` builds `dist\jagodka-<version>.zip` with the `jagodka` folder at its root, from the files committed to git.
+
+**Limitations:**
+- Players on 0.10.2 and older still see the GitHub link in their update window, until they update.
+
+# 0.10.4 – guild icon and library cleanup
+
+- **Guilds tab:** each guild card shows the `Media\blueberry_one.tga` icon instead of the guild tabard.
+- **Libraries:** unused files removed from `Libs` (a duplicate `LibDataBroker-1.1.lua`, the library's own `.toc` and `.xml` files, readme and changelogs). The four libraries the minimap button needs stay.
