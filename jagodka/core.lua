@@ -2617,6 +2617,7 @@ if cmp < 0 then
 text = name .. " has an older addon version (" .. (version or "unknown") .. ", yours: " .. ADDON_VERSION .. ") - they need to update."
 else
 text = name .. " has a newer addon version (" .. version .. ") - please update yours (" .. ADDON_VERSION .. ")."
+addonTable.Update.Show(version)
 end
 Most.AddSystem(text)
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end

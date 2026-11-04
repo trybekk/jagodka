@@ -584,3 +584,14 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - The log keeps 50,000 entries, and older ones are overwritten.
 - The first update needs a full game restart, because the game reads the new `.toc` line only at startup.
 - The button is in the Monitoring tab, so only players who can open that tab can record.
+
+# 0.10.1 – update window
+
+- **Outdated addon:** when a player with a newer version is seen, a window in the middle of the screen says the addon is outdated, shows both versions and the download link. A click on the link selects it for Ctrl+C. The chat warning stays.
+- **Once per version:** the window shows once per newer version in a session, and in combat it waits until the fight ends. It does not take the keyboard, so movement keys keep working.
+- **Preview:** the `Update popup` button in Monitoring shows the same window.
+- The link is set in `update.lua` (`DOWNLOAD_URL`).
+
+**Limitations:**
+- Only 0.10.1 and newer show the window. Older versions keep only the chat warning.
+- The version comes from other players, so a newer one is noticed only when someone who has it is online.

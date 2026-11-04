@@ -64,7 +64,7 @@ Confirmed by reading the code at 0.10.0. Fixed one step at a time, each tested w
 | S2 | A relay's queue has no limit; anyone can whisper it packets signed with their own name | Open, stage 2 |
 | S3 | `Testowo` is on the guild list; whoever founds it becomes an officer of the community | Fixed in 0.10.0 |
 | S4 | Rank comes from the player's own status packet, also in our own guild; rank names with "master", "officer", "oficer" or "lider" count as officers | Open, stage 3 |
-| S5 | A stranger can claim another listed guild, become its relay for us and get the shared chat, history, rosters and notes | Open, stage 4. The game gives no way to check another guild's members, except maybe `/who` |
+| S5 | A stranger can claim another listed guild, become its relay for us and get the shared chat, history, rosters and notes | Open, stage 4. The game gives no way to check another guild's members. `/who` (`C_FriendList.SendWho`) needs a key press or click since 1.13.2, so an addon cannot use it automatically |
 | S6 | Forwarded mutes, event edits, removals and kicks are accepted from any known member, whoever they name as the author | Open, stage 4 |
 
 Stages: 1 test and release 0.10.0; 2 S2 (low risk); 3 S4 (medium risk); 4 S5 and S6, each separately (high risk: they can break guild discovery and sync).
