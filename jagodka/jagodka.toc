@@ -1,8 +1,8 @@
-## Interface: 11509, 120100
+## Interface: 11509, 16001
 ## Title: Jagodki Nadina - Community
 ## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with a shared chat, a combined member list, and synced events with sign-ups and a calendar.
 ## Author: trybekk & Lasarr
-## Version: 0.10.1
+## Version: 0.10.2
 ## SavedVariables: JagodkiMinimapDB, JagodkiEventsDB, JagodkiChatDB, JagodkiRosterDB
 ## SavedVariablesPerCharacter: JagodkiMonitorDB
 
@@ -21,4 +21,4 @@ professions.lua
 chattab.lua
 instances.lua
 update.lua
-core.lua
+core.lua

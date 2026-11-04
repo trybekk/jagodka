@@ -595,3 +595,11 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - Only 0.10.1 and newer show the window. Older versions keep only the chat warning.
 - The version comes from other players, so a newer one is noticed only when someone who has it is online.
+
+# 0.10.2 – WoW Forever client
+
+- **Forever:** the `.toc` lists `## Interface: 11509, 16001`. Classic Era takes `11509`, and the WoW Forever client (1.60.1) takes `16001`, so it no longer shows the addon as incompatible. The retail number `120100` from 0.10.1 is removed, because the addon is not made for retail.
+
+**Limitations:**
+- Confirmed only in the AddOns list of the Forever client. Its API may differ from Classic Era 1.15, so Lua errors there are still possible.
+- A new Forever patch changes its number, and the `.toc` then needs the new one.
