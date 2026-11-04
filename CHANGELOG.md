@@ -599,6 +599,9 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 # 0.10.2 – WoW Forever client
 
 - **Forever:** the `.toc` lists `## Interface: 11509, 16001`. Classic Era takes `11509`, and the WoW Forever client (1.60.1) takes `16001`, so it no longer shows the addon as incompatible. The retail number `120100` from 0.10.1 is removed, because the addon is not made for retail.
+- **AddOns list:** `## Category: Guild` puts the addon under a Guild header, in clients that show categories. CurseForge categories (Guild, with Chat & Communication as an extra one) are set on the project page, not in the `.toc`.
+- **CurseForge:** `## X-Curse-Project-ID: 1775157` links the installed addon with its CurseForge project, so the CurseForge app can recognize and update it.
+- **Icon:** the AddOns list shows `Media\blueberry_one.tga` instead of a question mark (`## IconTexture`).
 
 **Limitations:**
 - Confirmed only in the AddOns list of the Forever client. Its API may differ from Classic Era 1.15, so Lua errors there are still possible.
