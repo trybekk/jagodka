@@ -5,7 +5,8 @@
 --  * Every message has a unique ID, so the receiver drops duplicates.
 --  * In each guild one person with the addon is the RELAY (the alphabetically first name
 --    among online players with the addon). The relay links guilds: it whispers GUILD packets
---    to the relays of other guilds, who repost them to their GUILD.
+--    to the relays of other guilds, who repost them to their GUILD. Status packets (PING/PONG) are
+--    passed on only for the relay itself; other guilds know the rest of our players from the roster.
 --  * The shared chat is written only from the addon (window or chat tab). Guild chat (/g) stays
 --    in its own guild: nothing is carried between /g and the shared chat.
 --  * A new player gets the history from someone online after logging in.
@@ -45,6 +46,8 @@ local MAX_ADDON_BYTES = 225           -- addon packet limit is 255 bytes, this l
 local DISCOVER_INTERVAL, HELLO_RETRY = 30, 120 -- how often the relay reads the channel list and repeats a greeting (s)
 local CHANNEL_MEMBER_TTL = 70         -- seconds a name stays on our channel list without being seen again (lists are read every 30 s)
 local RELAY_READY_DELAY = 5           -- after login we wait for answers from others before treating ourselves as relay
+local MAX_GREETINGS = 5               -- greetings per read of the channel list, so a fresh install does not whisper everyone at once
+local RELAY_CHECK_INTERVAL = 5        -- how often we check whether we just became the relay (s)
 
 local Most = {}
 addonTable.Most = Most
@@ -53,7 +56,7 @@ Most.MAX_CHAT_BYTES = 255             -- message limit on the shared chat, the s
 local MAX_MESSAGE_PARTS = 10          -- a message in more parts is rejected by the receiver
 local PARTS_WAIT = 8                  -- how long the receiver waits for all parts of a message (s)
 
--- Context from core.lua: activePlayers, isGuildAllowed, onChatChanged, sendHello
+-- Context from core.lua: activePlayers, isGuildAllowed, onChatChanged, sendHello, announce
 local ctx = nil
 function Most.Init(c) ctx = c end
 function Most.IsGuildAllowed(guild) return ctx ~= nil and ctx.isGuildAllowed(guild) end
@@ -488,13 +491,20 @@ function Most.Publish(tab, text, src, author, guild, ts)
     end
 end
 
-local function IsKnownAllowedSender(name)
-    if not ctx then return nil end
+-- A player we trust as a member of a listed guild: online with the addon (their status packet), or in a
+-- guild roster. Relays do not pass on everyone's status packets to other guilds (only their own), so most
+-- players of other guilds are known from the rosters. For them a stand-in entry with the roster data is returned.
+function Most.FindKnownPlayer(name)
+    if not ctx or not name then return nil end
     for _, p in ipairs(ctx.activePlayers) do
-        if p.name == name and ctx.isGuildAllowed(p.guild) then return p end
+        if p.name == name then return ctx.isGuildAllowed(p.guild) and p or nil end
     end
-    return nil
+    local guild, m = nil, nil
+    if addonTable.Roster then guild, m = addonTable.Roster.FindMember(name) end
+    if not guild then return nil end
+    return { name = name, guild = guild, class = m.c, level = m.l, rankIndex = m.r, fromRoster = true }
 end
+local IsKnownAllowedSender = Most.FindKnownPlayer
 
 -- ============================================================================
 -- HISTORY SYNC
@@ -637,8 +647,12 @@ end
 function Most.Route(text, channel, senderName)
     local pType, rest = strsplit(":", text, 2)
     if pType ~= "FW" then
-        -- Our own packets too: the game echoes them from GUILD, so there is one path for everyone
-        if channel == "GUILD" and Most.IsRelay() then ForwardToOtherGuilds(senderName, text) end
+        -- Our own packets too: the game echoes them from GUILD, so there is one path for everyone.
+        -- Status packets (PING/PONG) of others stay in the guild: with hundreds of players they would fill
+        -- the relay's queue (about 1 packet per second). Other guilds know our players from the roster
+        -- and only need the relay's own status, to know whom to send to.
+        local isStatus = pType == "PING" or pType == "PONG"
+        if channel == "GUILD" and Most.IsRelay() and (not isStatus or senderName == MyName()) then ForwardToOtherGuilds(senderName, text) end
         -- Our own echo was already logged when sent
         if senderName ~= MyName() and addonTable.Monitor then addonTable.Monitor.RX(text, channel, senderName) end
         return text, channel, senderName
@@ -702,17 +716,24 @@ local function IsActivePlayer(name)
     return false
 end
 
+-- A player of a guild we are already linked with (from the rosters) needs no greeting
+local function IsLinked(name)
+    local p = Most.FindKnownPlayer(name)
+    return p ~= nil and p.guild ~= MyGuild() and Most.GetRelayName(p.guild) ~= nil
+end
+
 local function HandleChannelList(list)
     if not ctx then return end
-    local now, isRelay = GetTime(), Most.IsRelay()
+    local now, isRelay, greeted = GetTime(), Most.IsRelay(), 0
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
         local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
         if name ~= "" then channelMembers[name] = now end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
-        if isRelay and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
-            and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello then
+        if isRelay and greeted < MAX_GREETINGS and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
+            and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello and not IsLinked(name) then
             helloAt[name] = now
+            greeted = greeted + 1
             if addonTable.Monitor then addonTable.Monitor.Relay("On the channel but unknown, greeting " .. name) end
             ctx.sendHello(name)
         end
@@ -840,3 +861,15 @@ end)
 
 C_Timer.NewTicker(0.2, PumpAddonQueue)
 C_Timer.NewTicker(DISCOVER_INTERVAL, Most.Discover)
+
+-- A new relay sends its status at once: other guilds know only the relays, so without it they would wait
+-- up to a minute (the next regular status packet) before sending to us again
+local wasRelay = false
+C_Timer.NewTicker(RELAY_CHECK_INTERVAL, function()
+    local isRelay = Most.IsRelay()
+    if isRelay and not wasRelay and ctx and ctx.announce then
+        if addonTable.Monitor then addonTable.Monitor.Relay("Became the relay, announcing to other guilds") end
+        ctx.announce()
+    end
+    wasRelay = isRelay
+end)

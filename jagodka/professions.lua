@@ -3,7 +3,8 @@
 -- ============================================================================
 --  * The game gives skill levels only for your own character, so every addon sends its own.
 --  * PROF goes over GUILD and relays at login and after a change (checked once a minute), and by
---    whisper in answer to a PING, so a fresh login gets the data of everyone online.
+--    whisper from the relay in answer to a PING. Data of others comes from what was saved earlier and
+--    from their next login or change.
 --  * Format: "A=300/300,H=285/300" with profession codes rather than names, so clients in different
 --    languages understand each other; "-" = no professions.
 --  * Received data is kept in JagodkiChatDB.professions, so it also shows for offline players.
@@ -122,11 +123,9 @@ end
 -- ============================================================================
 -- RECEIVING
 -- ============================================================================
+-- Player of a listed guild (status packet or guild roster, bridge.lua)
 local function IsAllowedPlayer(name)
-    for _, p in ipairs(ctx.activePlayers) do
-        if p.name == name then return ctx.isGuildAllowed(p.guild) end
-    end
-    return false
+    return Most.FindKnownPlayer(name) ~= nil
 end
 
 -- Called from core.lua; returns true if the packet was handled

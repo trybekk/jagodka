@@ -51,11 +51,9 @@ local function CanViewOfficerNotes()
     return check ~= nil and check() and true or false
 end
 
+-- Player of a listed guild (status packet or guild roster, bridge.lua) or nil
 local function FindPlayer(name)
-    for _, p in ipairs(ctx.activePlayers) do
-        if p.name == name then return p end
-    end
-    return nil
+    return Most.FindKnownPlayer(name)
 end
 
 -- Offline members can be missing when "show offline" is off, so entries are overwritten, not cleared

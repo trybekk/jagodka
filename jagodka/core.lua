@@ -780,6 +780,7 @@ activePlayers = activePlayers,
 isGuildAllowed = IsPlayerGuildAllowed,
 onChatChanged = function(tab) if tab == currentChatTab then RefreshChatDisplay() end end,
 sendHello = function(target) SendStatusPacket("PING", target) end,
+announce = function() SendStatusPacket("PONG") end,
 })
 Mute.Init({
 activePlayers = activePlayers,
@@ -2735,9 +2736,10 @@ if existingIndex then activePlayers[existingIndex] = playerData else table.inser
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
 if MainFrame:IsShown() then UpdateGuildTable() end
--- Answer by whisper only to the greeter (several PINGs during a relog = one answer),
--- with a random delay, so not everyone answers at the same moment
-if pType == "PING" and senderName ~= myName and not EventSync.pongPending[senderName] then
+-- Only the relay answers, by whisper to the greeter (several PINGs during a relog = one answer). With hundreds
+-- of players everyone answering would flood the newcomer; they learn the relay at once and the rest from
+-- the regular status packets within a minute.
+if pType == "PING" and senderName ~= myName and Most.IsRelay() and not EventSync.pongPending[senderName] then
 EventSync.pongPending[senderName] = true
 C_Timer.After(0.2 + math.random() * 1.3, function()
 EventSync.pongPending[senderName] = nil
@@ -2746,10 +2748,10 @@ addonTable.Professions.SendTo(senderName)
 end)
 end
 else
-local senderIdx = GetPlayerIndex(senderName)
-if not senderIdx and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
--- Sender's guild from their status packet; officer by that guild's roster, not by the rank they send
-local senderInfo = senderIdx and activePlayers[senderIdx]
+-- Sender from their status packet or, for most players of other guilds, from the guild rosters
+local senderInfo = Most.FindKnownPlayer(senderName)
+if not senderInfo and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
+-- Officer by the guild's roster, not by the rank they send
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer
 if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsKnownOfficer(senderName, senderInfo.guild) end

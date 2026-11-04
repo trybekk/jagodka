@@ -59,13 +59,10 @@ end
 -- ============================================================================
 -- PERMISSIONS
 -- ============================================================================
--- Player from the online list (their status packet) or nil
+-- Player of a listed guild (status packet or guild roster, bridge.lua) or nil
 local function FindPlayer(name)
     if not ctx then return nil end
-    for _, p in ipairs(ctx.activePlayers) do
-        if p.name == name and ctx.isGuildAllowed(p.guild) then return p end
-    end
-    return nil
+    return Most.FindKnownPlayer(name)
 end
 
 -- Player's rank (name, index): mine from the game, others from guild rosters (also offline),

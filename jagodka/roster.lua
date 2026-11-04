@@ -37,7 +37,8 @@ local RETRY_AFTER = 70       -- after this many seconds we ask again for a roste
 local MAX_RETRIES = 2        -- how many times we ask again
 local STILL_ARRIVING = 20    -- a roster with a part newer than this many seconds is still on its way
 local STALE_AFTER = 600      -- after login we request the roster of a guild whose data is > 10 min old
-local READY_DELAY = 15       -- after login we wait until we know the others (otherwise everyone thinks they are the sender)
+local READY_DELAY = 65       -- after login we wait until we know the others (otherwise everyone thinks they are the sender);
+                             -- only the relay answers a PING, the rest is known from their regular status packet (every 60 s)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
 local FRESH_FOR = FULL_INTERVAL + 300 -- a whole roster this old still decides who is a member (one full roster + 5 min)
 
@@ -292,13 +293,14 @@ Roster.RequestStale = RequestStale
 -- ============================================================================
 -- RECEIVING
 -- ============================================================================
--- Another guild's roster is accepted only from a known player of that guild (we know our own from the game)
+-- Another guild's roster is accepted only from a player of that guild (we know our own from the game):
+-- online with the addon or in its roster. A sender nobody knows is accepted only while we have no
+-- recent whole roster of that guild, so the first roster can arrive.
 local function AcceptFrom(sender, guild)
     if not ctx or not guild or guild == MyGuild() or not ctx.isGuildAllowed(guild) then return false end
-    for _, p in ipairs(ctx.activePlayers) do
-        if p.name == sender then return p.guild == guild end
-    end
-    return false
+    local p = Most.FindKnownPlayer(sender)
+    if p then return p.guild == guild end
+    return Roster.IsMember(sender, guild) == nil
 end
 
 local function Upsert(g, list, snap)
@@ -431,6 +433,19 @@ function Roster.GetRank(name, guild)
         if m and ctx and ctx.isGuildAllowed(guild) then return g.ranks[(m.r or 0) + 1], m.r end
     end
     return nil, nil
+end
+
+-- Listed guild whose roster has the player, and their entry (guild, member), or nil. When the player is in
+-- more than one roster (moved to another guild), the most recently updated roster wins.
+function Roster.FindMember(name)
+    local bestGuild, best, bestAt = nil, nil, -1
+    for guild, g in pairs(rosters) do
+        local m = g.members[name]
+        if m and ctx and ctx.isGuildAllowed(guild) and (g.updated or 0) > bestAt then
+            bestGuild, best, bestAt = guild, m, g.updated or 0
+        end
+    end
+    return bestGuild, best
 end
 
 -- Player's class and level from rosters of listed guilds, or nil (chat format in bridge.lua)

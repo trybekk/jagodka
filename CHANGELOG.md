@@ -637,3 +637,21 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - A new guild member may be ignored by other guilds until the next roster update of their guild reaches them (at most 30 minutes).
 - Event removal markers passed on during sync (`EV_RM`) are still not checked: the packet does not name who removed the event. That needs a change in the packet format.
 - Only versions from 0.10.5 check this. Older versions still accept everything as before.
+
+# 0.11.0 – status traffic for large guilds (scaling, stage 1)
+
+- **Status packets stay in the guild:** the relay no longer passes on everyone's PING/PONG to other guilds, only its own. With hundreds of players these packets alone filled the relay's queue (about 1 packet per second), and chat waited behind them. Other guilds know our players from the guild roster instead.
+- **Players of other guilds known from the rosters:** a player who is not on the online list (no status packet) is trusted as a member of the listed guild whose roster has them. This applies to chat, events, sign-ups, mutes, notes, professions and rosters. Officer rights still come only from the rosters.
+- **Only the relay answers a PING:** a player who logs in gets one answer, from the relay, instead of one from everyone. The rest of the guild is known from the regular status packets within a minute.
+- **New relay announces itself:** a player who becomes the relay sends a status packet at once, so other guilds send to them without waiting for the next regular one.
+- **Roster sender after login:** a player waits 65 s after login (was 15 s) before acting as their guild's roster sender, because guildmates are now known only from their regular status packets.
+- **Greetings on the channel:** the relay greets at most 5 unknown players per read of the channel list, and skips players of guilds it is already linked with.
+- **First roster of a guild:** a roster from a sender nobody knows is accepted only while there is no recent whole roster of that guild.
+
+**Limitations:**
+- Players of other guilds who are not relays no longer appear on the online list with the addon: no addon version or location for them, and they show from the roster instead.
+- The Network view in Monitoring lists only players of other guilds whose status we get (their relays).
+- Players on 0.10.5 and older in a guild whose relay has 0.11.0 no longer learn players of other guilds, so they ignore their events, sign-ups and mutes until they update. Chat still works for them.
+- A new member of another guild is trusted only after they appear in that guild's roster here.
+- Professions of others reach a fresh login from what was saved earlier, and from the relay.
+- Only the first stage: sync requests, rosters and the relay's own limit are not changed yet.
