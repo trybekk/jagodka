@@ -397,19 +397,22 @@ end
 -- RECEIVING MESSAGES (deduplication by ID)
 -- ============================================================================
 -- A channel message has a different ID on every client, so history from someone else can bring back one we
--- already have: the same author, tab and text within two minutes counts as the same message
+-- already have, and a message sent through the relays after its channel echo was late arrives both ways:
+-- the same author, tab and text within two minutes counts as the same message. A live message only matches
+-- one that came the other way (channel = via "C"), so a player repeating a line on the channel still shows twice.
 local SAME_MESSAGE_WINDOW = 120
-local function HasSameMessage(e)
+local function HasSameMessage(e, live)
     for i = #chatLog, math.max(1, #chatLog - 100), -1 do
         local o = chatLog[i]
-        if o.author == e.author and o.tab == e.tab and o.text == e.text and math.abs((o.ts or 0) - (e.ts or 0)) <= SAME_MESSAGE_WINDOW then return true end
+        if o.author == e.author and o.tab == e.tab and o.text == e.text and math.abs((o.ts or 0) - (e.ts or 0)) <= SAME_MESSAGE_WINDOW
+            and (not live or (o.via == "C") ~= (e.via == "C")) then return true end
     end
     return false
 end
 
 local function Ingest(e, live)
     if seenIds[e.id] then return false end
-    if not live and HasSameMessage(e) then
+    if e.src == "A" and HasSameMessage(e, live) then
         seenIds[e.id] = true
         return false
     end
@@ -517,14 +520,18 @@ end
 -- which is also readable without the addon. Automatic notices (events, mutes) still go through the relays.
 local TAB_TAGS = { Handel = "[Trade] ", ["Szukaj grupy"] = "[LFG] " }
 
--- The server sends our own channel message back to us. When it does not come back (e.g. the game does not let
--- a low-level or restricted character speak on channels), the message goes through the relays, and so do
--- all further ones until /reload, so the player does not wait each time.
-local ECHO_WAIT = 5        -- seconds we wait for our own message to come back from the channel
+-- The server sends our own channel message back to us. When it does not come back, the message goes through
+-- the relays. If no message of ours has come back this session (e.g. the game does not let a low-level or
+-- restricted character speak on channels), all further ones go through the relays until /reload, so the
+-- player does not wait each time. Once the channel worked, a lost message (e.g. the server's flood limit
+-- during fast typing) is only resent itself, and the next ones still go on the channel.
+local ECHO_WAIT = 8        -- seconds we wait for our own message to come back from the channel
 local awaitingEcho = {}    -- messages sent on the channel without their echo yet, oldest first: { tab, text, guild, parts }
 local channelChatBlocked = false
+local channelEchoSeen = false
 
 local function OwnEchoArrived()
+    channelEchoSeen = true
     local rec = awaitingEcho[1]
     if not rec then return end
     rec.parts = rec.parts - 1
@@ -549,8 +556,12 @@ function Most.SayOnChannel(tab, text)
         for i, r in ipairs(awaitingEcho) do
             if r == rec then table.remove(awaitingEcho, i) break end
         end
-        channelChatBlocked = true
-        if addonTable.Monitor then addonTable.Monitor.Error("Own message did not come back from the channel, chat goes through the relays until /reload") end
+        if channelEchoSeen then
+            if addonTable.Monitor then addonTable.Monitor.Note("Own message did not come back from the channel (server limit?), resent through the relays") end
+        else
+            channelChatBlocked = true
+            if addonTable.Monitor then addonTable.Monitor.Error("Own message did not come back from the channel, chat goes through the relays until /reload") end
+        end
         Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild)
     end)
     return true
@@ -826,7 +837,7 @@ local function HandleChannelMessage(text, playerName, lineID)
     text = Most.SanitizeChat(text)
     if text == "" then return end
     local ts = GetServerTime()
-    Ingest({ id = string.format("C.%s.%x.%s", author, ts, tostring(lineID)), ts = ts, guild = p.guild, author = author, tab = tab, src = "A", text = text }, true)
+    Ingest({ id = string.format("C.%s.%x.%s", author, ts, tostring(lineID)), ts = ts, guild = p.guild, author = author, tab = tab, src = "A", text = text, via = "C" }, true)
 end
 
 local function NameFromSystemMessage(pattern, message)

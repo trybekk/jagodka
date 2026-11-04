@@ -673,3 +673,8 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - The game must accept the message from a key press or click; this needs checking in game (the addon sends it right from Enter or the Send button).
 - Whether low-level characters may speak on a custom channel needs checking in game; if not, they fall back to the relays as above.
 - Whether the server limits the number of players on one custom channel is not known yet.
+
+# 0.12.1 – channel chat during fast typing
+
+- **A lost message does not switch the whole session to the relays:** in 0.12.0 the first own message that did not come back from the channel within 5 s sent all further messages through the relays until `/reload`, so fast typing ended in long delays, also inside one guild. Now all further messages go through the relays only when none of the player's messages has come back this session (e.g. a low-level or restricted character, an error in Monitoring). When the channel already worked, only the lost message is resent through the relays (a note in Monitoring), and the next ones still go on the channel. The wait for the echo is 8 s instead of 5 s.
+- **No doubles:** the same message from the same author, once from the channel and once through the relays (a late echo), shows only once. The same line typed twice on the channel still shows twice.
