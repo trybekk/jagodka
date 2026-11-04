@@ -35,6 +35,7 @@ local MAX_NAMES_SHOWN = 15
 -- Packet type -> filter category and description
 local TYPES = {
     GMSG = { "chat", "chat message" }, HIST = { "chat", "chat history" }, HREQ = { "chat", "history request" }, HCLAIM = { "chat", "history request taken" },
+    KEY = { "channel", "chat channel key" }, KREQ = { "channel", "chat channel key request" },
     EV_ADD = { "events", "event" }, EV_DESC = { "events", "event description" }, EV_EDIT = { "events", "event edit" }, EV_REM = { "events", "event removed" },
     EV_RM = { "events", "event removal marker" }, EV_REQ = { "events", "events request" }, EV_CLAIM = { "events", "events request taken" }, EV_ROS = { "events", "sign-up list" },
     EV_SIGN = { "events", "sign-up" }, EV_SPEC = { "events", "sign-up spec" }, EV_RL = { "events", "raid leader mark" }, EV_KICK = { "events", "removal from event" },
@@ -44,7 +45,7 @@ local TYPES = {
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
 }
 local FILTERS = {
-    { key = "all", label = "All" }, { key = "chat", label = "Chat" }, { key = "events", label = "Events" }, { key = "rosters", label = "Rosters" },
+    { key = "all", label = "All" }, { key = "chat", label = "Chat" }, { key = "channel", label = "Channel" }, { key = "events", label = "Events" }, { key = "rosters", label = "Rosters" },
     { key = "mutes", label = "Mutes" }, { key = "presence", label = "Presence" }, { key = "relay", label = "Relay" }, { key = "sync", label = "Sync" },
     { key = "errors", label = "Errors" },
 }
@@ -153,6 +154,8 @@ local function Detail(pType, payload)
     if pType == "EV_REM" or pType == "EV_RM" or pType == "EV_ROS" then return "event " .. Field(a) end
     if pType == "MUTE" then return Field(a) .. ", " .. (b == "1" and "muted" or "unmuted") .. ", by " .. Field(d) end
     if pType == "NREQ" or pType == "NOTE" then return Field(a) end
+    -- The key itself never goes to the log (saved logs are sent around for analysis)
+    if pType == "KEY" then return "by " .. Field(c) end
     return nil
 end
 
@@ -243,6 +246,15 @@ end
 
 function Monitor.Note(text)
     Add("system", false, "|cffffd100" .. text .. "|r")
+end
+
+-- Channels and the chat channel key (key.lua, bridge.lua): the "Channel" filter. isError also counts as an error.
+function Monitor.Channel(text, isError)
+    if isError then
+        stats.errors = stats.errors + 1
+        stats.lastError = date("%H:%M:%S") .. " " .. text
+    end
+    Add("channel", isError, (isError and "|cffff5555" or "|cff66ccff") .. text .. "|r")
 end
 
 function Monitor.Relay(text)
@@ -576,12 +588,12 @@ function Monitor.Attach(panel, c)
     local x = 0
     for _, filter in ipairs(FILTERS) do
         local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        btn:SetSize(60, 22)
+        btn:SetSize(56, 22)
         btn:SetPoint("TOPLEFT", panel, "TOPLEFT", x, -2)
         btn:SetText(filter.label)
         btn:SetScript("OnClick", function() currentFilter = filter.key showNetwork = false Rebuild() end)
         filterButtons[filter.key] = btn
-        x = x + 62
+        x = x + 58
     end
     networkBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     networkBtn:SetSize(80, 22)

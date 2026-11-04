@@ -792,6 +792,7 @@ onChanged = function() RefreshChatDisplay() UpdateMainTable() end,
 })
 Mute.AttachChat(chatDisplay)
 addonTable.Notes.Init({ activePlayers = activePlayers, isGuildAllowed = IsPlayerGuildAllowed, parent = Panels[2], onChanged = function() UpdateMainTable() end })
+addonTable.Key.Init({ isKnownOfficer = IsKnownOfficer, isMeOfficer = IsPlayerOfficer })
 addonTable.Professions.Init({ activePlayers = activePlayers, isGuildAllowed = IsPlayerGuildAllowed, onChanged = function() UpdateMainTable() end })
 Roster.Init({
 activePlayers = activePlayers,
@@ -2707,6 +2708,8 @@ if Mute.HandlePacket(pType, payload, senderName, sender) then return end
 if addonTable.Notes.HandlePacket(pType, payload, senderName) then return end
 -- Professions: professions.lua
 if addonTable.Professions.HandlePacket(pType, payload, senderName) then return end
+-- Chat channel key: key.lua
+if addonTable.Key.HandlePacket(pType, payload, senderName) then return end
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk, ver, rIdx, zone = strsplit(":", payload, 7)
 if not IsPlayerGuildAllowed(gld) then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": guild not listed (" .. tostring(gld) .. ")") return end
@@ -2981,6 +2984,12 @@ if msg and msg:lower():match("^%s*reset%s*$") then
 if _G.JagodkiMinimapDB then _G.JagodkiMinimapDB.window = nil end
 MainFrame.ApplyLayout()
 MainFrame:Show()
+return
+end
+-- "/jagodka key" = a new secret key for the chat channel (officers, key.lua), e.g. after someone left
+if msg and msg:lower():match("^%s*key%s*$") then
+local text = addonTable.Key.Create("/jagodka key", true) and "New chat channel key sent to the community." or "Only officers can create a new chat channel key."
+if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end
 return
 end
 -- "/jagodka tab" = recreate the "Jagodki Nadina" tab in the game chat (chattab.lua)

@@ -678,3 +678,19 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 
 - **A lost message does not switch the whole session to the relays:** in 0.12.0 the first own message that did not come back from the channel within 5 s sent all further messages through the relays until `/reload`, so fast typing ended in long delays, also inside one guild. Now all further messages go through the relays only when none of the player's messages has come back this session (e.g. a low-level or restricted character, an error in Monitoring). When the channel already worked, only the lost message is resent through the relays (a note in Monitoring), and the next ones still go on the channel. The wait for the echo is 8 s instead of 5 s.
 - **No doubles:** the same message from the same author, once from the channel and once through the relays (a late echo), shows only once. The same line typed twice on the channel still shows twice.
+
+# 0.13.0 – secret chat channel
+
+- **Chat channel from a secret key:** the shared chat moves to a second channel whose name and password come from a secret community key (`key.lua`). The key is not in the addon code, so someone with only the code from CurseForge cannot find the channel, read the chat or take the channel over. The public channel (`JagodkaNet` / `JagodkaNetH`) stays for finding other guilds and for players without the key.
+- **No setup by hand:** an officer's client that has no key and has seen none 2 minutes after login creates one by itself. It does not matter which listed guild the officer is in. The key goes to all guilds through GUILD and the relays. If two officers create one at the same time, the newer key wins everywhere.
+- **Getting the key:** the key is saved (`JagodkiChatDB.key`, shared by the characters of an account). After login a player asks their guild (`KREQ`, 10 s and 90 s after login), and the relay answers when it has a newer key. The relay also sends the key to everyone every 10 minutes, and at once when it sees an older one. Only a key from an officer by the guild rosters is accepted.
+- **New key:** `/jagodka key` (officers) creates a new key, e.g. after someone left a guild. An officer's client also creates one by itself (at most every 10 minutes) when the chat channel's owner is outside the listed guilds (officers read the channel's member list every minute), or on a ban or another password.
+- **Reading and writing:** with the key, messages go only on the chat channel, or through the relays when it is not available. Without the key, on the public channel, as in 0.12. Messages from both channels are shown, so messages from 0.12 still arrive.
+- **Monitoring, new `Channel` filter:** everything about the channels and the key in one place: which channel each own message went on (chat channel, public channel or the relays, and why), joining and leaving the chat channel, its owner, keys received, created, ignored and sent to someone, a lost echo, bans and wrong passwords. `KEY` and `KREQ` packets show who created the key, never the key itself. The filter buttons are a bit narrower to fit one more.
+
+**Limitations:**
+- Players on 0.12.x stay on the public channel and do not see messages from players with the key. Everyone needs 0.13.0.
+- The first key appears once an officer with 0.13.0 has been online for 2 minutes. Until then everyone stays on the public channel.
+- Someone from our guilds can pass the key on (e.g. a former member). `/jagodka key` then moves everyone to a new channel.
+- A player who was offline during a key change is on the old channel for the first seconds after login, until the new key arrives.
+- A player of another guild sees a key from an officer only once that officer's guild roster has arrived; until then they stay on the public channel.

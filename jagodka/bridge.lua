@@ -158,6 +158,7 @@ local function HideFromChat(name)
         if cf then _G.ChatFrame_RemoveChannel(cf, name) end
     end
 end
+Most.HideFromChat = HideFromChat
 
 function Most.JoinChannel()
     -- The old temporary channel (up to 0.7.6) is no longer useful, so we leave it
@@ -165,6 +166,13 @@ function Most.JoinChannel()
     local name = ChannelName()
     if not Most.GetChannelId() then _G.JoinChannelByName(name, COMM_PASSWORD) end
     HideFromChat(name)
+    -- The chat channel from the secret key (key.lua), when we have one
+    if addonTable.Key then addonTable.Key.Join() end
+end
+
+-- Name of the chat channel from the secret key (key.lua), or nil
+local function KeyChannelName()
+    return addonTable.Key and addonTable.Key.ChannelName()
 end
 
 -- ============================================================================
@@ -542,8 +550,14 @@ end
 -- click, so this must be called straight from the input's handler. Returns false when the channel is not
 -- available; the caller then publishes through the relays as before.
 function Most.SayOnChannel(tab, text)
-    local channelId = Most.GetChannelId()
-    if channelChatBlocked or not channelId or channelProblem or not _G.SendChatMessage or not text or text == "" then return false end
+    -- With the secret key only its chat channel (key.lua); the public channel only without a key
+    local channelId
+    if addonTable.Key and addonTable.Key.HasKey() then
+        channelId = addonTable.Key.ChannelId()
+    elseif not channelProblem then
+        channelId = Most.GetChannelId()
+    end
+    if channelChatBlocked or not channelId or not _G.SendChatMessage or not text or text == "" then return false end
     local tag = TAB_TAGS[tab] or ""
     local parts = SplitText(text, Most.MAX_CHAT_BYTES - #tag)
     for _, part in ipairs(parts) do
@@ -557,19 +571,26 @@ function Most.SayOnChannel(tab, text)
             if r == rec then table.remove(awaitingEcho, i) break end
         end
         if channelEchoSeen then
-            if addonTable.Monitor then addonTable.Monitor.Note("Own message did not come back from the channel (server limit?), resent through the relays") end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel (server limit?), resent through the relays") end
         else
             channelChatBlocked = true
-            if addonTable.Monitor then addonTable.Monitor.Error("Own message did not come back from the channel, chat goes through the relays until /reload") end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel, chat goes through the relays until /reload", true) end
         end
         Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild)
     end)
+    if addonTable.Monitor then
+        local which = (addonTable.Key and addonTable.Key.HasKey()) and "the chat channel (key)" or "the public channel"
+        addonTable.Monitor.Channel("Own message sent on " .. which .. (#parts > 1 and (", " .. #parts .. " parts") or ""))
+    end
     return true
 end
 
 -- Publishes a message typed by the player: on the channel, or through the relays when there is no channel
 function Most.PublishTyped(tab, text, author, guild)
     if Most.SayOnChannel(tab, text) then return end
+    local reason = channelChatBlocked and "the channel did not take our messages this session"
+        or ((addonTable.Key and addonTable.Key.HasKey()) and "not on the chat channel yet" or "no public channel")
+    if addonTable.Monitor then addonTable.Monitor.Channel("Own message sent through the relays: " .. reason) end
     Most.Publish(tab, text, "A", author, guild)
 end
 
@@ -733,8 +754,10 @@ function Most.Route(text, channel, senderName)
         -- Status packets (PING/PONG) of others stay in the guild: with hundreds of players they would fill
         -- the relay's queue (about 1 packet per second). Other guilds know our players from the roster
         -- and only need the relay's own status, to know whom to send to.
-        local isStatus = pType == "PING" or pType == "PONG"
-        if channel == "GUILD" and Most.IsRelay() and (not isStatus or senderName == MyName()) then ForwardToOtherGuilds(senderName, text) end
+        -- A request for the chat channel key (KREQ, key.lua) is answered by our relay, so it stays in the guild,
+        -- except the relay's own (then nobody else from the guild is there to answer).
+        local isOwnOnly = pType == "PING" or pType == "PONG" or pType == "KREQ"
+        if channel == "GUILD" and Most.IsRelay() and (not isOwnOnly or senderName == MyName()) then ForwardToOtherGuilds(senderName, text) end
         -- Our own echo was already logged when sent
         if senderName ~= MyName() and addonTable.Monitor then addonTable.Monitor.RX(text, channel, senderName) end
         return text, channel, senderName
@@ -778,17 +801,27 @@ function Most.HasLinkedGuilds()
     return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
 end
 
-function Most.Discover()
-    if not _G.ListChannelByName or not Most.GetChannelId() or not Most.IsRelay() then return end
+-- Reads the member list of a channel; the answer stays out of the chat (filter below)
+function Most.ListChannel(name)
+    if not _G.ListChannelByName or not name then return end
     listAskedAt = GetTime()
-    _G.ListChannelByName(ChannelName())
+    _G.ListChannelByName(name)
 end
 
--- For the Monitoring tab, also when we are not the relay; the answer stays out of the chat
+-- Both channels: the public one and the chat channel from the key (where all players with the key are)
+local function ListBoth()
+    if Most.GetChannelId() then Most.ListChannel(ChannelName()) end
+    if addonTable.Key and addonTable.Key.ChannelId() then Most.ListChannel(KeyChannelName()) end
+end
+
+function Most.Discover()
+    if not Most.IsRelay() then return end
+    ListBoth()
+end
+
+-- For the Monitoring tab, also when we are not the relay
 function Most.RefreshChannelList()
-    if not _G.ListChannelByName or not Most.GetChannelId() then return end
-    listAskedAt = GetTime()
-    _G.ListChannelByName(ChannelName())
+    ListBoth()
 end
 
 local function IsActivePlayer(name)
@@ -804,13 +837,15 @@ local function IsLinked(name)
     return p ~= nil and p.guild ~= MyGuild() and Most.GetRelayName(p.guild) ~= nil
 end
 
-local function HandleChannelList(list)
+-- isKeyChannel: the list of the chat channel from the key, whose owner is checked (key.lua)
+local function HandleChannelList(list, isKeyChannel)
     if not ctx then return end
     local now, isRelay, greeted = GetTime(), Most.IsRelay(), 0
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
         local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
         if name ~= "" then channelMembers[name] = now end
+        if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
         if isRelay and greeted < MAX_GREETINGS and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello and not IsLinked(name) then
@@ -863,7 +898,8 @@ end
 
 if _G.ChatFrame_AddMessageEventFilter then
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
-        if select(9, ...) == ChannelName() and GetTime() - listAskedAt < 2 then return true end
+        local name = select(9, ...)
+        if (name == ChannelName() or (name ~= nil and name == KeyChannelName())) and GetTime() - listAskedAt < 2 then return true end
     end)
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
         if HandlePlayerNotFound(message) then return true end
@@ -920,29 +956,34 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         return
     end
     if event == "CHAT_MSG_CHANNEL" then
-        -- 9th argument = channel name without number, 11th = line ID
-        if select(7, ...) == ChannelName() then HandleChannelMessage(arg1, arg2, select(9, ...)) end
+        -- 9th argument = channel name without number, 11th = line ID. Both channels: the public one still
+        -- carries messages from versions before 0.13.0 and from players without the key.
+        local name = select(7, ...)
+        if name == ChannelName() or (name ~= nil and name == KeyChannelName()) then HandleChannelMessage(arg1, arg2, select(9, ...)) end
         return
     end
     if event == "CHAT_MSG_CHANNEL_LIST" then
-        if select(7, ...) == ChannelName() then HandleChannelList(arg1) end
+        local name = select(7, ...)
+        if name == ChannelName() then HandleChannelList(arg1)
+        elseif name ~= nil and name == KeyChannelName() then HandleChannelList(arg1, true) end
         return
     end
     if event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- arg1 = notice type, 7th extra argument (arg9) = channel name without number
         local channelBaseName = select(7, ...)
+        if channelBaseName ~= nil and channelBaseName == KeyChannelName() then addonTable.Key.OnNotice(arg1) return end
         if channelBaseName ~= ChannelName() then return end
         if arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then
             -- Someone took over the channel (password) or banned us: we do not keep retrying, we just report it
             channelProblem = (arg1 == "BANNED") and "banned from the channel" or "the channel has a different password"
             Warn("Global channel unavailable: " .. channelProblem .. ". Report this to an officer.")
-            if addonTable.Monitor then addonTable.Monitor.Error("Global channel unavailable: " .. channelProblem) end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Public channel unavailable: " .. channelProblem, true) end
         elseif arg1 == "YOU_LEFT" and not channelProblem then
             -- Another addon (e.g. one tidying channels) removed us: we come back after a moment
             C_Timer.After(5, Most.JoinChannel)
         elseif arg1 == "YOU_JOINED" or arg1 == "YOU_CHANGED" then
             channelProblem = nil
-            if addonTable.Monitor then addonTable.Monitor.Note("Joined the global channel") end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Joined the public channel") end
             -- The game may have added the channel to a chat window on join
             HideFromChat(channelBaseName)
         end
