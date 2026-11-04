@@ -2,3 +2,4 @@
 dist/
 RELEASE_NOTES.md
 build.ps1
+/jagodka.lua
