@@ -38,7 +38,7 @@ local ICON = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local Mute = {}
 addonTable.Mute = Mute
 
--- Context from core.lua: activePlayers, isGuildAllowed, isRankOfficer, isMeOfficer, onChanged
+-- Context from core.lua: activePlayers, isGuildAllowed, isRankOfficer, isKnownOfficer, isMeOfficer, onChanged
 local ctx = nil
 function Mute.Init(c) ctx = c end
 
@@ -68,24 +68,25 @@ local function FindPlayer(name)
     return nil
 end
 
--- Player's rank (name, index): me, online players with the addon, then guild rosters (also offline)
+-- Player's rank (name, index): mine from the game, others from guild rosters (also offline),
+-- never from the rank a player sends about themselves
 local function RankOf(name)
     if name == MyName() then
         local _, rankName, rankIndex = GetGuildInfo("player")
         return rankName, rankIndex
     end
     local p = FindPlayer(name)
-    if p then return p.rank, tonumber(p.rankIndex) end
-    if addonTable.Roster then return addonTable.Roster.GetRank(name) end
+    if addonTable.Roster then return addonTable.Roster.GetRank(name, p and p.guild) end
     return nil, nil
 end
 
--- Officer or GM of a listed guild. The acting officer must be online (their status packet).
+-- Officer or GM of a listed guild, by the guild rosters. Also works for an officer who is offline
+-- (a mute passed on during sync).
 function Mute.IsOfficer(name)
     if not ctx then return false end
     if name == MyName() then return ctx.isMeOfficer() end
     local p = FindPlayer(name)
-    return p ~= nil and ctx.isRankOfficer(p.rank, tonumber(p.rankIndex))
+    return ctx.isKnownOfficer(name, p and p.guild)
 end
 
 local function IsGM(name)
@@ -227,8 +228,11 @@ function Mute.HandlePacket(pType, payload, senderName, rawSender)
                 Apply(name, on, ts, by, reason)
             end
         elseif FindPlayer(senderName) then
-            -- Forwarded during sync (the officer may be offline): from a known listed player
-            Apply(name, on, ts, by, reason)
+            -- Forwarded during sync (the officer may be offline): from a known listed player,
+            -- and the officer named in it must have had the right by the rosters
+            if (on and Mute.CanMute(by, name)) or (not on and Mute.CanUnmute(by)) then
+                Apply(name, on, ts, by, reason)
+            end
         end
         return true
     elseif pType == "MREQ" then

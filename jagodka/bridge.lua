@@ -554,6 +554,12 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
                 Count(debug.rejected, "not in guild roster")
                 return true
             end
+            -- The same for another listed guild, when we have its recent whole roster
+            if not senderInfo and senderName ~= MyName() and e.guild ~= MyGuild()
+                and addonTable.Roster and addonTable.Roster.IsMember(senderName, e.guild) == false then
+                Count(debug.rejected, "not in guild roster")
+                return true
+            end
         elseif not senderInfo and senderName ~= MyName() then
             -- History is accepted only from a known player (who answered our status packet)
             Count(debug.rejected, "history from unknown")
@@ -644,9 +650,17 @@ function Most.Route(text, channel, senderName)
     if not origin or origin == "" or not inner or origin == MyName() then return nil end
     if channel == "WHISPER" then
         -- Only a known player from a listed guild may speak for others; anyone may speak for themselves (greeting)
-        if origin ~= senderName and not IsKnownAllowedSender(senderName) then
-            Count(debug.rejected, "forward from unknown")
-            return nil
+        if origin ~= senderName then
+            local relay = IsKnownAllowedSender(senderName)
+            if not relay then
+                Count(debug.rejected, "forward from unknown")
+                return nil
+            end
+            -- A relay passes on only its own guild's packets, so the origin must be in that guild's roster (when we have it)
+            if addonTable.Roster and addonTable.Roster.IsMember(origin, relay.guild) == false then
+                Count(debug.rejected, "forward of a player outside the relay's guild")
+                return nil
+            end
         end
         if not ReplaceQueuedStatus(text, nil) then
             table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = GetTime() })

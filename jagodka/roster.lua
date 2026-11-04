@@ -39,6 +39,7 @@ local STILL_ARRIVING = 20    -- a roster with a part newer than this many second
 local STALE_AFTER = 600      -- after login we request the roster of a guild whose data is > 10 min old
 local READY_DELAY = 15       -- after login we wait until we know the others (otherwise everyone thinks they are the sender)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
+local FRESH_FOR = FULL_INTERVAL + 300 -- a whole roster this old still decides who is a member (one full roster + 5 min)
 
 local Roster = {}
 addonTable.Roster = Roster
@@ -111,7 +112,7 @@ local function RefreshLocal()
     local ranks = {}
     local numRanks = (_G.GuildControlGetNumRanks and _G.GuildControlGetNumRanks()) or 0
     for i = 1, numRanks do ranks[i] = _G.GuildControlGetRankName(i) end
-    rosters[guild] = { members = members, ranks = ranks, updated = GetServerTime(), complete = complete }
+    rosters[guild] = { members = members, ranks = ranks, updated = GetServerTime(), fullAt = GetServerTime(), complete = complete }
     Changed()
 end
 
@@ -406,8 +407,25 @@ function Roster.GetGuildSummary(guild)
     return { live = live, total = total, online = online, updated = g and g.updated }
 end
 
--- Player's rank from rosters of listed guilds (name, index) or nil, e.g. permissions in mute.lua
-function Roster.GetRank(name)
+-- Whether the player is in the guild's roster: true / false, or nil when we have no whole roster of that
+-- guild from the last FRESH_FOR seconds (a new member may not be in an old one). My guild: the game's roster.
+function Roster.IsMember(name, guild)
+    local g = guild and rosters[guild]
+    if not g or not g.fullAt or GetServerTime() - g.fullAt > FRESH_FOR then return nil end
+    return g.members[name] ~= nil
+end
+
+-- Player's rank from rosters of listed guilds (name, index) or nil, e.g. permissions in mute.lua and core.lua.
+-- The roster comes from the game (my guild) or from that guild's members, not from what the player says
+-- about themselves. guild (optional): the guild from the player's status packet; when we have its roster,
+-- only that roster counts, so a rank from another guild's old roster does not carry over.
+function Roster.GetRank(name, guild)
+    local own = guild and rosters[guild]
+    if own and ctx and ctx.isGuildAllowed(guild) then
+        local m = own.members[name]
+        if not m then return nil, nil end
+        return own.ranks[(m.r or 0) + 1], m.r
+    end
     for guild, g in pairs(rosters) do
         local m = g.members[name]
         if m and ctx and ctx.isGuildAllowed(guild) then return g.ranks[(m.r or 0) + 1], m.r end

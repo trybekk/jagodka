@@ -621,3 +621,19 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 
 - **Guilds tab:** each guild card shows the `Media\blueberry_one.tga` icon instead of the guild tabard.
 - **Libraries:** unused files removed from `Libs` (a duplicate `LibDataBroker-1.1.lua`, the library's own `.toc` and `.xml` files, readme and changelogs). The four libraries the minimap button needs stay.
+
+# 0.10.5 – officers and guilds checked against the guild rosters
+
+- **Officers by roster:** whether another player is an officer now comes from the guild roster, not from the rank they send in their status packet. For your own guild it is the game's roster, for other guilds the roster their members send. A player missing from the known roster is not an officer. This covers events (create, edit, remove, remove from an event) and mutes. The rank name rules ("oficer", "officer", "master", "lider", ranks 0 and 1) stay, but they are applied to the roster's rank names.
+- **Actions passed on during sync:** an event, edit, removal from an event or mute passed on by someone else (the officer may be offline) is accepted only when the officer named in it is an officer by the rosters. Before, any known player of a listed guild could pass one on.
+- **Claiming another guild:** a player who says they are in another listed guild, but is missing from that guild's whole roster received in the last 35 minutes, is ignored and taken off the online list. Until now this was checked only for your own guild. Without a recent roster of that guild nothing changes.
+- **Forwarded packets:** a relay may pass on only packets of players from its own guild. A packet "from" a player who is not in the relay's guild roster is rejected (`forward of a player outside the relay's guild` in Monitoring).
+- **Chat from unknown players:** a chat message from a player not known yet, who claims another listed guild but is missing from its recent roster, is rejected, as it already was for your own guild.
+- **Fix:** a sign-up could cause a Lua error when the selected event was no longer on the list.
+
+**Limitations:**
+- Without the roster of an officer's guild (a fresh install, before rosters arrive) their events and mutes are not accepted yet. They arrive with the next sync, when the roster is there.
+- Events and mutes from officers who have left the listed guilds or lost their rank are no longer passed on to players who do not have them yet.
+- A new guild member may be ignored by other guilds until the next roster update of their guild reaches them (at most 30 minutes).
+- Event removal markers passed on during sync (`EV_RM`) are still not checked: the packet does not name who removed the event. That needs a change in the packet format.
+- Only versions from 0.10.5 check this. Older versions still accept everything as before.

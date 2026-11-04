@@ -432,6 +432,14 @@ if not IsInGuild() then return false end
 local _, rankName, rankIndex = GetGuildInfo("player")
 return IsRankOfficer(rankName, rankIndex)
 end
+-- Officer of another player by the guild roster (my guild: the game's, other guilds: sent by their members),
+-- never by the rank they send about themselves. Not in a known roster = not an officer.
+-- guild (optional): the player's guild, when known.
+local function IsKnownOfficer(name, guild)
+if name == UnitName("player") then return IsPlayerOfficer() end
+local rankName, rankIndex = Roster.GetRank(name, guild)
+return rankIndex ~= nil and IsRankOfficer(rankName, rankIndex)
+end
 -- EVENT RULES (checked locally and by every packet receiver)
 local MAX_EVENTS_PER_CREATOR = 10
 local VALID_ROLES = { TANK = true, HEAL = true, DPS = true }
@@ -777,6 +785,7 @@ Mute.Init({
 activePlayers = activePlayers,
 isGuildAllowed = IsPlayerGuildAllowed,
 isRankOfficer = IsRankOfficer,
+isKnownOfficer = IsKnownOfficer,
 isMeOfficer = IsPlayerOfficer,
 onChanged = function() RefreshChatDisplay() UpdateMainTable() end,
 })
@@ -2700,6 +2709,16 @@ if addonTable.Professions.HandlePacket(pType, payload, senderName) then return e
 if pType == "PING" or pType == "PONG" then
 local lvl, cls, gld, rnk, ver, rIdx, zone = strsplit(":", payload, 7)
 if not IsPlayerGuildAllowed(gld) then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": guild not listed (" .. tostring(gld) .. ")") return end
+-- Someone claims another listed guild but is not in its recent whole roster -> rejected (and taken off the list)
+if gld ~= GetGuildInfo("player") and senderName ~= myName and Roster.IsMember(senderName, gld) == false then
+local known = GetPlayerIndex(senderName)
+if known then table.remove(activePlayers, known) UpdateScrollList() end
+if not spoofWarned[senderName] then
+spoofWarned[senderName] = true
+addonTable.Monitor.Note("Ignored " .. senderName .. ": claims guild " .. gld .. " but is not in its roster")
+end
+return
+end
 -- Someone claims to be in my guild but is not in its roster -> rejected
 if gld == GetGuildInfo("player") and senderName ~= myName and myGuildRosterLoaded and myGuildRoster[senderName] == nil then
 if not spoofWarned[senderName] then
@@ -2729,11 +2748,11 @@ end
 else
 local senderIdx = GetPlayerIndex(senderName)
 if not senderIdx and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
--- Sender data (guild, rank) from their status packet, used to check permissions
+-- Sender's guild from their status packet; officer by that guild's roster, not by the rank they send
 local senderInfo = senderIdx and activePlayers[senderIdx]
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer
-if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsRankOfficer(senderInfo.rank, senderInfo.rankIndex) end
+if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsKnownOfficer(senderName, senderInfo.guild) end
 if pType == "EV_REQ" then
 if senderName ~= myName then EventSync.HandleRequest(senderName) end
 elseif pType == "EV_CLAIM" then
@@ -2747,10 +2766,10 @@ evID, title, eDate, eTime, desc, creator, dungeon, evGuild = DecodeField(evID), 
 if dungeon == "" then dungeon = nil end
 -- Someone still has an event we know was removed: tell them, so it stops spreading
 if evID and senderName ~= myName and EventSync.Removed()[evID] then EventSync.SendRemoved(evID, senderName) end
--- From the author: must be an officer. Forwarded (sync, the author may be offline):
--- from a known whitelisted player. Always: per-author limit, not removed and not expired.
+-- From the author: must be an officer. Forwarded (sync, the author may be offline): from a known
+-- whitelisted player, and the author must be an officer by the rosters. Always: per-author limit, not removed and not expired.
 local forwarded = creator ~= senderName
-local allowed = (not forwarded and senderIsOfficer) or (forwarded and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+local allowed = (not forwarded and senderIsOfficer) or (forwarded and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild) and IsKnownOfficer(creator, IsPlayerGuildAllowed(evGuild) and evGuild or nil))
 if evID and title and eDate and eTime and allowed and not EventSync.Removed()[evID] and not EventSync.IsExpired(eDate) and CountEventsBy(creator) < MAX_EVENTS_PER_CREATOR then
 local exists = false
 for _, ev in ipairs(eventsList) do if ev.id == evID then exists = true break end end
@@ -2814,8 +2833,9 @@ elseif pType == "EV_EDIT" then
 addonTable.Sync.Activity("events")
 local evID, rev, title, eDate, eTime, editor, dungeon, parts, desc = strsplit(":", payload, 9)
 evID, rev, title, eDate, eTime, editor, dungeon, desc = DecodeField(evID), tonumber(rev), DecodeField(title), DecodeField(eDate), DecodeField(eTime), DecodeField(editor), DecodeField(dungeon), DecodeField(desc) or ""
--- From the editor: must be an officer. Forwarded (sync, the editor may be offline): from a known whitelisted player, as with EV_ADD.
-local allowed = (editor == senderName and senderIsOfficer) or (editor ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+-- From the editor: must be an officer. Forwarded (sync, the editor may be offline): from a known whitelisted player,
+-- and the editor must be an officer by the rosters, as with EV_ADD.
+local allowed = (editor == senderName and senderIsOfficer) or (editor ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild) and IsKnownOfficer(editor))
 if allowed and evID and rev and title and title ~= "" and IsValidEventDate(eDate) and IsValidEventTime(eTime) and not EventSync.IsExpired(eDate) then
 for _, ev in ipairs(eventsList) do
 if ev.id == evID then
@@ -2867,8 +2887,9 @@ end
 elseif pType == "EV_KICK" then
 local evID, name, kickedAt, by = strsplit(":", payload, 4)
 evID, name, kickedAt, by = DecodeField(evID), DecodeField(name), tonumber(kickedAt), DecodeField(by)
--- From the officer: must be an officer. Forwarded (sync, the officer may be offline): from a known whitelisted player, as with EV_ADD.
-local allowed = (by == senderName and senderIsOfficer) or (by ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild))
+-- From the officer: must be an officer. Forwarded (sync, the officer may be offline): from a known whitelisted player,
+-- and the remover must be an officer by the rosters, as with EV_ADD.
+local allowed = (by == senderName and senderIsOfficer) or (by ~= senderName and senderInfo ~= nil and IsPlayerGuildAllowed(senderInfo.guild) and IsKnownOfficer(by))
 if allowed and evID and name and kickedAt then
 for _, ev in ipairs(eventsList) do
 if ev.id == evID then
@@ -2899,7 +2920,7 @@ for _, ev in ipairs(eventsList) do
 if ev.id == evID then
 ev.roster[senderName] = role
 EventSync.TouchSign(ev, senderName)
-if selectedEventIndex and eventsList[selectedEventIndex].id == evID then UpdateEventDetails() end
+if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
 if MainFrame:IsShown() then UpdateEventsList() end
 break
 end
