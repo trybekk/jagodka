@@ -606,3 +606,18 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - Confirmed only in the AddOns list of the Forever client. Its API may differ from Classic Era 1.15, so Lua errors there are still possible.
 - A new Forever patch changes its number, and the `.toc` then needs the new one.
+
+# 0.10.3 – ready for CurseForge
+
+- **Download link:** the update window now points to the CurseForge page, `https://www.curseforge.com/wow/addons/jagodki-nadina-community`.
+- **Window title:** shows `v0.10.3` instead of `Alpha-0.10.3`. Whether a version is alpha, beta or a release is now set on CurseForge.
+- **License:** `LICENSE.txt` in the addon folder, All Rights Reserved. The bundled libraries keep their own licenses.
+- **Upload zip:** `build.ps1` builds `dist\jagodka-<version>.zip` with the `jagodka` folder at its root, from the files committed to git.
+
+**Limitations:**
+- Players on 0.10.2 and older still see the GitHub link in their update window, until they update.
+
+# 0.10.4 – guild icon and library cleanup
+
+- **Guilds tab:** each guild card shows the `Media\blueberry_one.tga` icon instead of the guild tabard.
+- **Libraries:** unused files removed from `Libs` (a duplicate `LibDataBroker-1.1.lua`, the library's own `.toc` and `.xml` files, readme and changelogs). The four libraries the minimap button needs stay.

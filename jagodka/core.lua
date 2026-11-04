@@ -132,7 +132,7 @@ WindowLogo:SetPoint("LEFT", HeaderBar, "LEFT", 12, 0)
 WindowLogo:SetTexture("Interface\\AddOns\\jagodka\\Media\\blueberry.tga")
 
 TitleText:SetPoint("LEFT", WindowLogo, "RIGHT", 8, 0)
-TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community |cffdecda5-|r Alpha-" .. ADDON_VERSION)
+TitleText:SetText("|cffffffffJagodki Nadina|r |cffdecda5-|r Community |cffdecda5-|r v" .. ADDON_VERSION)
 
 local CloseBtn = CreateFrame("Button", nil, MainFrame, "UIPanelCloseButton")
 CloseBtn:SetPoint("TOPRIGHT", MainFrame, "TOPRIGHT", -2, -2)
@@ -1211,8 +1211,7 @@ card:SetBackdropBorderColor(0.2, 0.2, 0.25, 0.6)
 card.icon = card:CreateTexture(nil, "ARTWORK")
 card.icon:SetSize(26, 26)
 card.icon:SetPoint("LEFT", card, "LEFT", 12, 0)
-card.icon:SetTexture("Interface\\Icons\\INV_Shirt_GuildTabard_01")
-card.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+card.icon:SetTexture("Interface\\AddOns\\jagodka\\Media\\blueberry_one.tga")
 card.nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 card.nameText:SetPoint("LEFT", card.icon, "RIGHT", 12, 0)
 -- Columns start at a fixed distance from the right edge, so they line up between cards

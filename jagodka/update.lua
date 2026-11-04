@@ -18,7 +18,7 @@ local tostring = _G.tostring
 local table = _G.table
 
 -- Change here when the download moves
-local DOWNLOAD_URL = "https://github.com/trybekk/jagodka/archive/refs/heads/feature/lasarr-1.zip"
+local DOWNLOAD_URL = "https://www.curseforge.com/wow/addons/jagodki-nadina-community"
 local WIDTH, HEIGHT = 500, 200
 
 local Update = {}

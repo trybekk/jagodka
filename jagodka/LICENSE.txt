@@ -1,0 +1,8 @@
+Jagodki Nadina - Community
+Copyright (c) 2026 trybekk & Lasarr. All Rights Reserved.
+
+This addon may be downloaded and used to play World of Warcraft. Copying, modifying, redistributing
+or publishing it, in whole or in part, requires written permission from the authors.
+
+The libraries in the Libs folder (LibStub, CallbackHandler-1.0, LibDataBroker-1.1, LibDBIcon-1.0)
+are the work of their own authors and are distributed under their own licenses.
