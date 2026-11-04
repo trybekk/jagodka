@@ -9,6 +9,8 @@
 --    passed on only for the relay itself; other guilds know the rest of our players from the roster.
 --  * The shared chat is written only from the addon (window or chat tab). Guild chat (/g) stays
 --    in its own guild: nothing is carried between /g and the shared chat.
+--  * From 0.12.0 typed messages go on the global channel as normal chat (SayOnChannel), so they
+--    do not use the relays. Messages from older versions still arrive through the relays (GMSG).
 --  * A new player gets the history from someone online after logging in.
 -- ============================================================================
 local addonName, addonTable = ...
@@ -394,8 +396,23 @@ end
 -- ============================================================================
 -- RECEIVING MESSAGES (deduplication by ID)
 -- ============================================================================
+-- A channel message has a different ID on every client, so history from someone else can bring back one we
+-- already have: the same author, tab and text within two minutes counts as the same message
+local SAME_MESSAGE_WINDOW = 120
+local function HasSameMessage(e)
+    for i = #chatLog, math.max(1, #chatLog - 100), -1 do
+        local o = chatLog[i]
+        if o.author == e.author and o.tab == e.tab and o.text == e.text and math.abs((o.ts or 0) - (e.ts or 0)) <= SAME_MESSAGE_WINDOW then return true end
+    end
+    return false
+end
+
 local function Ingest(e, live)
     if seenIds[e.id] then return false end
+    if not live and HasSameMessage(e) then
+        seenIds[e.id] = true
+        return false
+    end
     -- Muted player (mute.lua): their messages do not reach the log
     if addonTable.Mute and addonTable.Mute.IsMuted(e.author) then return false end
     seenIds[e.id] = true
@@ -489,6 +506,60 @@ function Most.Publish(tab, text, src, author, guild, ts)
     if Ingest(e, true) then
         for _, packet in ipairs(EncodeParts(e)) do Most.Send("GMSG", packet, "high") end
     end
+end
+
+-- ============================================================================
+-- SHARED CHAT ON THE CHANNEL (from 0.12.0)
+-- ============================================================================
+-- Messages typed by players go on the global channel as normal chat: the server delivers them to everyone
+-- on it, without relays and without the addon queue, so the chat keeps up with any number of players.
+-- Each client puts what arrives into the log (HandleChannelMessage). Trade and LFG start with a tag,
+-- which is also readable without the addon. Automatic notices (events, mutes) still go through the relays.
+local TAB_TAGS = { Handel = "[Trade] ", ["Szukaj grupy"] = "[LFG] " }
+
+-- The server sends our own channel message back to us. When it does not come back (e.g. the game does not let
+-- a low-level or restricted character speak on channels), the message goes through the relays, and so do
+-- all further ones until /reload, so the player does not wait each time.
+local ECHO_WAIT = 5        -- seconds we wait for our own message to come back from the channel
+local awaitingEcho = {}    -- messages sent on the channel without their echo yet, oldest first: { tab, text, guild, parts }
+local channelChatBlocked = false
+
+local function OwnEchoArrived()
+    local rec = awaitingEcho[1]
+    if not rec then return end
+    rec.parts = rec.parts - 1
+    if rec.parts <= 0 then table.remove(awaitingEcho, 1) end
+end
+
+-- Sends a typed message on the channel. The game allows channel messages only right after a key press or
+-- click, so this must be called straight from the input's handler. Returns false when the channel is not
+-- available; the caller then publishes through the relays as before.
+function Most.SayOnChannel(tab, text)
+    local channelId = Most.GetChannelId()
+    if channelChatBlocked or not channelId or channelProblem or not _G.SendChatMessage or not text or text == "" then return false end
+    local tag = TAB_TAGS[tab] or ""
+    local parts = SplitText(text, Most.MAX_CHAT_BYTES - #tag)
+    for _, part in ipairs(parts) do
+        _G.SendChatMessage(tag .. part, "CHANNEL", nil, channelId)
+    end
+    local rec = { tab = tab, text = text, guild = MyGuild(), parts = #parts }
+    table.insert(awaitingEcho, rec)
+    C_Timer.After(ECHO_WAIT, function()
+        if rec.parts <= 0 then return end
+        for i, r in ipairs(awaitingEcho) do
+            if r == rec then table.remove(awaitingEcho, i) break end
+        end
+        channelChatBlocked = true
+        if addonTable.Monitor then addonTable.Monitor.Error("Own message did not come back from the channel, chat goes through the relays until /reload") end
+        Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild)
+    end)
+    return true
+end
+
+-- Publishes a message typed by the player: on the channel, or through the relays when there is no channel
+function Most.PublishTyped(tab, text, author, guild)
+    if Most.SayOnChannel(tab, text) then return end
+    Most.Publish(tab, text, "A", author, guild)
 end
 
 -- A player we trust as a member of a listed guild: online with the addon (their status packet), or in a
@@ -740,6 +811,24 @@ local function HandleChannelList(list)
     end
 end
 
+-- A message on the channel (shared chat from 0.12.0): accepted from players of listed guilds only
+-- (status packet or roster); the guild comes from there, not from the message
+local function HandleChannelMessage(text, playerName, lineID)
+    if not ctx or not text or not playerName then return end
+    local author = Ambiguate(playerName, "none")
+    if author == MyName() then OwnEchoArrived() end
+    local p = Most.FindKnownPlayer(author)
+    if not p then Count(debug.rejected, "channel message from a player not in the listed guilds") return end
+    local tab = "Ogolny"
+    for t, tag in pairs(TAB_TAGS) do
+        if text:sub(1, #tag) == tag then tab, text = t, text:sub(#tag + 1) break end
+    end
+    text = Most.SanitizeChat(text)
+    if text == "" then return end
+    local ts = GetServerTime()
+    Ingest({ id = string.format("C.%s.%x.%s", author, ts, tostring(lineID)), ts = ts, guild = p.guild, author = author, tab = tab, src = "A", text = text }, true)
+end
+
 local function NameFromSystemMessage(pattern, message)
     return pattern and message:match("^" .. pattern:gsub("%%s", "(.+)") .. "$")
 end
@@ -805,6 +894,7 @@ local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
+Listener:RegisterEvent("CHAT_MSG_CHANNEL")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
@@ -816,6 +906,11 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         -- "X has gone offline": a logged-out player (e.g. switching characters) loses the relay role at once
         local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")
         if name and ctx then RemoveActivePlayer(Ambiguate(name, "none")) end
+        return
+    end
+    if event == "CHAT_MSG_CHANNEL" then
+        -- 9th argument = channel name without number, 11th = line ID
+        if select(7, ...) == ChannelName() then HandleChannelMessage(arg1, arg2, select(9, ...)) end
         return
     end
     if event == "CHAT_MSG_CHANNEL_LIST" then

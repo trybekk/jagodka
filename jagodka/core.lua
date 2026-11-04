@@ -734,8 +734,8 @@ local guildName = Most.MyGuild()
 if Mute.IsMuted(UnitName("player")) then
 chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
--- Sent over GUILD and relays of other guilds
-Most.Publish(currentChatTab, msg, "A", UnitName("player"), guildName)
+-- On the global channel (or over GUILD and relays when the channel is not available)
+Most.PublishTyped(currentChatTab, msg, UnitName("player"), guildName)
 elseif not guildName and IsInGuild() then
 chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
 return

@@ -135,7 +135,7 @@ local function SendFromTab(def, text)
     if addonTable.Mute.IsMuted(me) then
         def.frame:AddMessage("|cffff5555[System]: You are muted on the community chat - message not sent.|r")
     elseif Most.IsGuildAllowed(guild) then
-        Most.Publish(def.tab, text, "A", me, guild)
+        Most.PublishTyped(def.tab, text, me, guild)
     elseif not guild and _G.IsInGuild() then
         def.frame:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
         return false

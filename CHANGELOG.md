@@ -655,3 +655,21 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - A new member of another guild is trusted only after they appear in that guild's roster here.
 - Professions of others reach a fresh login from what was saved earlier, and from the relay.
 - Only the first stage: sync requests, rosters and the relay's own limit are not changed yet.
+
+# 0.12.0 – shared chat on the global channel
+
+- **Chat on the channel:** a message typed in the addon window or the `Jagódki:` input in the chat tab goes on the global channel (`JagodkaNet` / `JagodkaNetH`) as normal chat. The server delivers it to everyone on the channel, so the chat no longer goes through the relays or waits in the addon queue. This works the same with 20 and with 3000 players.
+- **Who is shown:** a channel message shows only from players of the listed guilds (online with the addon or in a guild roster). The guild label comes from there. Muted players stay hidden, as before.
+- **Trade and LFG:** messages from these tabs start with `[Trade] ` or `[LFG] ` on the channel, so they are readable without the addon too, and the addon puts them in the right tab.
+- **Without the channel:** when the channel is not available (not joined yet, banned, wrong password), messages go through the relays as before.
+- **When the game does not let the player speak on the channel:** the server sends our own message back to us. If it does not come back within 5 s (e.g. a low-level or restricted character), the message goes through the relays, and so do all further ones until `/reload`. Monitoring logs it as an error.
+- **History:** a fresh login still gets the latest messages from someone online. A message already received from the channel is not added a second time from history (same author, tab and text within 2 minutes).
+- **Automatic notices** (event created, edited or removed, mutes) still go through the relays.
+
+**Limitations:**
+- Players on 0.11.0 and older do not read the channel, so they do not see messages from players on 0.12.0. Messages from them still reach players on 0.12.0.
+- Anyone who knows the channel password can read the channel and write on it. Messages from players outside the listed guilds are not shown in the addon, but they are on the channel.
+- A muted player is hidden only in the addon; on the channel itself their messages still go out.
+- The game must accept the message from a key press or click; this needs checking in game (the addon sends it right from Enter or the Send button).
+- Whether low-level characters may speak on a custom channel needs checking in game; if not, they fall back to the relays as above.
+- Whether the server limits the number of players on one custom channel is not known yet.
