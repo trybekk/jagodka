@@ -6,11 +6,8 @@
 --    Trade and LFG stay in the addon window; a Trade tab left by older versions is closed.
 --  * Created at login whenever missing, also after the player closes it, and a duplicate
 --    with the same name is closed. "/jagodka tab" recreates it.
---  * The tab has its own input, always visible under the window and attached to it, so other chat
---    addons do not move or replace it. Messages go to the addon's General. A click on the input or tab,
---    or Enter, starts writing, and it ends with a click elsewhere, Esc or Enter on an empty input.
---    Enter is rebound only while the tab is selected (not changeable in combat, so it follows
---    after combat). The game's input is not touched. Text starting with "/" moves to the game's input.
+--  * Writing: while the tab is selected, the game's own chat input writes on the community channel
+--    (UpdateInput). Slash commands work as usual, and the input's chat type comes back on other tabs.
 --    Names are links (click = whisper, right click = menu), item links work as in the game.
 --  * After login it shows the latest messages from history, then new ones as they arrive.
 -- ============================================================================
@@ -19,7 +16,7 @@ local addonName, addonTable = ...
 local _G = _G
 local C_Timer = _G.C_Timer
 local CreateFrame = _G.CreateFrame
-local ipairs = _G.ipairs
+local ipairs, tonumber = _G.ipairs, _G.tonumber
 local table, math = _G.table, _G.math
 
 local Most = addonTable.Most
@@ -111,10 +108,15 @@ Most.OnNewEntry(function(e, live)
 end)
 
 -- ============================================================================
--- WRITING FROM THE TAB
+-- WRITING FROM THE TAB: the game's own chat input
 -- ============================================================================
-local INPUT_BUTTON = "JagodkaTabChatButton"
-local inputButton, input, inputDef = nil, nil, nil
+-- While our tab is selected, the game's chat input writes on the community channel: the chat channel from
+-- the key (key.lua), or the public one without a key (bridge.lua). The game sends it itself as a normal
+-- channel message, and every client shows it in the community chat. "/s", "/g", "/w" etc. still work as
+-- usual. When another tab is selected, the input gets back the chat type it had before.
+local CHECK_INTERVAL = 5      -- how often we check the selection and the channel number (s)
+local saved = nil             -- the input's settings before we changed them: { box, chatType, stickyType, channelTarget }
+local warnedNoChannel = false
 
 -- A docked window is visible only while its tab is selected
 local function IsSelected(frame)
@@ -129,134 +131,108 @@ local function SelectedDef()
     return nil
 end
 
--- Returns false when the text should stay in the input (guild not known yet)
-local function SendFromTab(def, text)
-    local me, guild = Most.MyName(), Most.MyGuild()
-    if addonTable.Mute.IsMuted(me) then
-        def.frame:AddMessage("|cffff5555[System]: You are muted on the community chat - message not sent.|r")
-    elseif Most.IsGuildAllowed(guild) then
-        Most.PublishTyped(def.tab, text, me, guild)
-    elseif not guild and _G.IsInGuild() then
-        def.frame:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
-        return false
-    else
-        def.frame:AddMessage("|cffff5555[System]: Your guild (" .. tostring(guild) .. ") is not on the Community list - message not sent.|r")
+local function CommunityChannelId()
+    if addonTable.Key and addonTable.Key.HasKey() then return addonTable.Key.ChannelId() end
+    return Most.GetChannelId()
+end
+
+-- The input the game uses for this window (with the "classic" chat style it is the main window's)
+local function InputFor(frame)
+    if _G.ChatEdit_ChooseBoxForSend then return _G.ChatEdit_ChooseBoxForSend(frame) end
+    return frame.editBox or (_G.DEFAULT_CHAT_FRAME and _G.DEFAULT_CHAT_FRAME.editBox)
+end
+
+-- The input's header: instead of "[7. Jgdh26g9i7]:" (channel number and the name from the key) it shows
+-- "Jagódki:" whenever the input is set to the community channel, also after "/7" typed by hand
+local PROMPT = "|cff7f9f7fJagódki:|r"
+
+local function IsCommunityInput(box)
+    local id = CommunityChannelId()
+    return id ~= nil and box:GetAttribute("chatType") == "CHANNEL" and tonumber(box:GetAttribute("channelTarget")) == id
+end
+
+local function DressHeader(box)
+    if not box or not IsCommunityInput(box) then return end
+    local header = box.header or (box:GetName() and _G[box:GetName() .. "Header"])
+    if not header then return end
+    header:SetText(PROMPT)
+    header:SetWidth(header:GetStringWidth())
+    -- The same insets the game uses: room for the header on the left, for its suffix on the right
+    local suffix = box.headerSuffix or (box:GetName() and _G[box:GetName() .. "HeaderSuffix"])
+    box:SetTextInsets(15 + header:GetWidth(), 13 + ((suffix and suffix:IsShown() and suffix:GetWidth()) or 0), 0, 0)
+end
+
+local function SetChatType(box, chatType, stickyType, channelTarget)
+    box:SetAttribute("chatType", chatType)
+    box:SetAttribute("stickyType", stickyType)
+    box:SetAttribute("channelTarget", channelTarget)
+    if _G.ChatEdit_UpdateHeader then _G.ChatEdit_UpdateHeader(box) end
+end
+
+-- Kept for later while the player is typing in the input
+local function Restore()
+    if not saved or saved.box:HasFocus() then return end
+    local s = saved
+    saved = nil
+    SetChatType(s.box, s.chatType, s.stickyType, s.channelTarget)
+end
+
+-- Called on tab changes, when the window shows or hides, and every few seconds (the channel number can
+-- change, e.g. after a new key). Nothing is changed while the player is typing.
+local function UpdateInput()
+    local def = SelectedDef()
+    if not def then Restore() return end
+    local id = CommunityChannelId()
+    local box = InputFor(def.frame)
+    if not box or box:HasFocus() then return end
+    if not id then
+        -- Not on the channel yet (a few seconds after login): the input stays as it was, so we say so once
+        Restore()
+        if not warnedNoChannel then
+            warnedNoChannel = true
+            def.frame:AddMessage("|cffff5555[System]: The community channel is not joined yet - wait a moment before writing here.|r")
+        end
+        return
     end
-    return true
-end
-
-local function BuildInput()
-    local box = CreateFrame("EditBox", "JagodkaTabChatInput", _G.UIParent, "BackdropTemplate")
-    box:SetHeight(22)
-    box:SetClampedToScreen(true)
-    box:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-    box:SetBackdropColor(0, 0, 0, 0.35)
-    box:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.5)
-    local fontPath, fontSize, fontFlags = _G.ChatFontNormal:GetFont()
-    box:SetFont(fontPath, fontSize - 2, fontFlags)
-    box:SetAutoFocus(false)
-    box:SetAltArrowKeyMode(false)
-    box:SetMaxBytes(Most.MAX_CHAT_BYTES)
-    local label = box:CreateFontString(nil, "OVERLAY")
-    label:SetFont(fontPath, fontSize - 2, fontFlags)
-    label:SetPoint("LEFT", box, "LEFT", 6, 0)
-    label:SetText("|cff7f9f7fJagódki:|r")
-    box:SetTextInsets(label:GetStringWidth() + 11, 6, 0, 0)
-    box:SetScript("OnEscapePressed", function(self)
-        self:SetText("")
-        self:ClearFocus()
-    end)
-    box:SetScript("OnEnterPressed", function(self)
-        local text = _G.strtrim(self:GetText() or "")
-        -- Enter on an empty input leaves it; after a message the focus stays until a click elsewhere
-        if text == "" then
-            self:SetText("")
-            self:ClearFocus()
-            return
-        end
-        if not SendFromTab(inputDef, text) then return end
-        self:AddHistoryLine(text)
-        self:SetText("")
-    end)
-    -- A click elsewhere ends writing (Shift + click inserts a link, so it does not count)
-    local blurWatcher = CreateFrame("Frame")
-    _G.pcall(blurWatcher.RegisterEvent, blurWatcher, "GLOBAL_MOUSE_DOWN")
-    blurWatcher:SetScript("OnEvent", function()
-        if box:HasFocus() and not box:IsMouseOver() and not _G.IsShiftKeyDown() then box:ClearFocus() end
-    end)
-    -- A slash command (/w, /g, /cast...) goes to the game's own input
-    box:SetScript("OnTextChanged", function(self, userInput)
-        local text = self:GetText() or ""
-        if userInput and text:sub(1, 1) == "/" and _G.ChatFrame_OpenChat then
-            self:SetText("")
-            self:ClearFocus()
-            _G.ChatFrame_OpenChat(text, inputDef.frame)
-        end
-    end)
-    -- Shift + click inserts a link (the game only inserts links into its own input)
-    _G.hooksecurefunc("ChatEdit_InsertLink", function(link)
-        if link and box:HasFocus() then box:Insert(link) end
-    end)
-    return box
-end
-
--- A child of the tab's window: it follows the window, and shows and hides with the tab
-local function AttachInput(def)
-    if not def.frame then return end
-    input = input or BuildInput()
-    inputDef = def
-    input:SetParent(def.frame)
-    input:SetFrameLevel(def.frame:GetFrameLevel() + 5)
-    input:ClearAllPoints()
-    input:SetPoint("TOPLEFT", def.frame, "BOTTOMLEFT", 0, -2)
-    input:SetPoint("TOPRIGHT", def.frame, "BOTTOMRIGHT", 0, -2)
-    input:Show()
-end
-
-local function OpenInput(def)
-    AttachInput(def)
-    input:SetFocus()
-end
-
--- Enter points to our input only while our tab is selected. Called on tab changes and after combat.
-local function UpdateEnterKey()
-    if not inputButton then return end
-    if _G.InCombatLockdown() then return end
-    _G.ClearOverrideBindings(inputButton)
-    if not SelectedDef() then return end
-    local keys = { _G.GetBindingKey("OPENCHAT") }
-    for _, key in ipairs(keys) do
-        _G.SetOverrideBindingClick(inputButton, false, key, INPUT_BUTTON)
+    if saved and saved.box ~= box then Restore() end
+    if not saved then
+        saved = { box = box, chatType = box:GetAttribute("chatType"), stickyType = box:GetAttribute("stickyType"), channelTarget = box:GetAttribute("channelTarget") }
+    end
+    if box:GetAttribute("chatType") ~= "CHANNEL" or box:GetAttribute("channelTarget") ~= id then
+        SetChatType(box, "CHANNEL", "CHANNEL", id)
     end
 end
 
 local function WatchSelection(def)
     if not def.frame or def.watched == def.frame then return end
     def.watched = def.frame
-    def.frame:HookScript("OnShow", UpdateEnterKey)
-    def.frame:HookScript("OnHide", UpdateEnterKey)
+    def.frame:HookScript("OnShow", UpdateInput)
+    def.frame:HookScript("OnHide", UpdateInput)
 end
 
-local function InitInputButton()
-    if inputButton then return end
-    inputButton = CreateFrame("Button", INPUT_BUTTON, _G.UIParent)
-    inputButton:SetScript("OnClick", function()
-        local def = SelectedDef()
-        -- The tab changed during combat and the key is not given back yet
-        if def then OpenInput(def) elseif _G.ChatFrame_OpenChat then _G.ChatFrame_OpenChat("") end
-    end)
-    if _G.FCF_Tab_OnClick then
-        _G.hooksecurefunc("FCF_Tab_OnClick", function(tab, button)
-            UpdateEnterKey()
-            -- A left click on our tab goes straight to writing
-            local def = SelectedDef()
-            if button == "LeftButton" and def and tab == _G[def.frame:GetName() .. "Tab"] then OpenInput(def) end
-        end)
+local hooked = false
+local function InitHooks()
+    if hooked then return end
+    hooked = true
+    if _G.FCF_Tab_OnClick then _G.hooksecurefunc("FCF_Tab_OnClick", function() UpdateInput() end) end
+    -- After the game writes the header, ours replaces it for the community channel. Older clients use the
+    -- global ChatEdit_UpdateHeader, newer ones (WoW Forever) a method of each input, so both are hooked,
+    -- and also showing the input and focusing it (one frame later, after the game's own update).
+    if _G.ChatEdit_UpdateHeader then _G.hooksecurefunc("ChatEdit_UpdateHeader", DressHeader) end
+    local function Later(box) C_Timer.After(0, function() DressHeader(box) end) end
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
+        local box = _G["ChatFrame" .. i .. "EditBox"]
+        if box then
+            if box.UpdateHeader then _G.hooksecurefunc(box, "UpdateHeader", DressHeader) end
+            box:HookScript("OnShow", Later)
+            box:HookScript("OnEditFocusGained", Later)
+        end
     end
+    C_Timer.NewTicker(CHECK_INTERVAL, UpdateInput)
 end
 
 local function Setup()
-    InitInputButton()
+    InitHooks()
     for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
         local name, _, _, _, _, _, shown, _, docked = _G.GetChatWindowInfo(i)
         if name == OBSOLETE_TAB and (shown or docked) and _G.FCF_Close then _G.FCF_Close(_G["ChatFrame" .. i]) end
@@ -264,11 +240,9 @@ local function Setup()
     for _, def in ipairs(TABS) do
         def.frame = FindTab(def) or CreateTab(def)
         WatchSelection(def)
-        AttachInput(def)
     end
-    UpdateEnterKey()
+    UpdateInput()
 end
-
 -- Whether this chat window is one of our tabs (e.g. the name menu in mute.lua)
 function Zakladka.IsOurFrame(frame)
     for _, def in ipairs(TABS) do
@@ -295,9 +269,7 @@ end
 
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:RegisterEvent("PLAYER_REGEN_ENABLED")
-Listener:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_REGEN_ENABLED" then UpdateEnterKey() return end
+Listener:SetScript("OnEvent", function()
     -- Chat windows are ready a moment after login
     C_Timer.After(3, Setup)
     C_Timer.After(REPLAY_DELAY, ReplayAll)

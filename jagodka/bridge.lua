@@ -794,7 +794,8 @@ function Most.Route(text, channel, senderName)
         -- and only need the relay's own status, to know whom to send to.
         -- A request for the chat channel key (KREQ, key.lua) is answered by our relay, so it stays in the guild,
         -- except the relay's own (then nobody else from the guild is there to answer).
-        local isOwnOnly = pType == "PING" or pType == "PONG" or pType == "KREQ"
+        -- The same for the professions request after login (PREQ, PCLAIM, professions.lua).
+        local isOwnOnly = pType == "PING" or pType == "PONG" or pType == "KREQ" or pType == "PREQ" or pType == "PREQN" or pType == "PCLAIM"
         if channel == "GUILD" and Most.IsRelay() and (not isOwnOnly or senderName == MyName()) then ForwardToOtherGuilds(senderName, text) end
         -- Our own echo was already logged when sent
         if senderName ~= MyName() and addonTable.Monitor then addonTable.Monitor.RX(text, channel, senderName) end

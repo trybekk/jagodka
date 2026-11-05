@@ -17,15 +17,22 @@ local C_Timer = _G.C_Timer
 local CreateFrame = _G.CreateFrame
 local GetGuildInfo = _G.GetGuildInfo
 local GetServerTime = _G.GetServerTime
+local GetTime = _G.GetTime
 local UnitName = _G.UnitName
 local date = _G.date
-local ipairs, pairs, tonumber = _G.ipairs, _G.pairs, _G.tonumber
+local ipairs, pairs, tonumber, tostring, type, pcall, select = _G.ipairs, _G.pairs, _G.tonumber, _G.tostring, _G.type, _G.pcall, _G.select
 local table = _G.table
 
 local Most = addonTable.Most
 
 local CHECK_INTERVAL = 60    -- how often we check our own skills and send changes (s)
 local FIRST_SEND_DELAY = 6   -- first send after login (s)
+local SYNC_REQUEST_DELAY = 10 -- after login we ask a guildmate for the professions we do not have yet (s)
+local SYNC_RETRY_AFTER = 25  -- no answer after this many seconds: we ask again
+local SYNC_MAX_RETRIES = 2
+local NAME_ASK_COOLDOWN = 300 -- the Members tab asks about the same player at most this often (s)
+local SYNC_MAX_ENTRIES = 300 -- at most this many players in one answer (the most recently updated)
+local SYNC_PACKET_BYTES = 200 -- entries per PSYNC packet, below the addon packet limit
 local MAX_ICONS = 2          -- icons in the column; the rest shows in the tooltip
 local ICON_SIZE = 14
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -54,9 +61,21 @@ addonTable.Professions = Professions
 local ctx = nil
 local known = {}       -- name -> { p = { code = { rank, max } }, ts = time }; JagodkiChatDB.professions
 local lastSent = nil   -- the last payload sent over GUILD
+local lastError = nil  -- the last error reading own professions, logged once
 
-local function DisplayName(def) return (_G.GetSpellInfo(def.spell)) or def.name end
-local function IconOf(def) return select(3, _G.GetSpellInfo(def.spell)) or UNKNOWN_ICON end
+-- Spell name and icon: GetSpellInfo on older clients, C_Spell.GetSpellInfo (a table) on newer ones (it may
+-- be missing on WoW Forever); without either, the English name and a question mark
+local function SpellInfo(spell)
+    if _G.GetSpellInfo then
+        local name, _, icon = _G.GetSpellInfo(spell)
+        return name, icon
+    end
+    local info = _G.C_Spell and _G.C_Spell.GetSpellInfo and _G.C_Spell.GetSpellInfo(spell)
+    if type(info) == "table" then return info.name, info.iconID end
+    return nil, nil
+end
+local function DisplayName(def) return (SpellInfo(def.spell)) or def.name end
+local function IconOf(def) return select(2, SpellInfo(def.spell)) or UNKNOWN_ICON end
 
 -- Skill line name in the client's language -> code
 local function NameToCode()
@@ -73,14 +92,22 @@ end
 -- MY OWN SKILLS
 -- ============================================================================
 -- A collapsed section in the Skills window hides its lines, so professions already known stay then
+-- Skill lines: GetSkillLineInfo on older clients; newer ones only have GetProfessions / GetProfessionInfo
 local function ScanOwn()
     local map, found, collapsed = NameToCode(), {}, false
-    for i = 1, (_G.GetNumSkillLines and _G.GetNumSkillLines() or 0) do
-        local name, isHeader, isExpanded, rank, _, _, maxRank = _G.GetSkillLineInfo(i)
-        if isHeader then
-            if not isExpanded then collapsed = true end
-        elseif map[name] then
-            found[map[name]] = { rank, maxRank }
+    if _G.GetNumSkillLines and _G.GetSkillLineInfo then
+        for i = 1, _G.GetNumSkillLines() or 0 do
+            local name, isHeader, isExpanded, rank, _, _, maxRank = _G.GetSkillLineInfo(i)
+            if isHeader then
+                if not isExpanded then collapsed = true end
+            elseif map[name] then
+                found[map[name]] = { rank, maxRank }
+            end
+        end
+    elseif _G.GetProfessions and _G.GetProfessionInfo then
+        for _, index in ipairs({ _G.GetProfessions() }) do
+            local name, _, rank, maxRank = _G.GetProfessionInfo(index)
+            if name and map[name] then found[map[name]] = { rank, maxRank } end
         end
     end
     if collapsed then
@@ -105,9 +132,20 @@ local function SaveOwn()
     return Encode(list)
 end
 
+-- My own row always shows my professions; they are sent only in a listed guild. A failure reading them
+-- (a game function missing on this client) goes to Monitoring instead of stopping silently.
 local function SendOwnIfChanged()
-    if not ctx or not ctx.isGuildAllowed((GetGuildInfo("player"))) then return end
-    local payload = SaveOwn()
+    if not ctx then return end
+    local ok, payload = pcall(SaveOwn)
+    if not ok then
+        if addonTable.Monitor and payload ~= lastError then addonTable.Monitor.Error("Reading own professions failed: " .. tostring(payload)) end
+        lastError = payload
+        return
+    end
+    if not ctx.isGuildAllowed((GetGuildInfo("player"))) then
+        if ctx.onChanged then ctx.onChanged() end
+        return
+    end
     if payload ~= lastSent then
         lastSent = payload
         Most.Send("PROF", payload, "low")
@@ -128,18 +166,163 @@ local function IsAllowedPlayer(name)
     return Most.FindKnownPlayer(name) ~= nil
 end
 
--- Called from core.lua; returns true if the packet was handled
-function Professions.HandlePacket(pType, payload, senderName)
-    if pType ~= "PROF" then return false end
-    if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+local function Decode(text)
     local valid, list = {}, {}
     for _, def in ipairs(PROFESSIONS) do valid[def.code] = true end
-    for code, rank, maxRank in payload:gmatch("(%u)=(%d+)/(%d+)") do
+    for code, rank, maxRank in (text or ""):gmatch("(%u)=(%d+)/(%d+)") do
         if valid[code] then list[code] = { tonumber(rank), tonumber(maxRank) } end
     end
-    known[senderName] = { p = list, ts = GetServerTime() }
-    if ctx.onChanged then ctx.onChanged() end
-    return true
+    return list
+end
+
+-- ============================================================================
+-- SYNC AFTER LOGIN (like the chat history): professions of players who were online before us
+-- ============================================================================
+-- PREQ:time = "send me what is newer than this"; stays in the guild (bridge.lua, Route), so one guildmate
+-- answers: PCLAIM tells the others someone is already answering, PSYNC brings the entries by whisper.
+-- PSYNC entries: "Name Surname@time@A=300/300,H=285/300;..." ("@" and ";" are never in names).
+local pendingRequests = {}  -- requester -> true until someone else has answered
+local answered = false      -- our current request got an answer (PCLAIM for us or PSYNC)
+local Request               -- defined below
+
+local function NewestKnown()
+    local newest, me = 0, Most.MyName()
+    for name, data in pairs(known) do
+        if name ~= me and (data.ts or 0) > newest then newest = data.ts end
+    end
+    return newest
+end
+
+-- Sends entries { name, ts, p } to the requester in PSYNC packets
+local function SendEntries(requester, entries, priority)
+    local chunk = ""
+    local function Flush()
+        if chunk ~= "" then Most.Whisper(requester, "PSYNC", chunk, priority) end
+        chunk = ""
+    end
+    for _, e in ipairs(entries) do
+        local text = e.name .. "@" .. e.ts .. "@" .. Encode(e.p)
+        if chunk ~= "" and #chunk + 1 + #text > SYNC_PACKET_BYTES then Flush() end
+        chunk = (chunk == "") and text or (chunk .. ";" .. text)
+    end
+    Flush()
+end
+
+local function AnswerRequest(requester, since)
+    local entries = {}
+    for name, data in pairs(known) do
+        if name ~= requester and (data.ts or 0) > since then table.insert(entries, { name = name, ts = data.ts, p = data.p }) end
+    end
+    -- The newest first, at most SYNC_MAX_ENTRIES, so a fresh install does not keep the queue busy for long
+    table.sort(entries, function(a, b) return a.ts > b.ts end)
+    while #entries > SYNC_MAX_ENTRIES do table.remove(entries) end
+    SendEntries(requester, entries, "low")
+end
+
+-- Members tab: the players on the shown page whose professions we do not have (core.lua). Each player is
+-- asked about at most every NAME_ASK_COOLDOWN, because players without the addon never have any data.
+-- PREQN:id:Name;Name;... stays in the guild; one guildmate answers (PCLAIM "requester#id") with what it knows.
+local nameRequestSeq, askedAt = 0, {}
+function Professions.RequestNames(names)
+    if not _G.IsInGuild() then return end
+    local me, now, missing = Most.MyName(), GetTime(), {}
+    for _, name in ipairs(names) do
+        if name ~= me and not known[name] and now - (askedAt[name] or -NAME_ASK_COOLDOWN) >= NAME_ASK_COOLDOWN then
+            askedAt[name] = now
+            table.insert(missing, name)
+        end
+    end
+    if #missing == 0 then return end
+    nameRequestSeq = nameRequestSeq + 1
+    local chunk, part = "", 0
+    local function Flush()
+        if chunk == "" then return end
+        part = part + 1
+        Most.Send("PREQN", nameRequestSeq .. "." .. part .. ":" .. chunk, "high")
+        chunk = ""
+    end
+    for _, name in ipairs(missing) do
+        if chunk ~= "" and #chunk + 1 + #name > SYNC_PACKET_BYTES then Flush() end
+        chunk = (chunk == "") and name or (chunk .. ";" .. name)
+    end
+    Flush()
+end
+
+local function AnswerNames(requester, list)
+    local entries = {}
+    for name in list:gmatch("[^;]+") do
+        local data = known[name]
+        if data and name ~= requester then table.insert(entries, { name = name, ts = data.ts or 0, p = data.p }) end
+    end
+    SendEntries(requester, entries, "high")
+end
+
+-- Asks the guild; without an answer within SYNC_RETRY_AFTER (the answering player logged out, a lost
+-- packet) we ask again, up to SYNC_MAX_RETRIES times
+Request = function(retry)
+    if not _G.IsInGuild() then return end
+    answered = false
+    Most.Send("PREQ", tostring(NewestKnown()), "low")
+    if retry < SYNC_MAX_RETRIES then
+        C_Timer.After(SYNC_RETRY_AFTER, function()
+            if not answered then Request(retry + 1) end
+        end)
+    end
+end
+
+-- Called from core.lua; returns true if the packet was handled
+function Professions.HandlePacket(pType, payload, senderName)
+    if pType == "PROF" then
+        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+        known[senderName] = { p = Decode(payload), ts = GetServerTime() }
+        if ctx.onChanged then ctx.onChanged() end
+        return true
+    elseif pType == "PREQ" then
+        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+        pendingRequests[senderName] = true
+        -- Random delay: one guildmate answers, the others see PCLAIM and give up
+        C_Timer.After(0.5 + math.random() * 2.5, function()
+            if not pendingRequests[senderName] then return end
+            pendingRequests[senderName] = nil
+            Most.Send("PCLAIM", senderName, "low")
+            AnswerRequest(senderName, tonumber(payload) or 0)
+        end)
+        return true
+    elseif pType == "PREQN" then
+        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+        local id, list = payload:match("^([%d%.]+):(.+)$")
+        if not id then return true end
+        local key = senderName .. "#" .. id
+        pendingRequests[key] = true
+        -- A short random delay: the one who answers first sends PCLAIM, the others give up
+        C_Timer.After(0.2 + math.random() * 1.3, function()
+            if not pendingRequests[key] then return end
+            pendingRequests[key] = nil
+            Most.Send("PCLAIM", key, "high")
+            AnswerNames(senderName, list)
+        end)
+        return true
+    elseif pType == "PCLAIM" then
+        if senderName ~= Most.MyName() then pendingRequests[payload] = nil end
+        if payload == Most.MyName() then answered = true end
+        return true
+    elseif pType == "PSYNC" then
+        if not IsAllowedPlayer(senderName) then return true end
+        answered = true
+        local me, changed = Most.MyName(), false
+        for entry in payload:gmatch("[^;]+") do
+            local name, ts, list = entry:match("^([^@]+)@(%d+)@(.*)$")
+            ts = tonumber(ts)
+            -- Never about me (my own skills come from the game), and only newer than what we have
+            if name and ts and name ~= me and ts <= GetServerTime() + 60 and ts > ((known[name] and known[name].ts) or 0) then
+                known[name] = { p = Decode(list), ts = ts }
+                changed = true
+            end
+        end
+        if changed and ctx.onChanged then ctx.onChanged() end
+        return true
+    end
+    return false
 end
 
 -- ============================================================================
@@ -228,6 +411,8 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "PLAYER_LOGIN" then
         C_Timer.After(FIRST_SEND_DELAY, SendOwnIfChanged)
         C_Timer.NewTicker(CHECK_INTERVAL, SendOwnIfChanged)
+        -- Professions of players who were online before us (only what is newer than what we have)
+        C_Timer.After(SYNC_REQUEST_DELAY, function() Request(0) end)
     elseif event == "PLAYER_GUILD_UPDATE" then
         -- The new guild has not heard our professions yet
         lastSent = nil

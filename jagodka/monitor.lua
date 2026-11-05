@@ -43,6 +43,7 @@ local TYPES = {
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
+    PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
 local FILTERS = {
     { key = "all", label = "All" }, { key = "chat", label = "Chat" }, { key = "channel", label = "Channel" }, { key = "events", label = "Events" }, { key = "rosters", label = "Rosters" },

@@ -1081,6 +1081,30 @@ row.rankText:SetWidth(widths.rank)
 row.locationBox:SetWidth(widths.location)
 end
 end
+-- Professions of the players on the shown page (professions.lua): at once when the tab opens, otherwise
+-- membersView.PAGE_SWITCH_DELAY after a page change, when the page buttons come back
+membersView.profPageKey, membersView.profToken = nil, 0
+-- Page buttons are grayed out and not clickable for PAGE_SWITCH_DELAY (1 s) after a page change, the same time
+-- the professions request waits, so pages cannot be flipped faster than the requests
+membersView.PAGE_SWITCH_DELAY, membersView.navLockedUntil = 1, 0
+function membersView.UpdateNavButtons()
+local pages = math.max(1, math.ceil(#filteredPlayers / MEMBERS_PER_PAGE))
+local page, free = membersView.page, GetTime() >= membersView.navLockedUntil
+PageNav.buttons[1]:SetEnabled(free and page > 1) PageNav.buttons[2]:SetEnabled(free and page > 1)
+PageNav.buttons[3]:SetEnabled(free and page < pages) PageNav.buttons[4]:SetEnabled(free and page < pages)
+end
+function membersView.RequestPageProfessions(first, count)
+local key = membersView.page .. "/" .. tostring(membersView.filterKey)
+if key == membersView.profPageKey then return end
+local delay = membersView.profPageKey == nil and 0 or membersView.PAGE_SWITCH_DELAY
+membersView.profPageKey = key
+membersView.profToken = membersView.profToken + 1
+local token, names = membersView.profToken, {}
+for i = first + 1, first + count do names[#names + 1] = filteredPlayers[i].name end
+C_Timer.After(delay, function()
+if token == membersView.profToken and Panels[2]:IsVisible() then addonTable.Professions.RequestNames(names) end
+end)
+end
 local function RenderMainTable()
 local total = #filteredPlayers
 local pages = math.max(1, math.ceil(total / MEMBERS_PER_PAGE))
@@ -1090,8 +1114,8 @@ local first = (page - 1) * MEMBERS_PER_PAGE
 local count = math.min(MEMBERS_PER_PAGE, total - first)
 PageNav.infoText:SetText(total == 0 and "No players" or ("Showing " .. (first + 1) .. "-" .. (first + count) .. " of " .. total .. " |cff00ff00(" .. (membersView.online or 0) .. " online)|r"))
 PageNav.pageText:SetText("Page " .. page .. " / " .. pages)
-PageNav.buttons[1]:SetEnabled(page > 1) PageNav.buttons[2]:SetEnabled(page > 1)
-PageNav.buttons[3]:SetEnabled(page < pages) PageNav.buttons[4]:SetEnabled(page < pages)
+membersView.UpdateNavButtons()
+membersView.RequestPageProfessions(first, count)
 local visible = TableContainer.visibleRows or 16
 _G.FauxScrollFrame_Update(mainScrollFrame, count, visible, MAIN_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(mainScrollFrame)
@@ -1174,6 +1198,8 @@ b:SetScript("OnClick", function()
 local pages = math.max(1, math.ceil(#filteredPlayers / MEMBERS_PER_PAGE))
 local target = ({ 1, membersView.page - 1, membersView.page + 1, pages })[i]
 membersView.page = math.max(1, math.min(pages, target))
+membersView.navLockedUntil = GetTime() + membersView.PAGE_SWITCH_DELAY
+C_Timer.After(membersView.PAGE_SWITCH_DELAY, membersView.UpdateNavButtons)
 _G.FauxScrollFrame_SetOffset(mainScrollFrame, 0)
 local bar = _G[mainScrollFrame:GetName() .. "ScrollBar"]
 if bar then bar:SetValue(0) end
@@ -2615,20 +2641,15 @@ Most.SetGuildmateOnlineCheck(function(name)
 if not myGuildRosterLoaded then return nil end
 return myGuildRoster[name] == true
 end)
--- Warning about a different addon version (once per player and version), in the addon chat and regular chat
+-- Only a NEWER version is reported: once per version (not per player), with the update window. Players with
+-- an older version are not reported at all; with many players it flooded the chat and slowed the game.
 local warnedVersions = {}
 local function CheckPlayerVersion(name, version)
-if name == Most.MyName() or warnedVersions[name] == (version or "?") then return end
-local cmp = CompareVersions(version or "0", ADDON_VERSION)
-if cmp == 0 then return end
-warnedVersions[name] = version or "?"
-local text
-if cmp < 0 then
-text = name .. " has an older addon version (" .. (version or "unknown") .. ", yours: " .. ADDON_VERSION .. ") - they need to update."
-else
-text = name .. " has a newer addon version (" .. version .. ") - please update yours (" .. ADDON_VERSION .. ")."
+if name == Most.MyName() or not version or warnedVersions[version] then return end
+if CompareVersions(version, ADDON_VERSION) <= 0 then return end
+warnedVersions[version] = true
+local text = name .. " has a newer addon version (" .. version .. ") - please update yours (" .. ADDON_VERSION .. ")."
 addonTable.Update.Show(version)
-end
 Most.AddSystem(text)
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
 end
@@ -2973,6 +2994,9 @@ EventSync.Request()
 end)
 -- The calendar uses the same events, so it also fetches missing ones (at most every 5 min)
 Panels[5]:HookScript("OnShow", function() EventSync.Request() end)
+-- The Members tab fetches missing professions (at most every 5 min, professions.lua)
+-- Opening the tab asks at once for the professions of the shown page (membersView.RequestPageProfessions)
+Panels[2]:HookScript("OnShow", function() membersView.profPageKey = nil end)
 ShowTab(1)
 -- ============================================================================
 -- 9. CHAT COMMAND AND MINIMAP REGISTRATION (LibDataBroker)

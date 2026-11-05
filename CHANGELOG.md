@@ -721,3 +721,25 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 **Limitations:**
 - Needs checking in game on Forever: whisper and invite with "Marianek-Jagoda", and that every name in the Monitoring log has the surname.
 - Players on older versions identify others differently, so everyone needs 0.13.3. Data saved under first names only (old mutes, sign-ups, professions) does not match the new names.
+
+# 0.13.4 – chat tab writes through the game's input
+
+- **No separate input under the chat tab:** the `Jagódki:` input under "Jagodki Nadina - General" is gone. The game's own chat input showed in the same place and covered it.
+- **The game's input writes on the community channel:** while the tab is selected, the game's chat input is set to the community channel (the chat channel from the key, or the public one without a key). Enter opens it as usual and the game sends the message itself; it shows in the tab and the addon window like any channel message. `/s`, `/g`, `/w` and other commands still work, and after another tab is selected the input gets back the chat type it had before. The setting follows the channel number every 5 s (e.g. after a new key) and never changes while the player is typing.
+- If the community channel is not joined yet (the first seconds after login), the input stays as it was, and the tab says so once.
+- **`Jagódki:` prompt:** the input's header shows `Jagódki:` instead of "[7. Jgdh26g9i7]:" (channel number and the name from the key) whenever it is set to the community channel, also after `/7` typed by hand.
+- **No more "older addon version" messages:** a player with an older version is not reported at all (with many players these messages flooded the chat and slowed the game). A newer version is reported once per version, not once per player, with the update window as before.
+
+- **Professions after login:** 10 s after login the addon asks its guild for the professions it does not have yet or has older (`PREQ`, it stays in the guild). One guildmate answers (`PCLAIM` stops the others) by whisper (`PSYNC`) with up to 300 players, the most recently updated first. Before, players who were online before us showed "Unknown - player has no addon data" until they changed a skill or relogged (since 0.11.0 only the relay answers a hello). Older versions ignore these packets.
+- **More reliable:** without an answer within 25 s (the answering player logged out, a lost packet) the request is repeated, up to 2 times. 
+- **Members tab asks for the shown page:** opening the tab asks at once for the professions of the players on the shown page that we do not have (`PREQN`, stays in the guild, one guildmate answers with what it knows). After a page change the page buttons are grayed out and not clickable for 1 s, and the request goes when they come back, so every page shown gets one request. The same player is asked about at most every 5 minutes, because players without the addon never have data.
+
+**Limitations:**
+- From this tab a muted player's messages still go on the channel (others' addons hide them, as before); the separate input used to refuse to send.
+- The chat type of the game's input is changed by the addon; if the game ever blocks a slash command typed in this tab (e.g. /cast), switch to another tab for it and report it.
+
+# 0.13.5 – Jagódki: prompt on WoW Forever
+
+- **Prompt hook that works on Forever:** 0.13.4 hooked only the global `ChatEdit_UpdateHeader`, but the Forever client updates the header through each input's own `UpdateHeader` method, so "[7. Jgdh26g9i7]:" stayed. Now both are hooked, plus showing and focusing the input (one frame later, after the game's own update), for every chat window's input.
+- **Own professions on newer clients:** reading them used `GetSpellInfo` and `GetSkillLineInfo`, which newer clients may not have (WoW Forever), so it stopped with a silent Lua error and nothing was saved or sent: everyone, also the player themselves, showed "Unknown - player has no addon data". Now `C_Spell.GetSpellInfo` and `GetProfessions` / `GetProfessionInfo` are used when the old functions are missing, a reading error goes to Monitoring (Errors), and the own row shows the own professions also outside a listed guild.
+- **Members page buttons:** locked for 1 s after a page change (was 2 s), and the professions request for the page goes after the same 1 s.
