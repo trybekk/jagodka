@@ -140,13 +140,25 @@ function Most.Plain(s)
     return s and (s:gsub("|", ""))
 end
 
--- Chat message text: only valid links remain (items, spells, professions...),
--- every other "|" is removed
-local LINK_PATTERN = "|c%x%x%x%x%x%x%x%x|H[^|]+|h%[[^|]*%]|h|r"
+-- Chat message text: only valid links remain (items, spells, professions...), every other "|" is removed.
+-- A link: color, "|H...|h", the visible text, "|h|r". The color is "|cffRRGGBB" on older clients and
+-- "|cnIQ3:" (item quality) on newer ones (WoW Forever); the visible text may hold a quality icon
+-- ("|A...|a"), but nothing else with "|".
+local LINK_CANDIDATE = "|c[^|]*|H[^|]+|h.-|h|r"
+local function IsValidLink(link)
+    local color, inner = link:match("^|c([^|]*)|H[^|]+|h(.-)|h|r$")
+    if not color then return false end
+    if not (color:match("^%x%x%x%x%x%x%x%x$") or color:match("^n[%w_]+:$")) then return false end
+    return not inner:gsub("|A[^|]*|a", ""):find("|", 1, true)
+end
+Most.LINK_CANDIDATE = LINK_CANDIDATE
+
 function Most.SanitizeChat(text)
     local out, pos = {}, 1
     while true do
-        local s, e = text:find(LINK_PATTERN, pos)
+        local s, e = text:find(LINK_CANDIDATE, pos)
+        -- A candidate that is not a valid link is treated as plain text
+        while s and not IsValidLink(text:sub(s, e)) do s, e = text:find(LINK_CANDIDATE, s + 1) end
         table.insert(out, (text:sub(pos, s and (s - 1) or #text):gsub("|", "")))
         if not s then break end
         table.insert(out, text:sub(s, e))
@@ -295,7 +307,7 @@ local function SplitText(text, maxBytes)
     local parts = {}
     local pos = 1
     while pos <= #text do
-        local s, e = text:find("|c%x%x%x%x%x%x%x%x|H.-|h.-|h|r", pos)
+        local s, e = text:find(LINK_CANDIDATE, pos)
         local plainEnd = s and (s - 1) or #text
         if plainEnd >= pos then
             for word in text:sub(pos, plainEnd):gmatch("[^ ]* *") do

@@ -22,7 +22,7 @@ local GetTime = _G.GetTime
 local UnitName = _G.UnitName
 local Ambiguate = _G.Ambiguate
 local strsplit = _G.strsplit
-local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber
+local pairs, ipairs, tostring, tonumber, pcall = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber, _G.pcall
 local table, math, wipe = _G.table, _G.math, _G.wipe
 
 local Most = addonTable.Most
@@ -92,23 +92,50 @@ end
 -- ============================================================================
 -- MY GUILD (from Blizzard's roster)
 -- ============================================================================
+-- The game's guild window is open: then we do not touch its "show offline" setting
+local function GuildWindowOpen()
+    return (_G.GuildFrame and _G.GuildFrame:IsShown()) or (_G.CommunitiesFrame and _G.CommunitiesFrame:IsShown()) or false
+end
+
+-- Reads the game's roster. With "show offline" turned off the game gives only online players, so a player
+-- with that setting would send other guilds a roster without anyone offline (wrong member counts). The
+-- setting is turned on for the reading only and back off right after, unless the guild window is open.
+local ignoreRosterEventsUntil = 0
+local function ReadGameRoster(members)
+    local showOffline = not (_G.GetGuildRosterShowOffline and not _G.GetGuildRosterShowOffline())
+    local switched = false
+    if not showOffline and _G.SetGuildRosterShowOffline and not GuildWindowOpen() then
+        -- Our own switch fires GUILD_ROSTER_UPDATE; it must not start another reading
+        ignoreRosterEventsUntil = GetTime() + 3
+        _G.SetGuildRosterShowOffline(true)
+        switched = true
+    end
+    local ok, err = pcall(function()
+        for i = 1, (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0 do
+            local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
+            if fullName then
+                -- z = location: own guild only, not part of the entries sent to other guilds.
+                -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
+                members[Most.PlayerKey(fullName)] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone }
+            end
+        end
+    end)
+    -- Always back as the player had it, even after an error
+    if switched then _G.SetGuildRosterShowOffline(false) end
+    if not ok and addonTable.Monitor then addonTable.Monitor.Error("Reading the guild roster failed: " .. tostring(err)) end
+    return showOffline or switched
+end
+
 local function RefreshLocal()
     local guild = MyGuild()
-    local n = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
-    if not guild or n == 0 then return end
-    -- With "show offline" turned off Blizzard returns only online players, so we keep the rest as offline
-    local complete = not (_G.GetGuildRosterShowOffline and not _G.GetGuildRosterShowOffline())
+    if not guild or ((_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0) == 0 then return end
     local old = rosters[guild] and rosters[guild].members or {}
     local members = {}
+    local complete = ReadGameRoster(members)
     if not complete then
-        for name, m in pairs(old) do members[name] = { c = m.c, l = m.l, r = m.r, o = false } end
-    end
-    for i = 1, n do
-        local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
-        if fullName then
-            -- z = location: own guild only, not part of the entries sent to other guilds.
-            -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
-            members[Most.PlayerKey(fullName)] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone }
+        -- Only online players were given (guild window open with "show offline" off): the rest stays, as offline
+        for name, m in pairs(old) do
+            if not members[name] then members[name] = { c = m.c, l = m.l, r = m.r, o = false } end
         end
     end
     local ranks = {}
@@ -169,6 +196,10 @@ local function SendFull(target)
     for i, chunk in ipairs(chunks) do
         local payload = table.concat({ Enc(guild), snap, i, #chunks, g.complete and "1" or "0", (i == 1) and ranks or "", chunk }, ":")
         if target then Most.Whisper(target, "RF", payload, "low") else Most.Send("RF", payload, "low") end
+    end
+    if addonTable.Monitor then
+        addonTable.Monitor.Note("Sent our full roster" .. (target and (" to " .. target) or "") .. ": " .. #entries .. " members in "
+            .. #chunks .. " parts" .. (g.complete and "" or " (only online players: guild window open with show offline off)"))
     end
 end
 
@@ -354,6 +385,12 @@ function Roster.HandlePacket(pType, payload, senderName)
             end
             incoming[guild] = nil
             g.fullAt = GetServerTime()
+            if addonTable.Monitor then
+                local count = 0
+                for _ in pairs(g.members) do count = count + 1 end
+                addonTable.Monitor.Note("Full roster of " .. guild .. " from " .. senderName .. ": " .. count .. " members"
+                    .. (complete == "1" and "" or " (sender sees only online players, offline ones kept from before)"))
+            end
         end
         Changed()
         return true
@@ -522,7 +559,9 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         -- core.lua sends the roster request (EventSync.LoginSync)
         C_Timer.NewTicker(20, Tick)
     elseif event == "GUILD_ROSTER_UPDATE" then
-        -- Blizzard can fire this event many times in a row, so we recompute once per 2 s
+        -- Blizzard can fire this event many times in a row, so we recompute once per 2 s.
+        -- Events from our own "show offline" switch (ReadGameRoster) are skipped.
+        if GetTime() < ignoreRosterEventsUntil then return end
         if not self.pending then
             self.pending = true
             C_Timer.After(2, function() self.pending = false RefreshLocal() end)

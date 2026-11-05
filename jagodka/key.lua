@@ -5,12 +5,13 @@
 --    guilds and for players without the key. The shared chat goes on a second channel whose name and
 --    password come from a secret key, so someone with only the addon code cannot find it, read it or
 --    take it over.
---  * The key is kept in JagodkiChatDB.key = { k = key, ts = server time, by = officer }. It travels only
---    over GUILD and relay whispers (KEY) and is accepted only from officers by the guild rosters.
---    The newer key (ts) wins.
+--  * The key is kept in JagodkiChatDB.key = { k = key, ts = server time, by = author, officer = true/false }.
+--    It travels only over GUILD and relay whispers (KEY), from players of listed guilds. An officer's key
+--    (author an officer by the guild rosters) beats a member's; see Wins for the rules.
 --  * After login we ask our guild (KREQ; passed on to other guilds only when we are our guild's relay);
---    a relay answers when it has a newer key. An officer who still has no key and has seen none after
---    KEY_WAIT seconds creates one, so nobody has to do it by hand.
+--    a relay answers when its key differs. When nobody has a key after KEY_WAIT (+ a random wait), an officer
+--    creates one, or else the guild's relay creates a member's key, so the chat never waits for an officer.
+--    An officer who comes online later confirms that key (same key, signed by the officer, same channel).
 --  * The relay sends the key to everyone every KEY_SHARE_INTERVAL, and at once when it sees an older one,
 --    so guilds whose officers created a key at the same time end up with the newer one.
 --  * A new key: "/jagodka key" (officers), or by itself in an officer's client when the chat channel has
@@ -33,7 +34,8 @@ local table, math = _G.table, _G.math
 local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
-local KEY_WAIT = 120            -- seconds after login before an officer without a key creates one
+local KEY_WAIT = 120            -- seconds after login before an officer (or the relay) without a key creates one
+local KEY_CREATE_JITTER = 90    -- plus a random 0..this many seconds, so guilds rarely create one at once
 local REQUEST_DELAYS = { 10, 90 } -- seconds after login when we ask our guild for the key
 local KEY_SHARE_INTERVAL = 600  -- how often the relay sends the key to everyone (s)
 local ANSWER_COOLDOWN = 60      -- at most this often the relay sends the key again to someone with an older one (s)
@@ -60,6 +62,7 @@ local warned = false
 local keySeen = false    -- a KEY packet arrived (accepted or not)
 local lastOwner = nil    -- chat channel owner last written to the log
 local loginAt = math.huge
+local createJitter = math.random(0, KEY_CREATE_JITTER) -- random extra wait before creating the first key (s)
 local KeylessCheck       -- defined below, run every minute
 local KeepPending        -- defined below, used when a key from an unknown officer arrives
 
@@ -135,13 +138,25 @@ local function Save()
     _G.JagodkiChatDB.key = current
 end
 
--- Takes the key if it is newer than ours
-local function Apply(k, ts, by)
-    if current and (current.ts or 0) >= ts then return false end
-    current = { k = k, ts = ts, by = by }
+-- Whether a key replaces ours. An officer's key beats a member's. Between officers' keys the newer wins.
+-- Between members' keys the older wins (then the smaller key), so a member cannot move everyone to a key of
+-- their own by making a newer one. Keys saved before 0.13.7 were all officers'.
+local function Wins(k, ts, officer)
+    if not current then return true end
+    local currentOfficer = current.officer ~= false
+    if officer ~= currentOfficer then return officer end
+    if officer then return ts > (current.ts or 0) end
+    if ts ~= current.ts then return ts < (current.ts or 0) end
+    return k < current.k
+end
+
+-- Takes the key if it wins over ours (Wins); officer = its author is an officer by the rosters
+local function Apply(k, ts, by, officer)
+    if not Wins(k, ts, officer) then return false end
+    current = { k = k, ts = ts, by = by, officer = officer }
     Save()
     warned = false
-    if Monitor() then Monitor().Channel("Chat channel key from " .. tostring(by) .. " (" .. date("%d.%m %H:%M", ts) .. ")") end
+    if Monitor() then Monitor().Channel("Chat channel key from " .. tostring(by) .. (officer and " (officer)" or " (member, until an officer confirms it)") .. " (" .. date("%d.%m %H:%M", ts) .. ")") end
     Key.Join()
     return true
 end
@@ -169,15 +184,28 @@ local function NewKeyText()
 end
 
 -- A new key from this officer's client. force: "/jagodka key", without the cooldown.
-function Key.Create(reason, force)
-    if not ctx or not ctx.isMeOfficer() or not Most.IsGuildAllowed(Most.MyGuild()) then return false end
+-- asMember: the first key when nobody has one yet, which any player of a listed guild may create
+-- (KeylessCheck); it stays a member's key until an officer confirms it.
+function Key.Create(reason, force, asMember)
+    if not ctx or not Most.IsGuildAllowed(Most.MyGuild()) then return false end
+    local officer = ctx.isMeOfficer()
+    if not officer and not asMember then return false end
     if not force and GetTime() - lastRotation < ROTATE_COOLDOWN then return false end
     lastRotation = GetTime()
     local ts = math.max(GetServerTime(), ((current and current.ts) or 0) + 1)
-    Apply(NewKeyText(), ts, MyName())
+    Apply(NewKeyText(), ts, MyName(), officer)
     Share()
-    if Monitor() then Monitor().Channel("New chat channel key: " .. reason) end
+    if Monitor() then Monitor().Channel("New chat channel key" .. (officer and "" or " (member)") .. ": " .. reason) end
     return true
+end
+
+-- An officer confirms a member's key: the same key signed by the officer, so the channel stays the same
+-- and nobody moves, but from now on only an officer can change it
+local function ConfirmMemberKey()
+    if not current or current.officer ~= false or not ctx or not ctx.isMeOfficer() or not Most.IsGuildAllowed(Most.MyGuild()) then return end
+    Apply(current.k, math.max(GetServerTime(), (current.ts or 0) + 1), MyName(), true)
+    Share()
+    if Monitor() then Monitor().Channel("Confirmed the members' chat channel key as an officer (same channel)") end
 end
 
 -- ============================================================================
@@ -192,27 +220,31 @@ function Key.HandlePacket(pType, payload, senderName)
         -- Some key exists in the community, even if we cannot accept it yet (e.g. its officer's roster has
         -- not arrived): an officer does not create a competing one
         keySeen = true
-        -- From the officer who created it, or passed on by a known player; the officer must be one by the rosters
+        -- From its author, or passed on by a known player. The author must be a player of a listed guild:
+        -- an officer by the rosters (an officer's key) or any member (a member's key, see Wins).
         local fromKnown = senderName == by or Most.FindKnownPlayer(senderName) ~= nil
-        if not (fromKnown and ctx and ctx.isKnownOfficer(by)) then
-            if Monitor() then Monitor().Channel("Ignored a chat channel key from " .. senderName .. ": " .. by .. " is not an officer by the rosters (kept, rosters requested)") end
+        local officer = ctx ~= nil and ctx.isKnownOfficer(by)
+        local member = officer or by == MyName() or Most.FindKnownPlayer(by) ~= nil
+        if not (fromKnown and member) then
+            if Monitor() then Monitor().Channel("Ignored a chat channel key from " .. senderName .. ": " .. by .. " is not known from the rosters yet (kept, rosters requested)") end
             if fromKnown or not current then KeepPending(k, ts, by) end
             return true
         end
-        if Apply(k, ts, by) then
+        if Apply(k, ts, by, officer) then
             -- The relay passes a new key on at once (to its guild and the other relays), e.g. one it got by whisper
             if Most.IsRelay() and senderName ~= MyName() then Share() end
-        elseif current and current.ts > ts and Most.IsRelay() and GetTime() - lastShared >= ANSWER_COOLDOWN then
-            -- Someone still has an older key: we send ours to everyone
+        elseif current and current.k ~= k and Most.IsRelay() and GetTime() - lastShared >= ANSWER_COOLDOWN then
+            -- Someone still has a key that loses to ours: we send ours to everyone
             Share()
-            if Monitor() then Monitor().Channel(senderName .. " sent an older chat channel key, ours sent to everyone") end
+            if Monitor() then Monitor().Channel(senderName .. " sent a chat channel key that loses to ours, ours sent to everyone") end
         end
         return true
     elseif pType == "KREQ" then
+        -- Answered when the asker's key differs from ours; the asker decides which one wins
         local theirs = tonumber(payload) or 0
-        if senderName ~= MyName() and current and current.ts > theirs and Most.IsRelay() and Most.FindKnownPlayer(senderName) then
+        if senderName ~= MyName() and current and current.ts ~= theirs and Most.IsRelay() and Most.FindKnownPlayer(senderName) then
             Share(senderName)
-            if Monitor() then Monitor().Channel("Sent the chat channel key to " .. senderName .. " (they asked, theirs was older)") end
+            if Monitor() then Monitor().Channel("Sent the chat channel key to " .. senderName .. " (they asked, theirs differs)") end
         end
         return true
     end
@@ -274,21 +306,32 @@ KeepPending = function(k, ts, by)
 end
 
 KeylessCheck = function()
-    -- The remembered key, once its officer is known from the rosters
-    if pendingKey and ctx and ctx.isKnownOfficer(pendingKey.by) then
+    -- The remembered key, once its author is known from the rosters (as an officer or a member)
+    if pendingKey and ctx then
         local p = pendingKey
-        pendingKey = nil
-        if Apply(p.k, p.ts, p.by) then
-            if Monitor() then Monitor().Channel("Accepted the remembered chat channel key: " .. p.by .. " is now known as an officer") end
-            if Most.IsRelay() then Share() end
+        local officer = ctx.isKnownOfficer(p.by)
+        if officer or Most.FindKnownPlayer(p.by) then
+            pendingKey = nil
+            if Apply(p.k, p.ts, p.by, officer) then
+                if Monitor() then Monitor().Channel("Accepted the remembered chat channel key: " .. p.by .. " is now known from the rosters") end
+                if Most.IsRelay() then Share() end
+            end
         end
     end
+    -- A member's key: an officer online confirms it
+    ConfirmMemberKey()
     if current or not _G.IsInGuild() or not Most.IsGuildAllowed(Most.MyGuild()) then return end
     -- Only the relay asks again (its request also reaches other guilds); the rest of the guild gets the key
     -- from the relay as soon as it has one (HandlePacket)
     if Most.IsRelay() then Most.Send("KREQ", "0", "high") end
-    -- Nobody in the community has a key yet: an officer creates one
-    if not keySeen and GetTime() - loginAt >= KEY_WAIT then Key.Create("no key in the community yet") end
+    -- Nobody in the community has a key yet: an officer creates one, or else the guild's relay (one player
+    -- per guild), each after a random extra wait, so guilds rarely create one at the same moment
+    if keySeen or GetTime() - loginAt < KEY_WAIT + createJitter then return end
+    if ctx and ctx.isMeOfficer() then
+        Key.Create("no key in the community yet")
+    elseif Most.IsRelay() then
+        Key.Create("no key in the community yet, no officer has made one", false, true)
+    end
 end
 
 -- ============================================================================
