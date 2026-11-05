@@ -702,3 +702,9 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - **Relay passes a new key on at once:** a relay that gets a newer key (e.g. in answer to its own request) sends it to its guild and the other relays right away. Without a key, only the relay asks again every minute; its request also reaches the other guilds.
 - **Key from an officer of a guild we do not know yet:** it is remembered, the missing guild rosters are requested at once (at most every 5 minutes), and the key is accepted as soon as that officer is known. Before, this could take until the next full roster (up to 30 minutes), and guilds could stay on different channels meanwhile.
 - **Only listed guilds create keys:** an officer of a guild outside the list does not create one.
+
+# 0.13.2 – names with a surname
+
+- **One name per player:** on clients where characters have a surname (WoW Forever), chat events and the guild roster give "Marianek Jagoda", while the game's own name and addon messages give "Marianek". The addon took them for two players. Now every name from the game drops the realm and the surname (`Most.BaseName`): channel messages, the channel member list, the guild roster (own guild, other guilds' rosters, also rosters saved earlier), notes, "has gone offline" messages and the player menu.
+- **Fixes what this caused:** own messages from the channel were not recognized, so after 8 s they went through the relays as well and showed twice, and the whole session switched to the relays. Guildmates could be taken for players "not in the guild roster" and ignored.
+- **Names shown with the surname:** the chat, the Members tab, the online list and the note popup show the full name (`Most.DisplayName`), learned from the guild rosters and channel messages. Rosters sent to other guilds carry the full name, so they can show it too. Whisper, invite and the player menu use the base name.

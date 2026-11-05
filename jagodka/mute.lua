@@ -348,7 +348,7 @@ if _G.Menu and _G.Menu.ModifyMenu then
     _G.Menu.ModifyMenu("MENU_UNIT_FRIEND", function(owner, rootDescription, contextData)
         local name = contextData and contextData.name
         if not name then return end
-        name = _G.Ambiguate(name, "none")
+        name = Most.BaseName(name)
         -- Only in our tabs (when the game does not give the chat window, we show it everywhere, still officers only)
         if contextData.chatFrame and not addonTable.Zakladka.IsOurFrame(contextData.chatFrame) then return end
         local me, muted = MyName(), Mute.IsMuted(name)

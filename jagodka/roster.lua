@@ -65,8 +65,10 @@ local CLASS_CODE = { WARRIOR = "W", PALADIN = "P", HUNTER = "H", ROGUE = "R", PR
 local CODE_CLASS = {}
 for k, v in pairs(CLASS_CODE) do CODE_CLASS[v] = k end
 
+-- The full name with the surname (m.n) goes in the entry, so other guilds can show it too; the receiver
+-- keys the entry by the base name (Most.BaseName)
 local function EncodeEntry(name, m)
-    return name .. "," .. (CLASS_CODE[m.c] or "X") .. (m.l or 1) .. math.min(math.max(m.r or 9, 0), 9) .. (m.o and "+" or "-")
+    return (m.n or name) .. "," .. (CLASS_CODE[m.c] or "X") .. (m.l or 1) .. math.min(math.max(m.r or 9, 0), 9) .. (m.o and "+" or "-")
 end
 
 local function DecodeEntry(s)
@@ -107,7 +109,10 @@ local function RefreshLocal()
         local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
         if fullName then
             -- z = location: own guild only, not part of the entries sent to other guilds
-            members[Ambiguate(fullName, "none")] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone }
+            -- Keyed by the base name; n = the full name with the surname, when the client gives one
+            local base, full = Most.BaseName(fullName), Ambiguate(fullName, "none")
+            members[base] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone, n = (full ~= base) and full or nil }
+            Most.RememberFullName(fullName)
         end
     end
     local ranks = {}
@@ -308,11 +313,18 @@ local function Upsert(g, list, snap)
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
         if flag then
             -- Status change only (the next full roster adds an unknown player)
-            local m = g.members[statusName]
+            local m = g.members[Most.BaseName(statusName)]
             if m then m.o = (flag == "+") end
         else
+            -- Keyed by the base name (Most.BaseName); the full name with the surname is kept for display
             local name, m = DecodeEntry(e)
-            if name then m.s = snap g.members[name] = m end
+            if name then
+                local base = Most.BaseName(name)
+                if name ~= base then m.n = name end
+                Most.RememberFullName(name)
+                m.s = snap
+                g.members[base] = m
+            end
         end
     end
 end
@@ -505,6 +517,18 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         if arg1 ~= addonName then return end
         _G.JagodkiRosterDB = _G.JagodkiRosterDB or {}
         rosters = _G.JagodkiRosterDB
+        -- Rosters saved by 0.13.1 and older can be keyed by names with a surname ("Marianek Jagoda"):
+        -- keyed by the base name now, the full name kept for display
+        for _, g in pairs(rosters) do
+            local fixed = {}
+            for name, m in pairs(g.members or {}) do
+                local base = Most.BaseName(name)
+                if name ~= base then m.n = m.n or name end
+                if m.n then Most.RememberFullName(m.n) end
+                fixed[base] = m
+            end
+            g.members = fixed
+        end
     elseif event == "PLAYER_LOGIN" then
         readyAt = GetTime() + READY_DELAY
         -- core.lua sends the roster request (EventSync.LoginSync)

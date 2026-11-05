@@ -1101,7 +1101,8 @@ if i <= visible and dataIndex <= count then
 local data = filteredPlayers[first + dataIndex]
 row.member = data
 local classColor = data.class and RAID_CLASS_COLORS[data.class]
-row.nameText:SetText(classColor and classColor:WrapTextInColorCode(data.name) or data.name)
+local shownName = Most.DisplayName(data.name)
+row.nameText:SetText(classColor and classColor:WrapTextInColorCode(shownName) or shownName)
 -- Mute icon after the name (tooltip with the reason), see mute.lua
 Mute.DecorateName(row, row.nameText, data.name)
 row.classText:SetText(classColor and classColor:WrapTextInColorCode(LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class) or "Unknown")
@@ -2512,9 +2513,9 @@ for i = 1, MAX_ROWS do
 local idx = i + offset local row = rows[i]
 row:SetPoint("RIGHT", RightPanel, "RIGHT", rightInset, 0)
 if i <= visible and idx <= #onlineList then
-local data = onlineList[idx] local displayName = data.name
+local data = onlineList[idx] local displayName = Most.DisplayName(data.name)
 row.member = data
-if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_COLORS[data.class]:WrapTextInColorCode(data.name) end
+if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_COLORS[data.class]:WrapTextInColorCode(displayName) end
 if data.guild and data.guild ~= "" and data.guild ~= "Brak" then displayName = displayName .. " |cffbf40ff(" .. data.guild .. ")|r" end
 row.nameText:SetText(displayName) row.levelText:SetText(data.level)
 if data.class and CLASS_ICON_TCOORDS[data.class] then
@@ -2606,7 +2607,7 @@ if n == 0 then return end
 wipe(myGuildRoster)
 for i = 1, n do
 local fullName, _, _, _, _, _, _, _, isOnline = _G.GetGuildRosterInfo(i)
-if fullName then myGuildRoster[Ambiguate(fullName, "none")] = isOnline and true or false end
+if fullName then myGuildRoster[Most.BaseName(fullName)] = isOnline and true or false end
 end
 myGuildRosterLoaded = true
 end
@@ -2689,7 +2690,7 @@ TryAnnounce()
 PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 -- The bridge forwards the packet to other guilds and extracts the real sender from a forwarded one
-local senderName = Ambiguate(sender, "none")
+local senderName = Most.BaseName(sender)
 text, channel, senderName = Most.Route(text, channel, senderName)
 if not text then return end
 sender = senderName

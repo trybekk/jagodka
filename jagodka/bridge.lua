@@ -92,6 +92,29 @@ function Most.EncodeField(s)
     return (tostring(s or ""):gsub("%%", "%%25"):gsub(":", "%%3A"):gsub("\n", "%%0A"))
 end
 
+-- Player name as the addon uses it: without the realm, and without the surname some clients add after a
+-- space (WoW Forever: "Marianek Jagoda" in chat events and the guild roster, "Marianek" from UnitName and
+-- addon messages). Every name taken from the game goes through this, so one player is one name.
+function Most.BaseName(name)
+    if not name then return nil end
+    return (Ambiguate(name, "none"):match("^%S+")) or ""
+end
+
+-- Full names with the surname, for display only: base name -> "Marianek Jagoda". Learned from the guild
+-- rosters (roster.lua) and channel messages; the addon still identifies players by the base name.
+local fullNames = {}
+function Most.RememberFullName(name)
+    if not name then return end
+    local full = Ambiguate(name, "none")
+    local base = full:match("^%S+")
+    if base and full ~= base then fullNames[base] = full end
+end
+
+-- Name to show: with the surname when known, otherwise as given
+function Most.DisplayName(name)
+    return name and fullNames[name] or name
+end
+
 function Most.DecodeField(s)
     if not s then return nil end
     return (s:gsub("%%0A", "\n"):gsub("%%3A", ":"):gsub("%%25", "%%"))
@@ -350,7 +373,9 @@ end
 local function AuthorLabel(name)
     local class, level = AuthorInfo(name)
     local color = class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class]
-    local label = color and color:WrapTextInColorCode(name) or name
+    -- Shown with the surname when known; the link keeps the base name (whisper, menu)
+    local shown = Most.DisplayName(name)
+    local label = color and color:WrapTextInColorCode(shown) or shown
     if level then label = "|cff808080[" .. level .. "]|r " .. label end
     return "|Hplayer:" .. name .. "|h" .. label .. "|h"
 end
@@ -843,7 +868,7 @@ local function HandleChannelList(list, isKeyChannel)
     local now, isRelay, greeted = GetTime(), Most.IsRelay(), 0
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
-        local name = Ambiguate((raw:gsub("[%s%*@%+]", "")), "none")
+        local name = Most.BaseName((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
         if name ~= "" then channelMembers[name] = now end
         if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
@@ -861,7 +886,8 @@ end
 -- (status packet or roster); the guild comes from there, not from the message
 local function HandleChannelMessage(text, playerName, lineID)
     if not ctx or not text or not playerName then return end
-    local author = Ambiguate(playerName, "none")
+    local author = Most.BaseName(playerName)
+    Most.RememberFullName(playerName)
     if author == MyName() then OwnEchoArrived() end
     local p = Most.FindKnownPlayer(author)
     if not p then Count(debug.rejected, "channel message from a player not in the listed guilds") return end
@@ -952,7 +978,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
     if event == "CHAT_MSG_SYSTEM" then
         -- "X has gone offline": a logged-out player (e.g. switching characters) loses the relay role at once
         local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")
-        if name and ctx then RemoveActivePlayer(Ambiguate(name, "none")) end
+        if name and ctx then RemoveActivePlayer(Most.BaseName(name)) end
         return
     end
     if event == "CHAT_MSG_CHANNEL" then
