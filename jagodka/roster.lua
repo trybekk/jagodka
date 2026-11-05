@@ -6,8 +6,9 @@
 --    (a "random" choice, but computed the same by everyone) to spread the traffic over everyone.
 --  * Everyone compares their guild's roster with the previous one every 20 s; only the sender sends.
 --    A status change is "+Name" / "-Name"; a new member / level / rank: "Name,W603+".
---  * Full roster: once per 30 min to everyone. On request from a fresh login (data > 10 min old) by
---    whisper to that player, which skips the relays; from BROADCAST_FROM requests at once, to everyone.
+--  * Full roster: once per 60 min to everyone, and to everyone (at most once a minute) when the relay of
+--    another guild asks for it (RQ). Only relays ask, when they have no whole roster of that guild or it is
+--    older than FRESH_FOR.
 --  * Packets have low priority (chat goes first).
 --  * Everyone keeps the last known roster in JagodkiRosterDB.
 -- ============================================================================
@@ -28,15 +29,13 @@ local table, math, wipe = _G.table, _G.math, _G.wipe
 local Most = addonTable.Most
 local Enc, Dec = Most.EncodeField, Most.DecodeField
 
-local MAX_ADDON_BYTES = 225
-local FULL_INTERVAL = 1800   -- full roster every 30 min
-local FULL_COOLDOWN = 60     -- at most once per minute, to everyone and to each player
-local BROADCAST_FROM = 3     -- this many requests at once are answered once to everyone instead of by whispers
-local WHISPER_QUEUE_LIMIT = 60 -- with this many low-priority packets waiting we do not add a whispered roster; the player asks again
+local MAX_ADDON_BYTES = 205  -- below the 255-byte limit with room for the relay's "FW:First Surname:" header
+local FULL_INTERVAL = 3600   -- full roster every 60 min (changes go as deltas in between); a big guild's is 100+ parts
+local FULL_COOLDOWN = 60     -- a full roster at most once per minute
+local ASK_COOLDOWN = 300     -- the relay asks for the same guild's roster at most this often (s)
 local RETRY_AFTER = 70       -- after this many seconds we ask again for a roster that did not arrive whole (> FULL_COOLDOWN)
 local MAX_RETRIES = 2        -- how many times we ask again
 local STILL_ARRIVING = 20    -- a roster with a part newer than this many seconds is still on its way
-local STALE_AFTER = 600      -- after login we request the roster of a guild whose data is > 10 min old
 local READY_DELAY = 65       -- after login we wait until we know the others (otherwise everyone thinks they are the sender);
                              -- only the relay answers a PING, the rest is known from their regular status packet (every 60 s)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
@@ -53,6 +52,10 @@ function Roster.Init(c) ctx = c end
 local rosters = {}
 local readyAt = math.huge
 local lastFull, lastFullSlot, lastSent = 0, nil, {}
+-- When a guildmate last started sending our guild's full roster: the senders' views of who is online can
+-- differ for a moment, and two of them sent the same 100+ part roster at once
+local lastOwnFullAt = -math.huge
+local OWN_FULL_WAIT = 15     -- the sender waits a random 0..this many seconds and skips if someone else started
 local incoming = {} -- guild -> { id, got = { [idx] = true }, count, total, complete }
 
 local function MyGuild() return (GetGuildInfo("player")) end
@@ -203,23 +206,14 @@ local function SendFull(target)
     end
 end
 
--- Requests for our guild's full roster, answered together after a short delay
-local requesters, requestsPending, whisperedFullAt = {}, false, {}
+-- Requests for our guild's full roster, answered together after a short delay, always to everyone: the
+-- requests come from the relays of other guilds, and one roster sent to everyone reaches their whole guild
+-- (whispered rosters reached only the asker, so everyone in that guild kept asking)
+local requestsPending = false
 
 local function AnswerRequests()
-    local names, count = requesters, 0
-    requesters, requestsPending = {}, false
-    if not IsSender() then return end
-    for _ in pairs(names) do count = count + 1 end
-    if count >= BROADCAST_FROM and GetTime() - lastFull > FULL_COOLDOWN then SendFull() return end
-    for name in pairs(names) do
-        if Most.GetLowQueueSize() >= WHISPER_QUEUE_LIMIT then
-            if addonTable.Monitor then addonTable.Monitor.Note("Queue busy, roster for " .. name .. " not sent, they will ask again") end
-        elseif GetTime() - (whisperedFullAt[name] or -FULL_COOLDOWN) >= FULL_COOLDOWN then
-            whisperedFullAt[name] = GetTime()
-            SendFull(name)
-        end
-    end
+    requestsPending = false
+    if IsSender() and GetTime() - lastFull > FULL_COOLDOWN and GetTime() - lastOwnFullAt > FULL_COOLDOWN then SendFull() end
 end
 
 -- EVERYONE computes changes since the previous check (everyone sees the same roster), only the
@@ -261,7 +255,12 @@ local function Tick()
     local isSender = IsSender()
     if fullSlot ~= lastFullSlot then
         lastFullSlot = fullSlot
-        if isSender and GetTime() - lastFull > FULL_COOLDOWN then SendFull() return end
+        if isSender and GetTime() - lastFull > FULL_COOLDOWN then
+            C_Timer.After(math.random(0, OWN_FULL_WAIT), function()
+                if GetTime() - lastOwnFullAt > FULL_COOLDOWN and GetTime() - lastFull > FULL_COOLDOWN then SendFull() end
+            end)
+            return
+        end
     end
     SendDelta(isSender)
 end
@@ -294,7 +293,7 @@ RetryRequests = function()
     if #list > 0 and retries >= MAX_RETRIES then
         for _, guild in ipairs(list) do asked[guild] = nil end
         if addonTable.Monitor then addonTable.Monitor.Note("Roster not received after " .. MAX_RETRIES .. " retries: " .. table.concat(list, ", ")) end
-    elseif #list > 0 then
+    elseif #list > 0 and Most.IsRelay() then
         retries = retries + 1
         for i, guild in ipairs(list) do list[i] = Enc(guild) end
         Most.Send("RQ", table.concat(list, ","), "low")
@@ -303,13 +302,20 @@ RetryRequests = function()
     if waiting then ScheduleRetry() end
 end
 
--- After login: request rosters of guilds we have no fresh data for
+-- Requests rosters of linked guilds we have no fresh data for. Only the relay asks: the answer goes to
+-- everyone, so the whole guild gets it (with hundreds of players everyone asking flooded both relays).
+-- Called after login and from Tick, at most every ASK_COOLDOWN per guild.
+local lastAskedAt = {}
 local function RequestStale()
-    if not ctx then return end
+    if not ctx or not Most.IsRelay() then return end
     local now, list = GetServerTime(), {}
     for guild in pairs(ctx.allowedGuilds) do
         local g = rosters[guild]
-        if guild ~= MyGuild() and (not g or now - (g.updated or 0) > STALE_AFTER) then
+        -- No whole roster yet, or the last whole one is older than a full interval: changes alone (RD) also
+        -- make "updated" fresh, but they never add the members that did not change
+        if guild ~= MyGuild() and (not g or not g.fullAt or now - g.fullAt > FRESH_FOR) and Most.GetRelayName(guild)
+            and now - (lastAskedAt[guild] or 0) >= ASK_COOLDOWN then
+            lastAskedAt[guild] = now
             table.insert(list, Enc(guild))
             asked[guild] = asked[guild] or now
         end
@@ -356,6 +362,8 @@ function Roster.HandlePacket(pType, payload, senderName)
         local gEnc, snap, idx, total, complete, ranks, list = strsplit(":", payload, 7)
         local guild = Dec(gEnc)
         idx, total = tonumber(idx), tonumber(total)
+        -- Our own guild's roster from a guildmate: we have it from the game, we only note that one is on its way
+        if guild == MyGuild() and senderName ~= Most.MyName() then lastOwnFullAt = GetTime() return true end
         if not idx or not total or not list or not AcceptFrom(senderName, guild) then return true end
         local g = rosters[guild] or { members = {}, ranks = {} }
         rosters[guild] = g
@@ -409,7 +417,6 @@ function Roster.HandlePacket(pType, payload, senderName)
             for gEnc in payload:gmatch("[^,]+") do
                 if Dec(gEnc) == MyGuild() then
                     -- A short delay collects requests made at the same moment
-                    requesters[senderName] = true
                     if not requestsPending then
                         requestsPending = true
                         C_Timer.After(3, AnswerRequests)
@@ -556,8 +563,10 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         end
     elseif event == "PLAYER_LOGIN" then
         readyAt = GetTime() + READY_DELAY
-        -- core.lua sends the roster request (EventSync.LoginSync)
+        -- core.lua sends the roster request after login (EventSync.LoginSync); the relay also asks every
+        -- minute for linked guilds whose roster is missing or old (RequestStale keeps its own cooldown)
         C_Timer.NewTicker(20, Tick)
+        C_Timer.NewTicker(60, RequestStale)
     elseif event == "GUILD_ROSTER_UPDATE" then
         -- Blizzard can fire this event many times in a row, so we recompute once per 2 s.
         -- Events from our own "show offline" switch (ReadGameRoster) are skipped.

@@ -208,7 +208,8 @@ local function SendEntries(requester, entries, priority)
     Flush()
 end
 
-local function AnswerRequest(requester, since)
+-- What we know newer than "since" (PREQ)
+local function EntriesSince(requester, since)
     local entries = {}
     for name, data in pairs(known) do
         if name ~= requester and (data.ts or 0) > since then table.insert(entries, { name = name, ts = data.ts, p = data.p }) end
@@ -216,7 +217,7 @@ local function AnswerRequest(requester, since)
     -- The newest first, at most SYNC_MAX_ENTRIES, so a fresh install does not keep the queue busy for long
     table.sort(entries, function(a, b) return a.ts > b.ts end)
     while #entries > SYNC_MAX_ENTRIES do table.remove(entries) end
-    SendEntries(requester, entries, "low")
+    return entries
 end
 
 -- Members tab: the players on the shown page whose professions we do not have (core.lua). Each player is
@@ -248,13 +249,14 @@ function Professions.RequestNames(names)
     Flush()
 end
 
-local function AnswerNames(requester, list)
+-- What we know about the asked players (PREQN)
+local function EntriesFor(requester, list)
     local entries = {}
     for name in list:gmatch("[^;]+") do
         local data = known[name]
         if data and name ~= requester then table.insert(entries, { name = name, ts = data.ts or 0, p = data.p }) end
     end
-    SendEntries(requester, entries, "high")
+    return entries
 end
 
 -- Asks the guild; without an answer within SYNC_RETRY_AFTER (the answering player logged out, a lost
@@ -278,20 +280,25 @@ function Professions.HandlePacket(pType, payload, senderName)
         if ctx.onChanged then ctx.onChanged() end
         return true
     elseif pType == "PREQ" then
-        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+        -- Only a few random guildmates try (Most.ShouldAnswer), and only with something to send
+        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) or not Most.ShouldAnswer() then return true end
+        local entries = EntriesSince(senderName, tonumber(payload) or 0)
+        if #entries == 0 then return true end
         pendingRequests[senderName] = true
         -- Random delay: one guildmate answers, the others see PCLAIM and give up
         C_Timer.After(0.5 + math.random() * 2.5, function()
             if not pendingRequests[senderName] then return end
             pendingRequests[senderName] = nil
             Most.Send("PCLAIM", senderName, "low")
-            AnswerRequest(senderName, tonumber(payload) or 0)
+            SendEntries(senderName, entries, "low")
         end)
         return true
     elseif pType == "PREQN" then
-        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
+        if senderName == Most.MyName() or not IsAllowedPlayer(senderName) or not Most.ShouldAnswer() then return true end
         local id, list = payload:match("^([%d%.]+):(.+)$")
         if not id then return true end
+        local entries = EntriesFor(senderName, list)
+        if #entries == 0 then return true end
         local key = senderName .. "#" .. id
         pendingRequests[key] = true
         -- A short random delay: the one who answers first sends PCLAIM, the others give up
@@ -299,7 +306,7 @@ function Professions.HandlePacket(pType, payload, senderName)
             if not pendingRequests[key] then return end
             pendingRequests[key] = nil
             Most.Send("PCLAIM", key, "high")
-            AnswerNames(senderName, list)
+            SendEntries(senderName, entries, "high")
         end)
         return true
     elseif pType == "PCLAIM" then

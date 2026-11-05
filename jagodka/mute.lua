@@ -197,6 +197,8 @@ function Mute.Request()
 end
 
 local function HandleRequest(sender, rawSender, since)
+    -- Only a few random guildmates try to answer (bridge.lua, Most.ShouldAnswer)
+    if not Most.ShouldAnswer() then return end
     since = tonumber(since) or 0
     local list = {}
     for name, m in pairs(mutes) do

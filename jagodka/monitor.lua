@@ -230,6 +230,9 @@ function Monitor.RX(text, channel, sender, deliverer, delivery)
         elseif delivery == "WHISPER" then route = "relay " .. deliverer .. " -> me |cff808080(from " .. tostring(sender) .. ")|r"
         else route = "repost by " .. deliverer .. " |cff808080(from " .. tostring(sender) .. ")|r" end
     end
+    -- Guildmates' regular online signals are only counted: with hundreds online they were almost half of
+    -- the log (one line per player per minute) and pushed everything else out of the saved log
+    if pType == "PONG" and not deliverer then return end
     Add(cat, false, "|cff66ff99RX|r " .. route .. ": " .. label .. SafeDetail(pType, payload) .. " |cff808080" .. #text .. " B|r", deliverer ~= nil)
 end
 

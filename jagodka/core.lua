@@ -83,6 +83,8 @@ local MainFrame = CreateFrame("Frame", "JagodkiNadinaMainFrame", UIParent, "Back
 MainFrame:SetSize(850, 620)
 MainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 MainFrame:Hide()
+-- Esc closes the window, like the game's own windows (the first Esc only leaves a focused input)
+table.insert(_G.UISpecialFrames, "JagodkiNadinaMainFrame")
 
 MainFrame:EnableMouse(true)
 MainFrame:SetMovable(true)
@@ -565,7 +567,7 @@ for name, role in pairs(ev.roster or {}) do
 local spec = ev.specs and ev.specs[name]
 local signedAt = ev.signTime and ev.signTime[name]
 local entry = name .. "=" .. role .. (spec and ("/" .. spec) or "") .. ";" .. (signedAt or 0) .. ";" .. ((ev.leaders and ev.leaders[name]) and "1" or "0")
-if chunk ~= "" and #header + #chunk + 1 + #entry > 215 then
+if chunk ~= "" and #header + #chunk + 1 + #entry > 195 then
 Out(header .. chunk)
 chunk = ""
 end
@@ -580,7 +582,8 @@ SendJagodkaNetworkPacket("EV_REQ", "ZAPYTANIE")
 addonTable.Sync.Start("events")
 end
 function EventSync.HandleRequest(requester)
-if #eventsList == 0 and not next(EventSync.Removed()) then return end
+-- Only a few random guildmates try to answer (bridge.lua, Most.ShouldAnswer)
+if (#eventsList == 0 and not next(EventSync.Removed())) or not Most.ShouldAnswer() then return end
 EventSync.pending[requester] = true
 C_Timer.After(0.5 + math.random() * 2, function()
 if not EventSync.pending[requester] then return end

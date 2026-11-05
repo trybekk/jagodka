@@ -44,11 +44,11 @@ local COMM_PASSWORD = "jgdk7Wsp0lnota"
 local ONLINE_TIMEOUT = 150            -- seconds without a signal after which a player is offline
 local MAX_LOG = 300                   -- how many messages we keep (memory + SavedVariables)
 local HISTORY_SYNC_MAX = 30           -- how many of the latest messages we send to a new player
-local MAX_ADDON_BYTES = 225           -- addon packet limit is 255 bytes, this leaves room for the "FW:name:" header
-local DISCOVER_INTERVAL, HELLO_RETRY = 30, 120 -- how often the relay reads the channel list and repeats a greeting (s)
+local MAX_ADDON_BYTES = 205           -- addon packet limit is 255 bytes, this leaves room for the "FW:First Surname:" header
+local DISCOVER_INTERVAL, HELLO_RETRY = 30, 600 -- how often the relay reads the channel list and repeats a greeting (s)
 local CHANNEL_MEMBER_TTL = 70         -- seconds a name stays on our channel list without being seen again (lists are read every 30 s)
 local RELAY_READY_DELAY = 5           -- after login we wait for answers from others before treating ourselves as relay
-local MAX_GREETINGS = 5               -- greetings per read of the channel list, so a fresh install does not whisper everyone at once
+local MAX_GREETINGS = 5               -- greetings per read of the channel list (1 once linked), so a fresh install does not whisper everyone at once
 local RELAY_CHECK_INTERVAL = 5        -- how often we check whether we just became the relay (s)
 
 local Most = {}
@@ -673,7 +673,21 @@ function Most.RequestHistory()
     addonTable.Sync.Start("history") -- sync bar (sync.lua)
 end
 
+-- Sync requests answered by "one guildmate" (history, events, mutes, professions): with hundreds online,
+-- everyone scheduling an answer sent dozens of claims (and answers) before the first claim arrived. Now only
+-- about ANSWERERS of the guild's online players with the addon try at all, picked at random each time.
+local ANSWERERS = 4
+function Most.ShouldAnswer()
+    if not ctx then return false end
+    local n, myGuild = 0, MyGuild()
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild == myGuild then n = n + 1 end
+    end
+    return n <= ANSWERERS or math.random() < ANSWERERS / n
+end
+
 local function HandleHistoryRequest(sender, rawSender, since)
+    if not Most.ShouldAnswer() then return end
     since = tonumber(since) or 0
     local list = {}
     for _, e in ipairs(chatLog) do
@@ -797,6 +811,13 @@ end
 
 -- Called for every packet before it is handled. Returns the content, channel kind and real
 -- sender, or nil when the packet should not be handled.
+-- Packet types the relay does not pass on to other guilds, except its own (Route)
+local OWN_GUILD_ONLY = {
+    PING = true, PONG = true, KREQ = true,
+    HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true,
+    PREQ = true, PREQN = true, PCLAIM = true,
+}
+
 function Most.Route(text, channel, senderName)
     local pType, rest = strsplit(":", text, 2)
     if pType ~= "FW" then
@@ -806,8 +827,9 @@ function Most.Route(text, channel, senderName)
         -- and only need the relay's own status, to know whom to send to.
         -- A request for the chat channel key (KREQ, key.lua) is answered by our relay, so it stays in the guild,
         -- except the relay's own (then nobody else from the guild is there to answer).
-        -- The same for the professions request after login (PREQ, PCLAIM, professions.lua).
-        local isOwnOnly = pType == "PING" or pType == "PONG" or pType == "KREQ" or pType == "PREQ" or pType == "PREQN" or pType == "PCLAIM"
+        -- The same for the sync requests after login and their claims (history, events, mutes, professions):
+        -- every guild has the same data, so the own guild answers.
+        local isOwnOnly = OWN_GUILD_ONLY[pType]
         if channel == "GUILD" and Most.IsRelay() and (not isOwnOnly or senderName == MyName()) then ForwardToOtherGuilds(senderName, text) end
         -- Our own echo was already logged when sent
         if senderName ~= MyName() and addonTable.Monitor then addonTable.Monitor.RX(text, channel, senderName) end
@@ -892,13 +914,17 @@ end
 local function HandleChannelList(list, isKeyChannel)
     if not ctx then return end
     local now, isRelay, greeted = GetTime(), Most.IsRelay(), 0
+    -- Already linked with another guild: one greeting per read is enough to find a guild that is still missing
+    -- (without the other guild's roster every one of its players looks unknown, and each greeting is reposted
+    -- to that whole guild)
+    local maxGreetings = Most.HasLinkedGuilds() and 1 or MAX_GREETINGS
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
         local name = Most.PlayerKey((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
         if name ~= "" then channelMembers[name] = now end
         if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
-        if isRelay and greeted < MAX_GREETINGS and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
+        if isRelay and greeted < maxGreetings and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello and not IsLinked(name) then
             helloAt[name] = now
             greeted = greeted + 1

@@ -756,3 +756,21 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 
 **Limitations:**
 - Until an officer confirms it, a member's key could be replaced by a member with a modified addon (by backdating a key); the next officer online ends that. Players on 0.13.5 and older accept only officers' keys, so they join a member's key only once an officer confirms it.
+
+# 0.13.7 – less traffic with hundreds of players (from the first big log)
+
+The first 1.5 h log with about 900 players online (240 with the addon in one guild) showed no errors and empty queues, but most of the traffic was repeated requests and claims, and the full roster of the second guild never arrived. Changes:
+
+- **Fewer answerers:** a sync request (chat history, events, mutes, professions) was answered by whoever's random delay ran out first, and with hundreds online dozens answered before the first claim arrived: 13 claims per history request, 21 per professions request, and the history was sent many times. Now only about 4 random guildmates with the addon try (`Most.ShouldAnswer`), and only when they have something to send.
+- **Sync requests stay in the guild:** history, events and mutes are the same in every guild, so `HREQ`, `EV_REQ`, `MREQ` and their claims are no longer passed on to other guilds (only a relay's own request is, for a guild with nobody else online), like the professions requests.
+- **Rosters of other guilds:** only the relay asks for them (when it has no whole roster of that guild or the last one is older than 65 minutes, at most every 5 minutes per guild, also checked every minute), and the answer always goes to everyone, so the whole guild gets it. Before, every player asked at login and with retries (over 1000 requests in 1.5 h, 2182 in the next 1.5 h), and the rosters were whispered to single players. Small changes alone (RD) no longer make a roster that never arrived whole look fresh, which is why the second guild's roster was never asked for again.
+- **One full roster at a time:** a full roster of a big guild is 100+ parts, now sent every 60 minutes (was 30; changes go as deltas in between). The sender waits a random 0–15 s and skips when a guildmate already started sending it; the log showed two senders sending the same roster at once.
+- **Smaller saved log:** guildmates' regular online signals are only counted in Monitoring, no longer written one line each (they were almost half of the log, about 270 lines a minute).
+- **Fewer greetings:** once linked with another guild, a relay greets at most one unknown player per read of the channel list (was 5), and greets the same player again after 10 minutes (was 2). The second guild's relay had greeted the first guild's players 871 times in 1.5 h, each greeting reposted to the whole guild.
+- **Update window:** no link field any more; it says a new version is available on CurseForge (update it in the CurseForge app), and plays the game's raid warning sound twice when it appears, so it is not missed.
+- **Esc closes the addon window** (players' request), like the game's own windows. With the chat input focused, the first Esc only leaves the input.
+- **Packet size with surnames:** rosters, chat parts and sign-up lists leave room for a relay's header with a long "First Surname" (packets up to 205 bytes instead of 225), so a forwarded packet cannot exceed the game's 255-byte limit.
+
+**Limitations:**
+- A player on a fresh install gets other guilds' rosters when their relay asks or with the next full roster (up to 30 minutes).
+- Older versions still ask and answer as before until they update.
