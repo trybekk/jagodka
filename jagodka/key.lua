@@ -63,7 +63,7 @@ local loginAt = math.huge
 local KeylessCheck       -- defined below, run every minute
 local KeepPending        -- defined below, used when a key from an unknown officer arrives
 
-local function MyName() return UnitName("player") end
+local function MyName() return Most.MyName() end
 local function Monitor() return addonTable.Monitor end
 
 -- ============================================================================

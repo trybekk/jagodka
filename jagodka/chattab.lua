@@ -131,7 +131,7 @@ end
 
 -- Returns false when the text should stay in the input (guild not known yet)
 local function SendFromTab(def, text)
-    local me, guild = _G.UnitName("player"), Most.MyGuild()
+    local me, guild = Most.MyName(), Most.MyGuild()
     if addonTable.Mute.IsMuted(me) then
         def.frame:AddMessage("|cffff5555[System]: You are muted on the community chat - message not sent.|r")
     elseif Most.IsGuildAllowed(guild) then

@@ -65,10 +65,8 @@ local CLASS_CODE = { WARRIOR = "W", PALADIN = "P", HUNTER = "H", ROGUE = "R", PR
 local CODE_CLASS = {}
 for k, v in pairs(CLASS_CODE) do CODE_CLASS[v] = k end
 
--- The full name with the surname (m.n) goes in the entry, so other guilds can show it too; the receiver
--- keys the entry by the base name (Most.BaseName)
 local function EncodeEntry(name, m)
-    return (m.n or name) .. "," .. (CLASS_CODE[m.c] or "X") .. (m.l or 1) .. math.min(math.max(m.r or 9, 0), 9) .. (m.o and "+" or "-")
+    return name .. "," .. (CLASS_CODE[m.c] or "X") .. (m.l or 1) .. math.min(math.max(m.r or 9, 0), 9) .. (m.o and "+" or "-")
 end
 
 local function DecodeEntry(s)
@@ -108,11 +106,9 @@ local function RefreshLocal()
     for i = 1, n do
         local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
         if fullName then
-            -- z = location: own guild only, not part of the entries sent to other guilds
-            -- Keyed by the base name; n = the full name with the surname, when the client gives one
-            local base, full = Most.BaseName(fullName), Ambiguate(fullName, "none")
-            members[base] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone, n = (full ~= base) and full or nil }
-            Most.RememberFullName(fullName)
+            -- z = location: own guild only, not part of the entries sent to other guilds.
+            -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
+            members[Most.PlayerKey(fullName)] = { c = classFile, l = level, r = rankIndex, o = isOnline and true or false, z = zone }
         end
     end
     local ranks = {}
@@ -129,7 +125,7 @@ local function IsSender()
     local guild = MyGuild()
     local g = guild and rosters[guild]
     if not g or not ctx then return false end
-    local myName, now = UnitName("player"), GetTime()
+    local myName, now = Most.MyName(), GetTime()
     local candidates = { myName }
     for _, p in ipairs(ctx.activePlayers) do
         local m = g.members[p.name]
@@ -313,18 +309,12 @@ local function Upsert(g, list, snap)
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
         if flag then
             -- Status change only (the next full roster adds an unknown player)
-            local m = g.members[Most.BaseName(statusName)]
+            local m = g.members[Most.PlayerKey(statusName)]
             if m then m.o = (flag == "+") end
         else
-            -- Keyed by the base name (Most.BaseName); the full name with the surname is kept for display
+            -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
             local name, m = DecodeEntry(e)
-            if name then
-                local base = Most.BaseName(name)
-                if name ~= base then m.n = name end
-                Most.RememberFullName(name)
-                m.s = snap
-                g.members[base] = m
-            end
+            if name then m.s = snap g.members[Most.PlayerKey(name)] = m end
         end
     end
 end
@@ -378,7 +368,7 @@ function Roster.HandlePacket(pType, payload, senderName)
         Changed()
         return true
     elseif pType == "RQ" then
-        if senderName ~= UnitName("player") and GetTime() >= readyAt and IsSender() then
+        if senderName ~= Most.MyName() and GetTime() >= readyAt and IsSender() then
             for gEnc in payload:gmatch("[^,]+") do
                 if Dec(gEnc) == MyGuild() then
                     -- A short delay collects requests made at the same moment
@@ -517,15 +507,13 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         if arg1 ~= addonName then return end
         _G.JagodkiRosterDB = _G.JagodkiRosterDB or {}
         rosters = _G.JagodkiRosterDB
-        -- Rosters saved by 0.13.1 and older can be keyed by names with a surname ("Marianek Jagoda"):
-        -- keyed by the base name now, the full name kept for display
+        -- Rosters saved by the test build of 0.13.2 were keyed by the first name only, with the full name in n:
+        -- back to the full name, the key used everywhere now
         for _, g in pairs(rosters) do
             local fixed = {}
             for name, m in pairs(g.members or {}) do
-                local base = Most.BaseName(name)
-                if name ~= base then m.n = m.n or name end
-                if m.n then Most.RememberFullName(m.n) end
-                fixed[base] = m
+                fixed[m.n or name] = m
+                m.n = nil
             end
             g.members = fixed
         end

@@ -44,7 +44,7 @@ function Mute.Init(c) ctx = c end
 
 local mutes = {} -- replaced with JagodkiChatDB.mutes after the addon loads
 
-local function MyName() return UnitName("player") end
+local function MyName() return Most.MyName() end
 
 function Mute.IsMuted(name)
     local m = name and mutes[name]
@@ -296,14 +296,14 @@ _G.UIDropDownMenu_Initialize(NameMenu, function(self, level)
     _G.UIDropDownMenu_AddButton(info, level)
     info = _G.UIDropDownMenu_CreateInfo()
     info.text, info.notCheckable = "Whisper", true
-    info.func = function() _G.ChatFrame_SendTell(target) end
+    info.func = function() _G.ChatFrame_SendTell(Most.GameName(target)) end
     _G.UIDropDownMenu_AddButton(info, level)
     info = _G.UIDropDownMenu_CreateInfo()
     info.text, info.notCheckable = "Invite to group", true
     -- Newer clients have C_PartyInfo.InviteUnit, older only InviteUnit (as in the Members menu)
     info.func = function()
         local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
-        if invite then invite(target) end
+        if invite then invite(Most.GameName(target)) end
     end
     _G.UIDropDownMenu_AddButton(info, level)
     if (muted and Mute.CanUnmute(me)) or (not muted and Mute.CanMute(me, target)) then
@@ -331,13 +331,14 @@ function Mute.AttachChat(frame)
             if _G.SetItemRef then _G.SetItemRef(link, text, button, self) end
             return
         end
-        local name = strsplit(":", rest or "")
+        -- The link has the game's form of the name ("Marianek-Jagoda"), the addon uses the player key
+        local name = Most.PlayerKey((strsplit(":", rest or "")))
         if not name or name == "" or name == MyName() then return end
         if button == "RightButton" then
             menuName = name
             _G.ToggleDropDownMenu(1, nil, NameMenu, "cursor", 0, 0)
         else
-            _G.ChatFrame_SendTell(name)
+            _G.ChatFrame_SendTell(Most.GameName(name))
         end
     end)
 end
@@ -348,7 +349,7 @@ if _G.Menu and _G.Menu.ModifyMenu then
     _G.Menu.ModifyMenu("MENU_UNIT_FRIEND", function(owner, rootDescription, contextData)
         local name = contextData and contextData.name
         if not name then return end
-        name = Most.BaseName(name)
+        name = Most.PlayerKey(name)
         -- Only in our tabs (when the game does not give the chat window, we show it everywhere, still officers only)
         if contextData.chatFrame and not addonTable.Zakladka.IsOurFrame(contextData.chatFrame) then return end
         local me, muted = MyName(), Mute.IsMuted(name)

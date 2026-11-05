@@ -287,7 +287,7 @@ local function SendStatusPacket(msgType, target)
     -- The rank index lets others check officer permissions (creating/removing events)
     local payload = UnitLevel("player") .. ":" .. select(2, UnitClass("player")) .. ":" .. guildName .. ":" .. rankName .. ":" .. ADDON_VERSION .. ":" .. (rankIndex or -1) .. ":" .. EncodeField(_G.GetRealZoneText())
     if target and msgType == "PING" then
-        Most.Whisper(target, "FW", UnitName("player") .. ":" .. msgType .. ":" .. payload, "high")
+        Most.Whisper(target, "FW", Most.MyName() .. ":" .. msgType .. ":" .. payload, "high")
     elseif target then
         Most.Whisper(target, msgType, payload, "high")
     else
@@ -436,7 +436,7 @@ end
 -- never by the rank they send about themselves. Not in a known roster = not an officer.
 -- guild (optional): the player's guild, when known.
 local function IsKnownOfficer(name, guild)
-if name == UnitName("player") then return IsPlayerOfficer() end
+if name == Most.MyName() then return IsPlayerOfficer() end
 local rankName, rankIndex = Roster.GetRank(name, guild)
 return rankIndex ~= nil and IsRankOfficer(rankName, rankIndex)
 end
@@ -598,7 +598,7 @@ end
 end)
 end
 local function AddMyselfToActiveList()
-local myName = UnitName("player")
+local myName = Most.MyName()
 local level = UnitLevel("player")
 local _, classFilename = UnitClass("player")
 local guildName, rankName, rankIndex = GetGuildInfo("player")
@@ -731,11 +731,11 @@ local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
 if msg and msg ~= "" then
 local guildName = Most.MyGuild()
-if Mute.IsMuted(UnitName("player")) then
-chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(UnitName("player"))) .. ") - message not sent.|r")
+if Mute.IsMuted(Most.MyName()) then
+chatDisplay:AddMessage("|cffff5555[System]: You are muted on the community chat (by " .. tostring(Mute.MutedBy(Most.MyName())) .. ") - message not sent.|r")
 elseif IsPlayerGuildAllowed(guildName) then
 -- On the global channel (or over GUILD and relays when the channel is not available)
-Most.PublishTyped(currentChatTab, msg, UnitName("player"), guildName)
+Most.PublishTyped(currentChatTab, msg, Most.MyName(), guildName)
 elseif not guildName and IsInGuild() then
 chatDisplay:AddMessage("|cffff5555[System]: Guild info not loaded yet - try again in a moment (message kept).|r")
 return
@@ -940,7 +940,7 @@ info.text = menuMember.online and "Whisper" or "Whisper (offline)"
 info.disabled = not menuMember.online
 info.notCheckable = true
 local target = menuMember.name
-info.func = function() _G.ChatFrame_SendTell(target) end
+info.func = function() _G.ChatFrame_SendTell(Most.GameName(target)) end
 _G.UIDropDownMenu_AddButton(info, level)
 info = _G.UIDropDownMenu_CreateInfo()
 info.text = menuMember.online and "Invite to group" or "Invite to group (offline)"
@@ -949,7 +949,7 @@ info.notCheckable = true
 -- Newer clients have C_PartyInfo.InviteUnit, older only InviteUnit
 info.func = function()
 local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
-if invite then invite(target) end
+if invite then invite(Most.GameName(target)) end
 end
 _G.UIDropDownMenu_AddButton(info, level)
 -- Event sign-up list: an officer can remove the player from that event
@@ -961,7 +961,7 @@ info.func = function() EventSync.Kick(event, target) end
 _G.UIDropDownMenu_AddButton(info, level)
 end
 -- Mute / Unmute as in the chat menu (permissions: mute.lua)
-local muted, me = Mute.IsMuted(target), UnitName("player")
+local muted, me = Mute.IsMuted(target), Most.MyName()
 if (muted and Mute.CanUnmute(me)) or (not muted and Mute.CanMute(me, target)) then
 info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.notCheckable = muted and "Unmute" or "Mute on community chat", true
@@ -981,12 +981,12 @@ end
 -- Shared with the "Online players" panel (the row has a member field from Roster.BuildList)
 membersView.OnRowClick = function(self, button)
 local m = self.member
-if not m or m.name == UnitName("player") then return end
+if not m or m.name == Most.MyName() then return end
 if button == "RightButton" then
 menuMember = m
 _G.ToggleDropDownMenu(1, nil, MemberMenu, "cursor", 0, 0)
 elseif button == "LeftButton" and _G.IsShiftKeyDown() and m.online then
-_G.ChatFrame_SendTell(m.name)
+_G.ChatFrame_SendTell(Most.GameName(m.name))
 end
 end
 for _, row in ipairs(tableRows) do
@@ -1043,7 +1043,7 @@ local function Fit(key, text, extra)
 widths[key] = math.max(widths[key], TextWidth(text) + (extra or 0))
 end
 for _, p in ipairs(filteredPlayers) do
-Fit("name", p.name, 15) -- room for the mute icon
+Fit("name", p.name, 25) -- room for the mute icon, plus 10 px so a long name does not touch the next column
 Fit("level", tostring(p.level or ""))
 Fit("class", LOCALIZED_CLASS_NAMES_MALE[p.class] or p.class or "Unknown", 18) -- room for the class icon
 Fit("location", p.location or "-")
@@ -1101,8 +1101,7 @@ if i <= visible and dataIndex <= count then
 local data = filteredPlayers[first + dataIndex]
 row.member = data
 local classColor = data.class and RAID_CLASS_COLORS[data.class]
-local shownName = Most.DisplayName(data.name)
-row.nameText:SetText(classColor and classColor:WrapTextInColorCode(shownName) or shownName)
+row.nameText:SetText(classColor and classColor:WrapTextInColorCode(data.name) or data.name)
 -- Mute icon after the name (tooltip with the reason), see mute.lua
 Mute.DecorateName(row, row.nameText, data.name)
 row.classText:SetText(classColor and classColor:WrapTextInColorCode(LOCALIZED_CLASS_NAMES_MALE[data.class] or data.class) or "Unknown")
@@ -1499,7 +1498,7 @@ TankCountText:SetText(t) HealCountText:SetText(h) DpsCountText:SetText(d) TotalC
 CounterFrame:Show() RosterContainer:Show() UpdateFilterVisuals()
 -- Sign-up buttons: all specs of my class, the one I chose in green
 local mySpecs = EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}
-local myName = UnitName("player")
+local myName = Most.MyName()
 local myCode = ev.roster[myName] and ev.specs and ev.specs[myName]
 for i, join in ipairs(EventSync.specButtons) do
 local spec = mySpecs[i]
@@ -1516,7 +1515,7 @@ if ev.roster[myName] then EventSync.leaderCheck:Enable() else EventSync.leaderCh
 EventSync.leaderCheck.label:SetAlpha(ev.roster[myName] and 1 or 0.45)
 if IsPlayerOfficer() then EditEventBtn:Show() else EditEventBtn:Hide() end
 EventSync.UpdateLockButtons()
-if CanRemoveEvent(ev, UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
+if CanRemoveEvent(ev, Most.MyName(), GetGuildInfo("player"), IsPlayerOfficer()) then RemoveEventBtn:Show() else RemoveEventBtn:Hide() end
 end
 -- Events table, in a block so its helpers do not stay in the file's local variable limit.
 -- Rows show a sorted copy; row.dataIndex is the event's place in eventsList, which sync and the calendar use.
@@ -1542,7 +1541,7 @@ if not ev then return end
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.isTitle, info.notCheckable = ev.title, true, true
 _G.UIDropDownMenu_AddButton(info, level)
-local myName = UnitName("player")
+local myName = Most.MyName()
 for _, spec in ipairs(EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}) do
 info = _G.UIDropDownMenu_CreateInfo()
 info.text = spec.name .. " (" .. spec.role .. ")"
@@ -1714,7 +1713,7 @@ local list = SortedEvents()
 local visible = ListContainer.visibleRows or 16
 _G.FauxScrollFrame_Update(eventScrollFrame, #list, visible, EV_ROW_HEIGHT)
 local offset = _G.FauxScrollFrame_GetOffset(eventScrollFrame)
-local myName = UnitName("player")
+local myName = Most.MyName()
 if #list == 0 then NoEventsText:Show() else NoEventsText:Hide() end
 for i = 1, MAX_EV_ROWS do
 local item = list[i + offset] local row = eventRows[i]
@@ -1962,7 +1961,7 @@ end
 SubmitBtn:SetScript("OnClick", function()
 local title, desc = TitleInput:GetText(), DescInput:GetText()
 local eDate, eTime = EventPicker.date or "", string.format("%02d:%02d", EventPicker.hour, EventPicker.minute)
-local myName, myGuild = UnitName("player"), GetGuildInfo("player")
+local myName, myGuild = Most.MyName(), GetGuildInfo("player")
 if not IsPlayerGuildAllowed(myGuild) or not IsPlayerOfficer() then ShowEventError("Officer rank required!") return end
 -- No name but an instance is selected: name = instance
 if title == "" and EventPicker.dungeon then title = EventPicker.dungeon end
@@ -2007,7 +2006,7 @@ BtnDps:SetScript("OnClick", function() SetRosterFilter("DPS") end)
 function EventSync.SignUp(ev, spec)
 if not ev or not spec then return end
 if not IsPlayerGuildAllowed(Most.MyGuild()) then ShowEventError("Your guild is not on the Community list!") return end
-local myName = UnitName("player")
+local myName = Most.MyName()
 ev.roster[myName] = spec.role
 ev.specs = ev.specs or {}
 ev.specs[myName] = spec.code
@@ -2019,11 +2018,11 @@ SendJagodkaNetworkPacket("EV_SPEC", EncodeField(ev.id) .. ":" .. spec.code)
 end
 -- Group invites for an event: officers and the event's raid leaders
 function EventSync.CanInvite(ev)
-return IsPlayerOfficer() or (ev and ev.leaders and ev.leaders[UnitName("player")] and true or false)
+return IsPlayerOfficer() or (ev and ev.leaders and ev.leaders[Most.MyName()] and true or false)
 end
 -- Your own raid leader mark; several people can have it
 function EventSync.SetLeader(ev, on)
-local myName = UnitName("player")
+local myName = Most.MyName()
 if not ev or not ev.roster[myName] then return end
 ev.leaders = ev.leaders or {}
 ev.leaders[myName] = on and true or nil
@@ -2039,7 +2038,7 @@ if not ev or not IsPlayerOfficer() or not ev.roster[name] then return end
 ev.kicks = ev.kicks or {}
 -- At least 1 s newer than the player's sign-up, so the removal wins even right after it
 local signedAt = (ev.signTime and ev.signTime[name]) or 0
-ev.kicks[name] = { ts = math.max(GetServerTime(), signedAt + 1), by = UnitName("player") }
+ev.kicks[name] = { ts = math.max(GetServerTime(), signedAt + 1), by = Most.MyName() }
 EventSync.ClearSign(ev, name)
 if selectedEventIndex and eventsList[selectedEventIndex] == ev then UpdateEventDetails() end
 UpdateEventsList()
@@ -2052,12 +2051,12 @@ end)
 RemoveEventBtn:SetScript("OnClick", function()
 if addonTable.Sync.Blocked() then return end
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
-if not CanRemoveEvent(eventsList[selectedEventIndex], UnitName("player"), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("You can only remove your own events (officers: any).") return end
+if not CanRemoveEvent(eventsList[selectedEventIndex], Most.MyName(), GetGuildInfo("player"), IsPlayerOfficer()) then ShowEventError("You can only remove your own events (officers: any).") return end
 local removedEv = eventsList[selectedEventIndex]
 SendJagodkaNetworkPacket("EV_REM", removedEv.id)
 EventSync.MarkRemoved(removedEv.id)
 -- Announcement as when creating: "Event removed by Name -> Title : Instance 05.11 20:00"
-local myName = UnitName("player")
+local myName = Most.MyName()
 Most.Publish("Ogolny", "Event removed by " .. myName .. " -> " .. removedEv.title .. " : " .. (removedEv.dungeon and (removedEv.dungeon .. " ") or "") .. removedEv.date .. " " .. removedEv.time, "A", myName, (GetGuildInfo("player")))
 table.remove(eventsList, selectedEventIndex) selectedEventIndex = nil UpdateEventDetails() UpdateEventsList()
 end)
@@ -2171,7 +2170,7 @@ end)
 end
 function DayPopup:Fill(list, label)
 self.title:SetText(label)
-local myName = UnitName("player")
+local myName = Most.MyName()
 for i, ev in ipairs(list) do
 local row = self.rows[i]
 if not row then
@@ -2227,16 +2226,16 @@ end
 local function Report(text) if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end end
 local function InviteName(name)
 local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
-if invite then invite(name) end
+if invite then invite(Most.GameName(name)) end
 end
 local function MakeRaid()
 local convert = (_G.C_PartyInfo and _G.C_PartyInfo.ConvertToRaid) or _G.ConvertToRaid
 if convert then convert() end
 end
-local function InGroup(name) return _G.UnitInParty(name) or _G.UnitInRaid(name) end
+local function InGroup(name) local n = Most.GameName(name) return _G.UnitInParty(n) or _G.UnitInRaid(n) end
 local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
 local function SignedUpOthers(ev)
-local n, me = 0, UnitName("player")
+local n, me = 0, Most.MyName()
 for name in pairs(ev.roster or {}) do if name ~= me then n = n + 1 end end
 return n
 end
@@ -2245,7 +2244,7 @@ if _G.IsInGroup() and not IsLeader() then Report("|cffff5555Only the group leade
 -- Who is online: the same list as in Members (players with the addon + guild rosters)
 local online = {}
 for _, p in ipairs(Roster.BuildList(false)) do online[p.name] = true end
-local me, toInvite, already, offline = UnitName("player"), {}, 0, 0
+local me, toInvite, already, offline = Most.MyName(), {}, 0, 0
 for name in pairs(ev.roster or {}) do
 if name ~= me then
 if InGroup(name) then already = already + 1
@@ -2415,7 +2414,7 @@ local first = (date("*t", time({ year = y, month = m, day = 1, hour = 12 })).wda
 local prevY, prevM = (m == 1) and (y - 1) or y, (m == 1) and 12 or (m - 1)
 local nextY, nextM = (m == 12) and (y + 1) or y, (m == 12) and 1 or (m + 1)
 local todayKey = today.year * 10000 + today.month * 100 + today.day
-local myName = UnitName("player")
+local myName = Most.MyName()
 for k, cell in ipairs(cells) do
 local d, cy, cm, inMonth = k - first, y, m, true
 if d < 1 then cy, cm, d, inMonth = prevY, prevM, DaysIn(prevY, prevM) + d, false
@@ -2513,9 +2512,9 @@ for i = 1, MAX_ROWS do
 local idx = i + offset local row = rows[i]
 row:SetPoint("RIGHT", RightPanel, "RIGHT", rightInset, 0)
 if i <= visible and idx <= #onlineList then
-local data = onlineList[idx] local displayName = Most.DisplayName(data.name)
+local data = onlineList[idx] local displayName = data.name
 row.member = data
-if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_COLORS[data.class]:WrapTextInColorCode(displayName) end
+if data.class and RAID_CLASS_COLORS[data.class] then displayName = RAID_CLASS_COLORS[data.class]:WrapTextInColorCode(data.name) end
 if data.guild and data.guild ~= "" and data.guild ~= "Brak" then displayName = displayName .. " |cffbf40ff(" .. data.guild .. ")|r" end
 row.nameText:SetText(displayName) row.levelText:SetText(data.level)
 if data.class and CLASS_ICON_TCOORDS[data.class] then
@@ -2607,7 +2606,7 @@ if n == 0 then return end
 wipe(myGuildRoster)
 for i = 1, n do
 local fullName, _, _, _, _, _, _, _, isOnline = _G.GetGuildRosterInfo(i)
-if fullName then myGuildRoster[Most.BaseName(fullName)] = isOnline and true or false end
+if fullName then myGuildRoster[Most.PlayerKey(fullName)] = isOnline and true or false end
 end
 myGuildRosterLoaded = true
 end
@@ -2619,7 +2618,7 @@ end)
 -- Warning about a different addon version (once per player and version), in the addon chat and regular chat
 local warnedVersions = {}
 local function CheckPlayerVersion(name, version)
-if name == UnitName("player") or warnedVersions[name] == (version or "?") then return end
+if name == Most.MyName() or warnedVersions[name] == (version or "?") then return end
 local cmp = CompareVersions(version or "0", ADDON_VERSION)
 if cmp == 0 then return end
 warnedVersions[name] = version or "?"
@@ -2635,7 +2634,7 @@ if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagod
 end
 -- Removes players who have not sent a signal for a long time (logged out), so the list = really online
 local function PruneOfflinePlayers()
-local now, myName = GetTime(), UnitName("player")
+local now, myName = GetTime(), Most.MyName()
 local changed = false
 local myGuild = GetGuildInfo("player")
 for i = #activePlayers, 1, -1 do
@@ -2690,11 +2689,11 @@ TryAnnounce()
 PruneOfflinePlayers()
 elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
 -- The bridge forwards the packet to other guilds and extracts the real sender from a forwarded one
-local senderName = Most.BaseName(sender)
+local senderName = Most.PlayerKey(sender)
 text, channel, senderName = Most.Route(text, channel, senderName)
 if not text then return end
 sender = senderName
-local myName = UnitName("player")
+local myName = Most.MyName()
 local pType, payload = strsplit(":", text, 2)
 if not pType or not payload then return end
 -- No formatting codes in data from others (chat: bridge.lua keeps valid links in it)

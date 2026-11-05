@@ -70,7 +70,7 @@ function Most.SetGuildmateOnlineCheck(fn) guildmateOnlineCheck = fn end
 
 local channelProblem = nil -- description of a global channel problem (foreign password / ban), shown in the status
 
-local function MyName() return UnitName("player") end
+local function MyName() return Most.MyName() end
 -- GetGuildInfo() can briefly return nil (after a loading screen, after joining a guild),
 -- so we remember the last known name; IsInGuild() makes sure it is not used after leaving the guild
 local lastGuildName = nil
@@ -92,27 +92,40 @@ function Most.EncodeField(s)
     return (tostring(s or ""):gsub("%%", "%%25"):gsub(":", "%%3A"):gsub("\n", "%%0A"))
 end
 
--- Player name as the addon uses it: without the realm, and without the surname some clients add after a
--- space (WoW Forever: "Marianek Jagoda" in chat events and the guild roster, "Marianek" from UnitName and
--- addon messages). Every name taken from the game goes through this, so one player is one name.
-function Most.BaseName(name)
-    if not name then return nil end
-    return (Ambiguate(name, "none"):match("^%S+")) or ""
+-- ============================================================================
+-- PLAYER NAMES
+-- ============================================================================
+-- On WoW Forever every character has a surname, and first names repeat: only "first name surname" is
+-- unique. The game keeps the surname where other clients keep the realm: UnitName("player") returns
+-- "Marianek", "Jagoda", senders can come as "Marianek-Jagoda", the guild roster and chat as
+-- "Marianek Jagoda". The addon identifies a character by "Marianek Jagoda" (one space) everywhere.
+-- On a client without surnames (Classic Era) the name stays as before: without the realm.
+-- Checked each time (cheap), because the player's data may not be ready while the addon loads
+local function HasSurnames()
+    local _, surname = UnitName("player")
+    return surname ~= nil and surname ~= ""
 end
 
--- Full names with the surname, for display only: base name -> "Marianek Jagoda". Learned from the guild
--- rosters (roster.lua) and channel messages; the addon still identifies players by the base name.
-local fullNames = {}
-function Most.RememberFullName(name)
-    if not name then return end
-    local full = Ambiguate(name, "none")
-    local base = full:match("^%S+")
-    if base and full ~= base then fullNames[base] = full end
+-- Every name taken from the game goes through this, so one character is one name
+function Most.PlayerKey(name)
+    if not name or name == "" then return name end
+    if not HasSurnames() then return Ambiguate(name, "none") end
+    -- "Name-Surname" (the realm place) and "Name Surname" give the same key
+    return (name:gsub("%-", " "):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
 end
 
--- Name to show: with the surname when known, otherwise as given
-function Most.DisplayName(name)
-    return name and fullNames[name] or name
+-- Name for the game's own functions (whisper, invite, group check, player links): "Marianek-Jagoda",
+-- the surname in the realm place, as the game gives it. Without surnames the name as it is.
+function Most.GameName(key)
+    if not key or not HasSurnames() then return key end
+    return (key:gsub(" ", "-"))
+end
+
+-- My own name in the same form ("Marianek Jagoda" on Forever)
+function Most.MyName()
+    local first, surname = UnitName("player")
+    if surname and surname ~= "" then return first .. " " .. surname end
+    return first
 end
 
 function Most.DecodeField(s)
@@ -233,8 +246,9 @@ local function IsThrottle(result) return result == false or result == 3 or resul
 -- Returns the API result and the channel kind (for diagnostics)
 local function SendRaw(item)
     if item.target then
-        whisperedAt[item.target] = GetTime()
-        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", item.target), "WHISPER"
+        -- Keyed by the base name ("player not found" check), sent to the full name
+        whisperedAt[Most.PlayerKey(item.target)] = GetTime()
+        return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", Most.GameName(Most.PlayerKey(item.target))), "WHISPER"
     end
     if IsInGuild() then
         return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
@@ -373,11 +387,10 @@ end
 local function AuthorLabel(name)
     local class, level = AuthorInfo(name)
     local color = class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class]
-    -- Shown with the surname when known; the link keeps the base name (whisper, menu)
-    local shown = Most.DisplayName(name)
-    local label = color and color:WrapTextInColorCode(shown) or shown
+    local label = color and color:WrapTextInColorCode(name) or name
     if level then label = "|cff808080[" .. level .. "]|r " .. label end
-    return "|Hplayer:" .. name .. "|h" .. label .. "|h"
+    -- The link carries the game's form of the name, so the game's own whisper works on it too
+    return "|Hplayer:" .. Most.GameName(name) .. "|h" .. label .. "|h"
 end
 
 -- "[JN] [60] Name: text"; addon window: "21:05 [JN] [60] Name: text" (showTime)
@@ -790,7 +803,7 @@ function Most.Route(text, channel, senderName)
     -- Our own packet reposted to GUILD: we already handled it when the whisper arrived
     if senderName == MyName() then return nil end
     local origin, inner = strsplit(":", rest or "", 2)
-    origin = Most.Plain(origin)
+    origin = Most.PlayerKey(Most.Plain(origin))
     if not origin or origin == "" or not inner or origin == MyName() then return nil end
     if channel == "WHISPER" then
         -- Only a known player from a listed guild may speak for others; anyone may speak for themselves (greeting)
@@ -868,7 +881,7 @@ local function HandleChannelList(list, isKeyChannel)
     local now, isRelay, greeted = GetTime(), Most.IsRelay(), 0
     for raw in tostring(list or ""):gmatch("[^,]+") do
         -- On the list the owner has "*" and a moderator "@"
-        local name = Most.BaseName((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
+        local name = Most.PlayerKey((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
         if name ~= "" then channelMembers[name] = now end
         if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
@@ -886,8 +899,7 @@ end
 -- (status packet or roster); the guild comes from there, not from the message
 local function HandleChannelMessage(text, playerName, lineID)
     if not ctx or not text or not playerName then return end
-    local author = Most.BaseName(playerName)
-    Most.RememberFullName(playerName)
+    local author = Most.PlayerKey(playerName)
     if author == MyName() then OwnEchoArrived() end
     local p = Most.FindKnownPlayer(author)
     if not p then Count(debug.rejected, "channel message from a player not in the listed guilds") return end
@@ -916,6 +928,7 @@ end
 local function HandlePlayerNotFound(message)
     if not ctx then return false end
     local name = NameFromSystemMessage(_G.ERR_CHAT_PLAYER_NOT_FOUND_S, message)
+    name = name and Most.PlayerKey(name)
     if not name or GetTime() - (whisperedAt[name] or -10) >= 10 then return false end
     RemoveActivePlayer(name)
     if addonTable.Monitor then addonTable.Monitor.Relay("Whisper to " .. name .. " failed: player offline, removed from the list") end
@@ -978,7 +991,7 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
     if event == "CHAT_MSG_SYSTEM" then
         -- "X has gone offline": a logged-out player (e.g. switching characters) loses the relay role at once
         local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")
-        if name and ctx then RemoveActivePlayer(Most.BaseName(name)) end
+        if name and ctx then RemoveActivePlayer(Most.PlayerKey(name)) end
         return
     end
     if event == "CHAT_MSG_CHANNEL" then

@@ -61,7 +61,7 @@ local function RefreshOwnNotes()
     local count = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
     for i = 1, count do
         local fullName, _, _, _, _, _, public, officer = _G.GetGuildRosterInfo(i)
-        if fullName then ownNotes[Most.BaseName(fullName)] = { public = public or "", officer = officer or "" } end
+        if fullName then ownNotes[Most.PlayerKey(fullName)] = { public = public or "", officer = officer or "" } end
     end
 end
 
@@ -87,7 +87,7 @@ local function RequestNote(member)
     if not guild or not ctx.isGuildAllowed(guild) then return end
     if now - (answeredAt[name] or 0) < REQUEST_COOLDOWN or now - (requestedAt[name] or 0) < RETRY_AFTER then return end
     local relay = Most.GetRelayName(guild)
-    if not relay or relay == UnitName("player") then return end
+    if not relay or relay == Most.MyName() then return end
     requestedAt[name], pending[name], loadingUntil[name] = now, guild, GetTime() + ANSWER_TIMEOUT
     Most.Whisper(relay, "NREQ", Enc(name), "high")
     C_Timer.After(ANSWER_TIMEOUT, function()
@@ -166,7 +166,7 @@ local function BuildPopup()
     function f:Fill()
         local member = self.member
         if not member then return end
-        self.title:SetText(Most.DisplayName(member.name))
+        self.title:SetText(member.name)
         self.public:SetText("|cffffd100Public note:|r " .. PublicText(member))
         local height = 16 + self.title:GetStringHeight() + 7 + self.public:GetStringHeight()
         -- Own guild only, and only with the game's permission

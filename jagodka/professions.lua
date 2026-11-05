@@ -84,7 +84,7 @@ local function ScanOwn()
         end
     end
     if collapsed then
-        local mine = known[UnitName("player")]
+        local mine = known[Most.MyName()]
         for code, value in pairs(mine and mine.p or {}) do
             if not found[code] then found[code] = value end
         end
@@ -101,7 +101,7 @@ end
 
 local function SaveOwn()
     local list = ScanOwn()
-    known[UnitName("player")] = { p = list, ts = GetServerTime() }
+    known[Most.MyName()] = { p = list, ts = GetServerTime() }
     return Encode(list)
 end
 
@@ -131,7 +131,7 @@ end
 -- Called from core.lua; returns true if the packet was handled
 function Professions.HandlePacket(pType, payload, senderName)
     if pType ~= "PROF" then return false end
-    if senderName == UnitName("player") or not IsAllowedPlayer(senderName) then return true end
+    if senderName == Most.MyName() or not IsAllowedPlayer(senderName) then return true end
     local valid, list = {}, {}
     for _, def in ipairs(PROFESSIONS) do valid[def.code] = true end
     for code, rank, maxRank in payload:gmatch("(%u)=(%d+)/(%d+)") do

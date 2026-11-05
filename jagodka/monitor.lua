@@ -178,7 +178,7 @@ function Monitor.TX(msg, kind, target, ok, result, waited, tries)
         local origin, inner = strsplit(":", payload, 2)
         pType, payload = strsplit(":", inner or "", 2)
         isForward = true
-        if origin == UnitName("player") then route = "greeting -> " .. tostring(target)
+        if origin == addonTable.Most.MyName() then route = "greeting -> " .. tostring(target)
         elseif target then route = "relay -> " .. target .. " |cff808080(from " .. tostring(origin) .. ")|r"
         else route = "repost to my guild |cff808080(from " .. tostring(origin) .. ")|r" end
     end
@@ -353,7 +353,7 @@ end
 local function BuildNetwork()
     local Most, Sync = addonTable.Most, addonTable.Sync
     local info = Most.GetMonitorInfo()
-    local me, myGuild = UnitName("player"), Most.MyGuild()
+    local me, myGuild = addonTable.Most.MyName(), Most.MyGuild()
     local guilds = PlayersByGuild()
     local lines = {}
 
@@ -471,7 +471,7 @@ end
 
 local function SaveSessionLine(text)
     local version = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata or _G.GetAddOnMetadata)(addonName, "Version")
-    Save("session", text .. ", " .. date("%Y-%m-%d %H:%M:%S") .. ", v" .. tostring(version) .. ", " .. tostring(UnitName("player")))
+    Save("session", text .. ", " .. date("%Y-%m-%d %H:%M:%S") .. ", v" .. tostring(version) .. ", " .. tostring(addonTable.Most.MyName()))
 end
 
 local function UpdatePreserveButton()
@@ -538,7 +538,7 @@ local function WatchLinks()
     for guild in pairs(guilds) do
         local relay = Most.GetRelayName(guild) or "-"
         if lastRelays[guild] and lastRelays[guild] ~= relay then
-            Monitor.Relay("Relay of " .. guild .. " changed: " .. lastRelays[guild] .. " -> " .. relay .. (relay == UnitName("player") and " (you)" or ""))
+            Monitor.Relay("Relay of " .. guild .. " changed: " .. lastRelays[guild] .. " -> " .. relay .. (relay == addonTable.Most.MyName() and " (you)" or ""))
         end
         lastRelays[guild] = relay
     end

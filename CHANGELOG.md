@@ -708,3 +708,16 @@ Compatibility: `EV_ADD` has a new 9th field (author's guild), `EV_ROS` and `EV_C
 - **One name per player:** on clients where characters have a surname (WoW Forever), chat events and the guild roster give "Marianek Jagoda", while the game's own name and addon messages give "Marianek". The addon took them for two players. Now every name from the game drops the realm and the surname (`Most.BaseName`): channel messages, the channel member list, the guild roster (own guild, other guilds' rosters, also rosters saved earlier), notes, "has gone offline" messages and the player menu.
 - **Fixes what this caused:** own messages from the channel were not recognized, so after 8 s they went through the relays as well and showed twice, and the whole session switched to the relays. Guildmates could be taken for players "not in the guild roster" and ignored.
 - **Names shown with the surname:** the chat, the Members tab, the online list and the note popup show the full name (`Most.DisplayName`), learned from the guild rosters and channel messages. Rosters sent to other guilds carry the full name, so they can show it too. Whisper, invite and the player menu use the base name.
+
+# 0.13.3 – first name and surname identify a character (WoW Forever)
+
+- **Full name as the identifier:** on WoW Forever every character has a surname and first names repeat, so only "first name surname" is unique. 0.13.2 cut names to the first name, which mixes up two players with the same first name. Now the addon identifies every character by "Marianek Jagoda" (`Most.PlayerKey`), everywhere: online list, guild rosters, chat, events and sign-ups, mutes, notes, professions, the chat channel key, relays and forwarded packets.
+- **Where the surname comes from:** the game keeps it where other clients keep the realm. `UnitName("player")` gives "Marianek", "Jagoda", senders can come as "Marianek-Jagoda", the guild roster and chat as "Marianek Jagoda". All of them become "Marianek Jagoda"; my own name is built from `UnitName` (`Most.MyName`).
+- **Whispers, invites, group checks and player links** use the game's form "Marianek-Jagoda" (`Most.GameName`).
+- **Members tab:** the Name column fits the longest full name (0.13.2 measured the first name only and showed the full one), with 10 px more room on the right.
+- **Classic Era** (no surnames): names stay as before, without the realm.
+- Rosters saved by the 0.13.2 test build are keyed by the full name again.
+
+**Limitations:**
+- Needs checking in game on Forever: whisper and invite with "Marianek-Jagoda", and that every name in the Monitoring log has the surname.
+- Players on older versions identify others differently, so everyone needs 0.13.3. Data saved under first names only (old mutes, sign-ups, professions) does not match the new names.
