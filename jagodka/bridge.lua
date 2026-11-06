@@ -301,7 +301,10 @@ local function Utf8Cut(s, maxBytes)
     return s:sub(1, cut), s:sub(cut + 1)
 end
 
-local function SplitText(text, maxBytes)
+local SplitText
+-- Also for the officers chat (officers.lua)
+function Most.SplitText(text, maxBytes) return SplitText(text, maxBytes) end
+SplitText = function(text, maxBytes)
     if #text <= maxBytes then return { text } end
     -- Tokens: a colored link as a whole, the rest of the text by words
     local parts = {}
@@ -390,6 +393,11 @@ local GUILD_TAGS = {
     ["Jagódki Nadina V"] = "JN5",
     ["Jagódki Nadina VI"] = "JN6",
 }
+-- Short tag of a guild ("JN2"), its full name when it has none (e.g. the officers panel in core.lua)
+function Most.GuildTag(guild)
+    return guild and (GUILD_TAGS[guild] or guild) or "?"
+end
+
 -- Guild of a chat channel author not known from the rosters yet (HandleChannelMessage)
 local UNKNOWN_GUILD = "?"
 
@@ -399,13 +407,13 @@ local function GuildLabel(guild)
     return "|cff808080[|r|cff9d7fc0" .. (GUILD_TAGS[guild] or guild) .. "|r|cff808080]|r"
 end
 
--- "[60] Name" with a gray level and the name in the class color, as a player link (click = whisper,
+-- "[60] Name" with the brackets in the game's gold, the level in white and the name in the class color, as a player link (click = whisper,
 -- right click = menu). Without a known level, no brackets.
 local function AuthorLabel(name)
     local class, level = AuthorInfo(name)
     local color = class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class]
     local label = color and color:WrapTextInColorCode(name) or name
-    if level then label = "|cff808080[" .. level .. "]|r " .. label end
+    if level then label = "|cffffd100[|r|cffffffff" .. level .. "|r|cffffd100]|r " .. label end
     -- The link carries the game's form of the name, so the game's own whisper works on it too
     return "|Hplayer:" .. Most.GameName(name) .. "|h" .. label .. "|h"
 end
@@ -682,12 +690,15 @@ end
 -- everyone scheduling an answer sent dozens of claims (and answers) before the first claim arrived. Now only
 -- about ANSWERERS of the guild's online players with the addon try at all, picked at random each time.
 local ANSWERERS = 4
+-- The relay never answers when anyone else of the guild can: its queue also carries every packet between
+-- guilds, and a long answer there delayed rosters and changes for the other guilds.
 function Most.ShouldAnswer()
     if not ctx then return false end
     local n, myGuild = 0, MyGuild()
     for _, p in ipairs(ctx.activePlayers) do
         if p.guild == myGuild then n = n + 1 end
     end
+    if n > 1 and Most.IsRelay() then return false end
     return n <= ANSWERERS or math.random() < ANSWERERS / n
 end
 
@@ -771,8 +782,13 @@ end
 local LIVE_PACKETS = {
     GMSG = true, EV_ADD = true, EV_DESC = true, EV_EDIT = true, EV_REM = true,
     EV_SIGN = true, EV_SPEC = true, EV_RL = true, EV_KICK = true,
+    -- Events from 0.14.0 (events.lua)
+    EH = true, ED = true, ES = true, EK = true, EX = true,
     -- A delayed status packet would make the player look offline, and their packets would be ignored
     PING = true, PONG = true,
+    -- Roster changes (who logged in or out): small and rare, but behind a big guild's full roster they
+    -- waited minutes, so a logged-out player of another guild still showed online
+    RD = true,
 }
 local function ForwardPriority(text)
     return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"
@@ -819,7 +835,7 @@ end
 -- Packet types the relay does not pass on to other guilds, except its own (Route)
 local OWN_GUILD_ONLY = {
     PING = true, PONG = true, KREQ = true,
-    HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true,
+    HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true,
     PREQ = true, PREQN = true, PCLAIM = true,
 }
 
@@ -985,7 +1001,8 @@ end
 if _G.ChatFrame_AddMessageEventFilter then
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
         local name = select(9, ...)
-        if (name == ChannelName() or (name ~= nil and name == KeyChannelName())) and GetTime() - listAskedAt < 2 then return true end
+        local officers = addonTable.Officers and addonTable.Officers.ChannelName()
+        if (name == ChannelName() or (name ~= nil and (name == KeyChannelName() or name == officers))) and GetTime() - listAskedAt < 2 then return true end
     end)
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
         if HandlePlayerNotFound(message) then return true end
@@ -1049,19 +1066,24 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             HandleChannelMessage(arg1, arg2, select(9, ...), false)
         elseif name ~= nil and name == KeyChannelName() then
             HandleChannelMessage(arg1, arg2, select(9, ...), true)
+        elseif name ~= nil and addonTable.Officers and name == addonTable.Officers.ChannelName() then
+            -- The officers chat: its own log, never the shared one (officers.lua)
+            addonTable.Officers.HandleMessage(arg1, arg2, select(9, ...))
         end
         return
     end
     if event == "CHAT_MSG_CHANNEL_LIST" then
         local name = select(7, ...)
         if name == ChannelName() then HandleChannelList(arg1)
-        elseif name ~= nil and name == KeyChannelName() then HandleChannelList(arg1, true) end
+        elseif name ~= nil and name == KeyChannelName() then HandleChannelList(arg1, true)
+        elseif name ~= nil and addonTable.Officers and name == addonTable.Officers.ChannelName() then addonTable.Officers.HandleList(arg1) end
         return
     end
     if event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- arg1 = notice type, 7th extra argument (arg9) = channel name without number
         local channelBaseName = select(7, ...)
         if channelBaseName ~= nil and channelBaseName == KeyChannelName() then addonTable.Key.OnNotice(arg1) return end
+        if channelBaseName ~= nil and addonTable.Officers and channelBaseName == addonTable.Officers.ChannelName() then addonTable.Officers.OnNotice(arg1) return end
         if channelBaseName ~= ChannelName() then return end
         if arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then
             -- Someone took over the channel (password) or banned us: we do not keep retrying, we just report it

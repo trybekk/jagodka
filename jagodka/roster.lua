@@ -9,7 +9,7 @@
 --  * Full roster: once per 60 min to everyone, and to everyone (at most once a minute) when the relay of
 --    another guild asks for it (RQ). Only relays ask, when they have no whole roster of that guild or it is
 --    older than FRESH_FOR.
---  * Packets have low priority (chat goes first).
+--  * Full rosters have low priority; changes (RD, who logged in or out) high, so they arrive within seconds.
 --  * Everyone keeps the last known roster in JagodkiRosterDB.
 -- ============================================================================
 local addonName, addonTable = ...
@@ -38,6 +38,7 @@ local RETRY_AFTER = 300      -- after this many seconds we ask again for a roste
 local MAX_RETRIES = 2        -- how many times we ask again
 local STILL_ARRIVING = 60    -- a roster with a part newer than this many seconds is still on its way
 local SNAP_KEEP = 600        -- parts of an unfinished full roster are kept this long (s)
+local ONLINE_INFO_FOR = 600  -- another guild's roster tells who is online only if it changed within this many seconds
 local READY_DELAY = 65       -- after login we wait until we know the others (otherwise everyone thinks they are the sender);
                              -- only the relay answers a PING, the rest is known from their regular status packet (every 60 s)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
@@ -242,7 +243,8 @@ local function SendDelta(send)
     if not send or #entries == 0 then return end
     local header = #"RD:" + #Enc(guild) + 1
     for _, chunk in ipairs(Chunk(entries, MAX_ADDON_BYTES - header, MAX_ADDON_BYTES - header)) do
-        Most.Send("RD", Enc(guild) .. ":" .. chunk, "low")
+        -- High priority: logins and logouts reach the other guilds within seconds, not behind full rosters
+        Most.Send("RD", Enc(guild) .. ":" .. chunk, "high")
     end
 end
 
@@ -391,7 +393,7 @@ function Roster.HandlePacket(pType, payload, senderName)
             s = { got = {}, count = 0, names = {} }
             inc.snaps[snap] = s
         end
-        s.last = GetTime()
+        s.last, s.total = GetTime(), total
         if not s.got[idx] then
             s.got[idx] = true
             s.count = s.count + 1
@@ -456,10 +458,25 @@ end
 -- ============================================================================
 -- GUILD SUMMARY (Guilds tab)
 -- ============================================================================
--- live = someone with the addon from this guild is online now (or it is my guild); only then is the status current
+-- Live = someone with the addon from this guild is online now (its relay is known), or it is my guild; only
+-- then is its online status current. When its relay logs out, the next one is known a moment later, so a
+-- guild stays live for LIVE_GRACE after it was last seen live, with its last known statuses, instead of
+-- going gray for that moment.
+local LIVE_GRACE = 180
+local lastLiveAt = {}
+local function IsLive(guild)
+    if guild == MyGuild() then return true end
+    if Most.GetRelayName(guild) ~= nil then
+        lastLiveAt[guild] = GetTime()
+        return true
+    end
+    return lastLiveAt[guild] ~= nil and GetTime() - lastLiveAt[guild] < LIVE_GRACE
+end
+Roster.IsLive = IsLive
+
 function Roster.GetGuildSummary(guild)
     local g = rosters[guild]
-    local live = (guild == MyGuild()) or Most.GetRelayName(guild) ~= nil
+    local live = IsLive(guild)
     local total, online, seen = 0, 0, {}
     if g then
         for name, m in pairs(g.members) do
@@ -505,6 +522,60 @@ function Roster.GetRank(name, guild)
     return nil, nil
 end
 
+-- For Monitoring: per listed guild { guild, members, online, fullAt, updated, parts = "got/total" of a roster
+-- still arriving, or nil }. Times are server times.
+function Roster.GetMonitorInfo()
+    local list = {}
+    if not ctx then return list end
+    for guild in pairs(ctx.allowedGuilds) do
+        local g, inc = rosters[guild], incoming[guild]
+        local members, online = 0, 0
+        for _, m in pairs(g and g.members or {}) do
+            members = members + 1
+            if m.o then online = online + 1 end
+        end
+        local parts
+        for _, s in pairs(inc and inc.snaps or {}) do
+            if GetTime() - s.last < STILL_ARRIVING then parts = s.count .. "/" .. tostring(s.total) end
+        end
+        table.insert(list, { guild = guild, members = members, online = online, fullAt = g and g.fullAt, updated = g and g.updated, parts = parts })
+    end
+    table.sort(list, function(a, b) return a.guild < b.guild end)
+    return list
+end
+
+-- Whether another guild's roster says the player is online: true / false, or nil when we do not know
+-- (not in that roster, or no change or full roster from that guild for ONLINE_INFO_FOR seconds)
+function Roster.IsOnline(name, guild)
+    local g = guild and rosters[guild]
+    local m = g and g.members[name]
+    if not m or GetServerTime() - (g.updated or 0) > ONLINE_INFO_FOR then return nil end
+    return m.o == true
+end
+
+-- Members of all listed guilds per class (the class panel in core.lua): class -> { total, online }.
+-- The game gives the class (not the race or spec) in the roster, also for offline members.
+function Roster.ClassCounts()
+    local counts, seen, myGuild = {}, {}, MyGuild()
+    if not ctx then return counts end
+    for guild, g in pairs(rosters) do
+        if ctx.isGuildAllowed(guild) then
+            -- The online status of a guild with nobody with the addon online is out of date (as in BuildList)
+            local live = IsLive(guild)
+            for name, m in pairs(g.members) do
+                if m.c and not seen[name] then
+                    seen[name] = true
+                    local c = counts[m.c] or { total = 0, online = 0 }
+                    counts[m.c] = c
+                    c.total = c.total + 1
+                    if live and m.o then c.online = c.online + 1 end
+                end
+            end
+        end
+    end
+    return counts
+end
+
 -- Listed guild whose roster has the player, and their entry (guild, member), or nil. When the player is in
 -- more than one roster (moved to another guild), the most recently updated roster wins.
 function Roster.FindMember(name)
@@ -537,15 +608,19 @@ function Roster.BuildList(showOffline)
     if not ctx then return list end
     local myGuild = MyGuild()
     for _, p in ipairs(ctx.activePlayers) do
-        seen[p.name] = true
-        -- Location: the game's roster for my guild (fresher), otherwise what the player sent
-        local own = p.guild == myGuild and rosters[myGuild] and rosters[myGuild].members[p.name]
-        local location = (own and own.z) or p.zone
-        table.insert(list, { name = p.name, class = p.class, level = p.level, guild = p.guild, rank = p.rank, rankIndex = tonumber(p.rankIndex), version = p.version, location = (location ~= "") and location or nil, online = true })
+        -- Another guild's player whose roster already says offline (e.g. a relay who just logged out) is
+        -- taken from the roster below instead, as offline, without waiting for the online timeout
+        if p.guild == myGuild or Roster.IsOnline(p.name, p.guild) ~= false or GetTime() - (p.lastSeen or 0) <= 30 then
+            seen[p.name] = true
+            -- Location: the game's roster for my guild (fresher), otherwise what the player sent
+            local own = p.guild == myGuild and rosters[myGuild] and rosters[myGuild].members[p.name]
+            local location = (own and own.z) or p.zone
+            table.insert(list, { name = p.name, class = p.class, level = p.level, guild = p.guild, rank = p.rank, rankIndex = tonumber(p.rankIndex), version = p.version, location = (location ~= "") and location or nil, online = true })
+        end
     end
     for guild, g in pairs(rosters) do
         if ctx.isGuildAllowed(guild) then
-            local live = (guild == myGuild) or Most.GetRelayName(guild) ~= nil
+            local live = IsLive(guild)
             for name, m in pairs(g.members) do
                 local online = m.o and live
                 if not seen[name] and (online or showOffline) then
@@ -566,11 +641,35 @@ end
 -- ============================================================================
 -- EVENTS
 -- ============================================================================
+-- A guildmate logged in or out (the game's "has come online" / "has gone offline" message): the roster
+-- sender reads the roster again at once and sends the change, instead of waiting for its next check (20 s)
+local function ToPattern(format)
+    if not format then return nil end
+    local marked = format:gsub("%%s", "\1")
+    return "^" .. marked:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"):gsub("\1", ".+") .. "$"
+end
+local ONLINE_PATTERN, OFFLINE_PATTERN = ToPattern(_G.ERR_FRIEND_ONLINE_SS), ToPattern(_G.ERR_FRIEND_OFFLINE_S)
+local QUICK_DELTA_COOLDOWN = 5   -- at most one such extra reading per this many seconds (several logouts go together)
+local quickDelta, lastQuickAt = false, -QUICK_DELTA_COOLDOWN
+
+local function OnGuildmateStatusMessage(message)
+    if not message or not baselined or not IsSender() then return end
+    local hit = (ONLINE_PATTERN and message:find(ONLINE_PATTERN)) or (OFFLINE_PATTERN and message:find(OFFLINE_PATTERN))
+    if not hit then return end
+    quickDelta = true
+    if GetTime() - lastQuickAt < QUICK_DELTA_COOLDOWN then return end
+    lastQuickAt = GetTime()
+    -- The game's roster refresh fires GUILD_ROSTER_UPDATE; the reading after it sends the change (Listener)
+    if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster() elseif _G.GuildRoster then _G.GuildRoster() end
+end
+
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:RegisterEvent("GUILD_ROSTER_UPDATE")
+Listener:RegisterEvent("CHAT_MSG_SYSTEM")
 Listener:SetScript("OnEvent", function(self, event, arg1)
+    if event == "CHAT_MSG_SYSTEM" then OnGuildmateStatusMessage(arg1) return end
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
         _G.JagodkiRosterDB = _G.JagodkiRosterDB or {}
@@ -597,7 +696,15 @@ Listener:SetScript("OnEvent", function(self, event, arg1)
         if GetTime() < ignoreRosterEventsUntil then return end
         if not self.pending then
             self.pending = true
-            C_Timer.After(2, function() self.pending = false RefreshLocal() end)
+            C_Timer.After(2, function()
+                self.pending = false
+                RefreshLocal()
+                -- After a guildmate's login or logout: the change goes out now (OnGuildmateStatusMessage)
+                if quickDelta then
+                    quickDelta = false
+                    if baselined and IsSender() then SendDelta(true) end
+                end
+            end)
         end
     end
 end)

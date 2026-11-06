@@ -120,6 +120,12 @@ function Sync.LoginLocked()
     return anyActive
 end
 
+-- Whether a sync shown on the bar is still going (e.g. the Events tab's Sync button waits for it)
+function Sync.Running()
+    local _, anyActive = Update()
+    return anyActive
+end
+
 -- For officer actions: true = locked, with a message on the screen
 function Sync.Blocked()
     if not Sync.LoginLocked() then return false end

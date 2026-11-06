@@ -208,6 +208,17 @@ local function ConfirmMemberKey()
     if Monitor() then Monitor().Channel("Confirmed the members' chat channel key as an officer (same channel)") end
 end
 
+-- For Monitoring: the chat channel's state, never the key or the channel name (saved logs are sent around)
+function Key.GetMonitorInfo()
+    return { hasKey = current ~= nil, channelId = Key.ChannelId(), by = current and current.by,
+        officer = current and current.officer ~= false, ts = current and current.ts, owner = lastOwner }
+end
+
+-- Asks our guild for the key (after login and "/jagodka sync" in core.lua); the relay answers when ours differs
+function Key.Request()
+    Most.Send("KREQ", tostring((current and current.ts) or 0), "high")
+end
+
 -- ============================================================================
 -- PACKETS (called from core.lua); returns true if the packet was handled
 -- ============================================================================

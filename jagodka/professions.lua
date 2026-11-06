@@ -107,9 +107,16 @@ local function ScanOwn()
             end
         end
     elseif _G.GetProfessions and _G.GetProfessionInfo then
-        for _, index in ipairs({ _G.GetProfessions() }) do
-            local name, _, rank, maxRank = _G.GetProfessionInfo(index)
-            if name and map[name] then found[map[name]] = { rank, maxRank } end
+        -- GetProfessions returns prof1, prof2, archaeology, fishing, cooking (first aid on some clients), any of
+        -- them nil when not learned: ipairs stopped at the first nil, so without archaeology fishing and
+        -- cooking were never read. Every position is checked instead.
+        local indexes = { _G.GetProfessions() }
+        for i = 1, _G.select("#", _G.GetProfessions()) do
+            local index = indexes[i]
+            if index then
+                local name, _, rank, maxRank = _G.GetProfessionInfo(index)
+                if name and map[name] then found[map[name]] = { rank, maxRank } end
+            end
         end
     end
     if collapsed then
@@ -277,6 +284,9 @@ Request = function(retry)
     end
 end
 
+-- "/jagodka sync" (core.lua): ask the guild again, with the retries
+function Professions.Resync() Request(0) end
+
 -- Called from core.lua; returns true if the packet was handled
 function Professions.HandlePacket(pType, payload, senderName)
     if pType == "PROF" then
@@ -403,6 +413,19 @@ function Professions.UpdateRow(row, member)
     end
     for i = shown + 1, MAX_ICONS do box.icons[i]:Hide() end
     if data then box.unknown:Hide() else box.unknown:Show() end
+end
+
+-- A player's known professions in the PROFESSIONS order: { { name, icon, rank, max, primary } }
+-- (charcard.lua shows mine)
+function Professions.List(name)
+    local data, list = known[name], {}
+    for _, def in ipairs(PROFESSIONS) do
+        local value = data and data.p[def.code]
+        if value then
+            table.insert(list, { name = DisplayName(def), icon = IconOf(def), rank = value[1], max = value[2], primary = def.primary })
+        end
+    end
+    return list
 end
 
 function Professions.Init(c) ctx = c end

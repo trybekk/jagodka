@@ -4,12 +4,16 @@
 --  * Log: every addon packet sent and received with its size, queue time and route, plus errors, sync
 --    stages and changes of the relay, linked guilds and channel. Names, event titles and packet
 --    types only, never message or note contents.
---  * Network view: relays of all guilds, our own links, players, channel, sync stages, packet types.
+--  * Network view: relays of all guilds, our own links, players (own guild as a count), guild rosters,
+--    strangers on the channels, sync stages, packet types.
 --    We only see our own links: relays of other guilds come from the same rule everyone computes.
 --  * The last LOG_SIZE entries are kept in memory for this session; older ones are overwritten.
 --  * Statistics and the Network view refresh once a second while the tab is visible.
---  * Preserve logs: the same log as plain text in JagodkiMonitorDB, with the statistics and the Network
---    view every SAVE_STATE_INTERVAL. Per character, so it is alone in its file. Off by default.
+--  * Preserve logs: the same log as plain text in JagodkiMonitorDB, with the statistics every
+--    SAVE_STATE_INTERVAL and the Network view every SAVE_NETWORK_INTERVAL. Per character, so it is alone
+--    in its file. Off by default. Guildmates' regular online signals are only counted, not written.
+--  * Buttons: filters, Network, Preserve logs, Clear saved, Update test (the update window), Sync now (= /jagodka sync), Latest, Clear;
+--    New chat key (= /jagodka key, with a confirmation) in the statistics.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -25,9 +29,10 @@ local ipairs, pairs, tostring, tonumber = _G.ipairs, _G.pairs, _G.tostring, _G.t
 local table, math, string, wipe = _G.table, _G.math, _G.string, _G.wipe
 
 local LOG_SIZE = 1000
-local SAVED_LOG_SIZE = 50000      -- entries in the saved log; the oldest are overwritten
-local SAVE_STATE_INTERVAL = 60    -- how often the saved log gets the statistics and the Network view (s)
-local STATS_HEIGHT = 145
+local SAVED_LOG_SIZE = 100000      -- entries in the saved log; the oldest are overwritten
+local SAVE_STATE_INTERVAL = 60    -- how often the saved log gets the statistics (s)
+local SAVE_NETWORK_INTERVAL = 300 -- how often it gets the Network view, which is long (s)
+local STATS_HEIGHT = 160
 local WATCH_INTERVAL = 5          -- how often we check the relay and linked guilds (s)
 local CHANNEL_LIST_INTERVAL = 30  -- how often an open tab reads the channel member list (s)
 local MAX_NAMES_SHOWN = 15
@@ -36,13 +41,18 @@ local MAX_NAMES_SHOWN = 15
 local TYPES = {
     GMSG = { "chat", "chat message" }, HIST = { "chat", "chat history" }, HREQ = { "chat", "history request" }, HCLAIM = { "chat", "history request taken" },
     KEY = { "channel", "chat channel key" }, KREQ = { "channel", "chat channel key request" },
+    OKEY = { "channel", "officers chat key" }, OKREQ = { "channel", "officers chat key request" },
+    OHREQ = { "channel", "officers chat history request" }, OHIST = { "channel", "officers chat history" },
     EV_ADD = { "events", "event" }, EV_DESC = { "events", "event description" }, EV_EDIT = { "events", "event edit" }, EV_REM = { "events", "event removed" },
     EV_RM = { "events", "event removal marker" }, EV_REQ = { "events", "events request" }, EV_CLAIM = { "events", "events request taken" }, EV_ROS = { "events", "sign-up list" },
     EV_SIGN = { "events", "sign-up" }, EV_SPEC = { "events", "sign-up spec" }, EV_RL = { "events", "raid leader mark" }, EV_KICK = { "events", "removal from event" },
+    EH = { "events", "event" }, ED = { "events", "event description" }, ES = { "events", "sign-up" }, EK = { "events", "taken off an event" },
+    EX = { "events", "event cancelled" }, EQ = { "events", "events sync request" }, EC = { "events", "events sync taken" },
     RF = { "rosters", "full roster" }, RD = { "rosters", "roster change" }, RQ = { "rosters", "roster request" },
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
+    UPD = { "presence", "officer's update reminder" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
 local FILTERS = {
@@ -132,7 +142,7 @@ end
 -- What the packet is about. Never the text of a message, description or note.
 local function Detail(pType, payload)
     if not payload or payload == "" then return nil end
-    local a, b, c, d, e = strsplit(":", payload, 6)
+    local a, b, c, d, e, f = strsplit(":", payload, 7)
     if pType == "GMSG" or pType == "HIST" then return Field(d) .. ", " .. Field(c) .. ", tab " .. Field(e) end
     if pType == "RF" then return Field(a) .. ", part " .. Field(c) .. "/" .. Field(d) end
     if pType == "RD" then return Field(a) end
@@ -156,7 +166,13 @@ local function Detail(pType, payload)
     if pType == "MUTE" then return Field(a) .. ", " .. (b == "1" and "muted" or "unmuted") .. ", by " .. Field(d) end
     if pType == "NREQ" or pType == "NOTE" then return Field(a) end
     -- The key itself never goes to the log (saved logs are sent around for analysis)
-    if pType == "KEY" then return "by " .. Field(c) end
+    if pType == "KEY" or pType == "OKEY" then return "by " .. Field(c) end
+    if pType == "EH" then return Field(f) .. ", by " .. Field(d) end
+    if pType == "ES" then return Field(b) .. ", " .. Field(e) end
+    if pType == "EK" then return Field(b) .. ", by " .. Field(d) end
+    if pType == "EX" then return "by " .. Field(c) end
+    if pType == "EQ" then local since = tonumber(a) or 0 return since > 0 and ("newer than " .. date("%d.%m %H:%M", since)) or "everything" end
+    if pType == "OHIST" then return "from " .. Field(b) end
     return nil
 end
 
@@ -299,7 +315,23 @@ local function BuildStats()
     local lines = {}
     local channel = info.channelId and ("|cff00ff00connected|r (" .. info.channelName .. ", /" .. info.channelId .. ")")
         or ("|cffff5555not connected|r" .. (info.channelProblem and (" - " .. info.channelProblem) or ""))
-    table.insert(lines, "|cffffd100Channel:|r " .. channel)
+    table.insert(lines, "|cffffd100Public channel:|r " .. channel)
+    -- The chat channel from the secret key (key.lua): never its name or the key, only its state
+    local key = addonTable.Key and addonTable.Key.GetMonitorInfo()
+    if key then
+        local text = not key.hasKey and "|cffff9933no key yet (chat on the public channel)|r"
+            or ((key.channelId and ("|cff00ff00joined|r (/" .. key.channelId .. ")") or "|cffff9933not joined|r")
+                .. ", key by " .. tostring(key.by) .. (key.officer and " (officer)" or " |cffff9933(member, not confirmed by an officer)|r")
+                .. (key.owner and (", owner " .. key.owner) or ""))
+        table.insert(lines, "|cffffd100Chat channel:|r " .. text)
+    end
+    -- The officers chat (officers.lua): its state only
+    local off = addonTable.Officers and addonTable.Officers.GetMonitorInfo()
+    if off then
+        table.insert(lines, "|cffffd100Officers chat:|r " .. (not off.hasKey and "|cffff9933no key yet|r"
+            or ((off.channelId and ("|cff00ff00joined|r (/" .. off.channelId .. ")") or "|cffff9933not joined|r") .. ", key by " .. tostring(off.by)))
+            .. ", " .. off.messages .. " messages")
+    end
     local names = info.channelMembers
     local shown = {}
     for i = 1, math.min(#names, MAX_NAMES_SHOWN) do shown[i] = names[i] end
@@ -393,32 +425,54 @@ local function BuildNetwork()
             listed[name] and "" or " |cff808080(not on the addon list)|r"))
     end
 
+    -- With hundreds online the own guild is a summary (count per version); other guilds' players
+    -- (mostly their relays, the only ones whose status packets reach other guilds) are listed by name
     Heading(lines, "Players with the addon")
-    local players = {}
-    for _, p in ipairs(ctx.activePlayers) do table.insert(players, p) end
+    local players, ownCount, ownVersions = {}, 0, {}
+    for _, p in ipairs(ctx.activePlayers) do
+        table.insert(players, p)
+        if p.guild == myGuild then
+            ownCount = ownCount + 1
+            ownVersions[tostring(p.version)] = (ownVersions[tostring(p.version)] or 0) + 1
+        end
+    end
+    local versionList = {}
+    for v, count in pairs(ownVersions) do table.insert(versionList, v .. " x" .. count) end
+    table.sort(versionList)
+    table.insert(lines, "Your guild: " .. ownCount .. (#versionList > 0 and (" (" .. table.concat(versionList, ", ") .. ")") or ""))
     table.sort(players, function(a, b)
         if a.guild ~= b.guild then return a.guild < b.guild end
         return a.name < b.name
     end)
-    if #players == 0 then table.insert(lines, "-") end
-    local isOnline = {}
     for _, p in ipairs(players) do
-        isOnline[p.name] = true
-        local quiet = GetTime() - (p.lastSeen or 0)
-        local color = quiet > Most.ONLINE_TIMEOUT * 0.7 and "|cffff9933" or "|cffc0c0c0"
-        table.insert(lines, p.name .. " |cff808080" .. p.guild .. ", v" .. tostring(p.version) .. ", " .. tostring(p.rank) .. "|r " .. color .. "signal " .. math.floor(quiet) .. " s ago|r")
-    end
-
-    Heading(lines, "Channel: no answer yet")
-    local silent, onChannel = {}, {}
-    for _, name in ipairs(info.channelMembers) do
-        onChannel[name] = true
-        if name ~= me and not isOnline[name] then
-            local greeted = info.greeted[name]
-            table.insert(silent, name .. " |cff808080(" .. (greeted and ("greeted " .. Ago(greeted)) or "not greeted") .. ")|r")
+        if p.guild ~= myGuild then
+            local quiet = GetTime() - (p.lastSeen or 0)
+            local color = quiet > Most.ONLINE_TIMEOUT * 0.7 and "|cffff9933" or "|cffc0c0c0"
+            table.insert(lines, p.name .. " |cff808080" .. p.guild .. ", v" .. tostring(p.version) .. ", " .. tostring(p.rank) .. "|r " .. color .. "signal " .. math.floor(quiet) .. " s ago|r")
         end
     end
-    table.insert(lines, #silent > 0 and table.concat(silent, ", ") or "-")
+
+    -- Rosters of the listed guilds: what is known, when the last whole one came, and a roster still arriving
+    Heading(lines, "Guild rosters")
+    local now = GetServerTime()
+    local function Since(t) return t and (math.floor((now - t) / 60) .. " min ago") or "never" end
+    for _, r in ipairs(addonTable.Roster.GetMonitorInfo()) do
+        table.insert(lines, r.guild .. ": " .. r.members .. " members, " .. r.online .. " online, whole roster " .. Since(r.fullAt)
+            .. ", last change " .. Since(r.updated) .. (r.parts and (" |cffff9933(arriving: " .. r.parts .. " parts)|r") or ""))
+    end
+
+    -- Players on the channels who are not in any listed guild's roster (strangers, or players not known yet)
+    Heading(lines, "On the channels, not in the listed guilds")
+    local strangers, onChannel = {}, {}
+    for _, name in ipairs(info.channelMembers) do
+        onChannel[name] = true
+        if name ~= me and not Most.FindKnownPlayer(name) then
+            local greeted = info.greeted[name]
+            table.insert(strangers, name .. (greeted and (" |cff808080(greeted " .. Ago(greeted) .. ")|r") or ""))
+        end
+    end
+    table.insert(lines, #strangers > 0 and (#strangers .. ": " .. table.concat(strangers, ", ", 1, math.min(#strangers, MAX_NAMES_SHOWN))
+        .. (#strangers > MAX_NAMES_SHOWN and (" +" .. (#strangers - MAX_NAMES_SHOWN) .. " more") or "")) or "-")
     table.insert(lines, "List read " .. Ago(info.listAskedAt) .. ". Only a relay greets, every " .. info.helloRetry .. " s per player.")
 
     Heading(lines, "Addon players not on the channel list")
@@ -467,10 +521,15 @@ local function SaveView(kind, build)
     Save(ok and kind or "error", ok and text or ("Could not read " .. kind .. ": " .. tostring(text)))
 end
 
+-- Statistics every SAVE_STATE_INTERVAL, the (long) Network view every SAVE_NETWORK_INTERVAL
+local lastNetworkSave = -math.huge
 local function SaveState()
     if not ctx or not IsRecording() then return end
     SaveView("state", BuildStats)
-    SaveView("network", BuildNetwork)
+    if GetTime() - lastNetworkSave >= SAVE_NETWORK_INTERVAL then
+        lastNetworkSave = GetTime()
+        SaveView("network", BuildNetwork)
+    end
 end
 
 local function SaveSessionLine(text)
@@ -478,18 +537,29 @@ local function SaveSessionLine(text)
     Save("session", text .. ", " .. date("%Y-%m-%d %H:%M:%S") .. ", v" .. tostring(version) .. ", " .. tostring(addonTable.Most.MyName()))
 end
 
+-- Every Monitoring button is as wide as its text, plus BUTTON_PADDING on each side
+local BUTTON_PADDING = 10
+local function FitButton(btn)
+    local label = btn:GetFontString()
+    if label then btn:SetWidth(math.ceil(label:GetStringWidth()) + 2 * BUTTON_PADDING) end
+end
+
 local function UpdatePreserveButton()
     if not preserveBtn then return end
     if IsRecording() then
-        preserveBtn:SetText("Preserve logs: ON (" .. math.min(savedLog.total, SAVED_LOG_SIZE) .. ")")
+        -- From 1000 lines as "12k", so the text stays short in the row of buttons
+        local count = math.min(savedLog.total, SAVED_LOG_SIZE)
+        preserveBtn:SetText("Preserve logs: ON (" .. (count >= 1000 and (math.floor(count / 1000) .. "k") or count) .. ")")
     else
         preserveBtn:SetText("Preserve logs: OFF")
     end
+    -- The width follows the text (the buttons to its right move with it)
+    FitButton(preserveBtn)
 end
 
 -- The game gives no account name, so that part stays a placeholder
 local function SavedFilePath()
-    return "World of Warcraft\\_classic_era_\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\\SavedVariables\\jagodka.lua"
+    return "World of Warcraft\\_classic_era_ (or _forever_)\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\\SavedVariables\\jagodka.lua"
 end
 
 local function TogglePreserve()
@@ -571,6 +641,37 @@ end
 -- ============================================================================
 -- UI
 -- ============================================================================
+-- Confirmation for the "New chat key" button (Monitor.Attach)
+_G.StaticPopupDialogs["JAGODKA_NEW_CHAT_KEY"] = {
+    text = "Create a new chat channel key?\nEveryone moves to a new chat channel within moments.",
+    button1 = "Create",
+    button2 = "Cancel",
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+    OnAccept = function()
+        local ok = addonTable.Key and addonTable.Key.Create("/jagodka key (Monitoring)", true)
+        if ok then Monitor.Channel("New chat channel key created by hand")
+        else Monitor.Channel("Only officers of a listed guild can create a new chat channel key", true) end
+    end,
+}
+
+-- Confirmation for the "New officers key" button (Monitor.Attach)
+_G.StaticPopupDialogs["JAGODKA_NEW_OFFICERS_KEY"] = {
+    text = "Create a new officers chat key?\nAll officers move to a new officers channel within moments.",
+    button1 = "Create",
+    button2 = "Cancel",
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+    OnAccept = function()
+        local ok = addonTable.Officers and addonTable.Officers.Create("by hand (Monitoring)", true)
+        if not ok then Monitor.Channel("Only officers can create a new officers chat key", true) end
+    end,
+}
+
 local function Rebuild()
     logFrame:Clear()
     for _, entry in ipairs(entries) do
@@ -592,20 +693,22 @@ function Monitor.Attach(panel, c)
     local x = 0
     for _, filter in ipairs(FILTERS) do
         local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        btn:SetSize(56, 22)
+        btn:SetSize(54, 22)
         btn:SetPoint("TOPLEFT", panel, "TOPLEFT", x, -2)
         btn:SetText(filter.label)
+        FitButton(btn)
         btn:SetScript("OnClick", function() currentFilter = filter.key showNetwork = false Rebuild() end)
         filterButtons[filter.key] = btn
-        x = x + 58
+        x = x + btn:GetWidth() + 2
     end
     networkBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    networkBtn:SetSize(80, 22)
+    networkBtn:SetSize(75, 22)
     networkBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -26)
     networkBtn:SetText("Network")
+    FitButton(networkBtn)
     networkBtn:SetScript("OnClick", function() showNetwork = true Rebuild() end)
     preserveBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    preserveBtn:SetSize(170, 22)
+    preserveBtn:SetSize(140, 22)
     preserveBtn:SetPoint("LEFT", networkBtn, "RIGHT", 2, 0)
     preserveBtn:SetScript("OnClick", TogglePreserve)
     preserveBtn:SetScript("OnEnter", function(self)
@@ -616,24 +719,53 @@ function Monitor.Attach(panel, c)
     preserveBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
     UpdatePreserveButton()
     local clearSaved = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    clearSaved:SetSize(85, 22)
+    clearSaved:SetSize(78, 22)
     clearSaved:SetPoint("LEFT", preserveBtn, "RIGHT", 2, 0)
     clearSaved:SetText("Clear saved")
+    FitButton(clearSaved)
     clearSaved:SetScript("OnClick", ClearSavedLog)
     local updatePreview = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    updatePreview:SetSize(95, 22)
+    updatePreview:SetSize(82, 22)
     updatePreview:SetPoint("LEFT", clearSaved, "RIGHT", 2, 0)
-    updatePreview:SetText("Update popup")
+    -- "Update popup" did not fit the button; the tooltip says what it does
+    updatePreview:SetText("Update test")
+    FitButton(updatePreview)
+    updatePreview:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Shows the 'addon outdated' window as a preview, with its sound.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    updatePreview:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
     updatePreview:SetScript("OnClick", function() addonTable.Update.Preview() end)
     local clear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     clear:SetSize(50, 22)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -26)
     clear:SetText("Clear")
+    FitButton(clear)
     clear:SetScript("OnClick", function() wipe(entries) Rebuild() end)
     local latest = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     latest:SetSize(55, 22)
     latest:SetPoint("RIGHT", clear, "LEFT", -2, 0)
     latest:SetText("Latest")
+    FitButton(latest)
+    -- The same as "/jagodka sync" (core.lua, EventSync.ManualSync): the sync after login again, at most once a minute
+    local syncNow = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    syncNow:SetSize(66, 22)
+    syncNow:SetPoint("RIGHT", latest, "LEFT", -2, 0)
+    syncNow:SetText("Sync now")
+    FitButton(syncNow)
+    syncNow:SetScript("OnClick", function()
+        if not addonTable.ManualSync then return end
+        local ok, wait = addonTable.ManualSync()
+        Monitor.Note(ok and "Sync requested by hand (status, history, mutes, events, rosters, professions, chat channel key)"
+            or ("Sync was just requested - try again in " .. tostring(wait) .. " s"))
+    end)
+    syncNow:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Runs the sync after login again (the same as /jagodka sync).\nAt most once a minute.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    syncNow:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local statsBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     statsBox:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
@@ -645,6 +777,53 @@ function Monitor.Attach(panel, c)
     statsText:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -8, 6)
     statsText:SetJustifyH("LEFT")
     statsText:SetJustifyV("TOP")
+    -- The same as "/jagodka key" (officers, key.lua): a new chat channel key, after a confirmation, because
+    -- it moves everyone to a new channel. In the statistics' bottom right corner, next to the short Errors line.
+    local newKey = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    newKey:SetSize(100, 20)
+    newKey:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -6, 5)
+    newKey:SetText("New chat key")
+    FitButton(newKey)
+    newKey:SetScript("OnClick", function() _G.StaticPopup_Show("JAGODKA_NEW_CHAT_KEY") end)
+    newKey:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Creates a new secret key for the chat channel (the same as /jagodka key).\nEveryone moves to a new channel within moments. Officers only.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    newKey:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- Reminder to update for players with an outdated addon: an UPD packet to all guilds (core.lua,
+    -- addonTable.SendUpdateReminder), the note next to their minimap button (update.lua). Every 5 min at most.
+    local remind = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    remind:SetHeight(20)
+    remind:SetPoint("RIGHT", newKey, "LEFT", -4, 0)
+    remind:SetText("Remind outdated")
+    FitButton(remind)
+    remind:SetScript("OnClick", function()
+        local ok, wait = addonTable.SendUpdateReminder()
+        if ok then Monitor.Note("Update reminder sent to all guilds (players with an older version see it)")
+        elseif wait then Monitor.Note("Update reminder was just sent - try again in " .. wait .. " s")
+        else Monitor.Note("Update reminder: officers only") end
+    end)
+    remind:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Reminds players with an outdated addon (older than yours) in all guilds to update it on CurseForge: a small note next to their minimap button, with a sound.\nAt most every 5 minutes. Works for players on 0.14.0 or newer.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    remind:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- A new key for the officers chat (officers.lua): all officers move to a new channel, e.g. after someone
+    -- lost the rank (also done by itself when a non-officer is seen on the channel)
+    local officersKey = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    officersKey:SetHeight(20)
+    officersKey:SetPoint("RIGHT", remind, "LEFT", -4, 0)
+    officersKey:SetText("New officers key")
+    FitButton(officersKey)
+    officersKey:SetScript("OnClick", function() _G.StaticPopup_Show("JAGODKA_NEW_OFFICERS_KEY") end)
+    officersKey:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Creates a new secret key for the officers chat: all officers move to a new channel within moments.\nUse it when someone lost the officer rank (the addon also does it by itself when it sees a non-officer on the channel).", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    officersKey:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local logBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     logBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -52)
