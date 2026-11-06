@@ -33,9 +33,11 @@ local MAX_ADDON_BYTES = 205  -- below the 255-byte limit with room for the relay
 local FULL_INTERVAL = 3600   -- full roster every 60 min (changes go as deltas in between); a big guild's is 100+ parts
 local FULL_COOLDOWN = 60     -- a full roster at most once per minute
 local ASK_COOLDOWN = 300     -- the relay asks for the same guild's roster at most this often (s)
-local RETRY_AFTER = 70       -- after this many seconds we ask again for a roster that did not arrive whole (> FULL_COOLDOWN)
+local ANSWER_COOLDOWN = 600  -- requests are answered with a full roster at most this often (a big one takes minutes)
+local RETRY_AFTER = 300      -- after this many seconds we ask again for a roster that did not arrive whole
 local MAX_RETRIES = 2        -- how many times we ask again
-local STILL_ARRIVING = 20    -- a roster with a part newer than this many seconds is still on its way
+local STILL_ARRIVING = 60    -- a roster with a part newer than this many seconds is still on its way
+local SNAP_KEEP = 600        -- parts of an unfinished full roster are kept this long (s)
 local READY_DELAY = 65       -- after login we wait until we know the others (otherwise everyone thinks they are the sender);
                              -- only the relay answers a PING, the rest is known from their regular status packet (every 60 s)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
@@ -56,7 +58,7 @@ local lastFull, lastFullSlot, lastSent = 0, nil, {}
 -- differ for a moment, and two of them sent the same 100+ part roster at once
 local lastOwnFullAt = -math.huge
 local OWN_FULL_WAIT = 15     -- the sender waits a random 0..this many seconds and skips if someone else started
-local incoming = {} -- guild -> { id, got = { [idx] = true }, count, total, complete }
+local incoming = {} -- guild -> { last = time of the last part, snaps = { [snap] = { got = { [idx] = true }, count, names, last } } }
 
 local function MyGuild() return (GetGuildInfo("player")) end
 local function Changed() if ctx and ctx.onChanged then ctx.onChanged() end end
@@ -213,7 +215,9 @@ local requestsPending = false
 
 local function AnswerRequests()
     requestsPending = false
-    if IsSender() and GetTime() - lastFull > FULL_COOLDOWN and GetTime() - lastOwnFullAt > FULL_COOLDOWN then SendFull() end
+    -- A big guild's roster takes minutes to reach other guilds, so requests are answered at most every
+    -- ANSWER_COOLDOWN; the asking relays wait for parts that are still arriving
+    if IsSender() and GetTime() - lastFull > ANSWER_COOLDOWN and GetTime() - lastOwnFullAt > ANSWER_COOLDOWN then SendFull() end
 end
 
 -- EVERYONE computes changes since the previous check (everyone sees the same roster), only the
@@ -285,6 +289,7 @@ RetryRequests = function()
         if (g and (g.fullAt or 0) >= askedAt) or not Most.GetRelayName(guild) then
             asked[guild] = nil
         elseif inc and GetTime() - (inc.last or 0) < STILL_ARRIVING then
+            -- Parts are still coming: wait instead of asking again
             waiting = true
         else
             table.insert(list, guild)
@@ -313,8 +318,9 @@ local function RequestStale()
         local g = rosters[guild]
         -- No whole roster yet, or the last whole one is older than a full interval: changes alone (RD) also
         -- make "updated" fresh, but they never add the members that did not change
+        local arriving = incoming[guild] and GetTime() - (incoming[guild].last or 0) < STILL_ARRIVING
         if guild ~= MyGuild() and (not g or not g.fullAt or now - g.fullAt > FRESH_FOR) and Most.GetRelayName(guild)
-            and now - (lastAskedAt[guild] or 0) >= ASK_COOLDOWN then
+            and not arriving and now - (lastAskedAt[guild] or 0) >= ASK_COOLDOWN then
             lastAskedAt[guild] = now
             table.insert(list, Enc(guild))
             asked[guild] = asked[guild] or now
@@ -341,7 +347,8 @@ local function AcceptFrom(sender, guild)
     return Roster.IsMember(sender, guild) == nil
 end
 
-local function Upsert(g, list, snap)
+-- names (optional): the set of players seen in this full roster, to find who is no longer in the guild
+local function Upsert(g, list, names)
     for e in list:gmatch("[^;]+") do
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
         if flag then
@@ -351,7 +358,11 @@ local function Upsert(g, list, snap)
         else
             -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
             local name, m = DecodeEntry(e)
-            if name then m.s = snap g.members[Most.PlayerKey(name)] = m end
+            if name then
+                local key = Most.PlayerKey(name)
+                g.members[key] = m
+                if names then names[key] = true end
+            end
         end
     end
 end
@@ -367,31 +378,39 @@ function Roster.HandlePacket(pType, payload, senderName)
         if not idx or not total or not list or not AcceptFrom(senderName, guild) then return true end
         local g = rosters[guild] or { members = {}, ranks = {} }
         rosters[guild] = g
-        local inc = incoming[guild]
-        if not inc or inc.id ~= snap then
-            inc = { id = snap, got = {}, count = 0 }
-            incoming[guild] = inc
-        end
+        -- Parts are collected per roster (snap). Two senders' rosters can arrive mixed (a big guild's roster
+        -- takes minutes through the relays); before, every switch started over and none was ever complete.
+        local inc = incoming[guild] or { snaps = {} }
+        incoming[guild] = inc
         inc.last = GetTime()
-        if not inc.got[idx] then
-            inc.got[idx] = true
-            inc.count = inc.count + 1
+        for id, s in pairs(inc.snaps) do
+            if GetTime() - s.last > SNAP_KEEP then inc.snaps[id] = nil end
+        end
+        local s = inc.snaps[snap]
+        if not s then
+            s = { got = {}, count = 0, names = {} }
+            inc.snaps[snap] = s
+        end
+        s.last = GetTime()
+        if not s.got[idx] then
+            s.got[idx] = true
+            s.count = s.count + 1
         end
         if idx == 1 and ranks ~= "" then
             g.ranks = {}
             for r in ranks:gmatch("[^,]+") do table.insert(g.ranks, Dec(r)) end
         end
-        Upsert(g, list, snap)
+        Upsert(g, list, s.names)
         g.updated = GetServerTime()
         -- All parts received: anyone missing from the full roster left the guild (or is offline,
         -- when the sender has "show offline" turned off)
-        if inc.count >= total then
+        if s.count >= total then
             for name, m in pairs(g.members) do
-                if m.s ~= snap then
+                if not s.names[name] then
                     if complete == "1" then g.members[name] = nil else m.o = false end
                 end
             end
-            incoming[guild] = nil
+            inc.snaps[snap] = nil
             g.fullAt = GetServerTime()
             if addonTable.Monitor then
                 local count = 0
@@ -408,7 +427,12 @@ function Roster.HandlePacket(pType, payload, senderName)
         if not list or not AcceptFrom(senderName, guild) then return true end
         local g = rosters[guild] or { members = {}, ranks = {} }
         rosters[guild] = g
-        Upsert(g, list, incoming[guild] and incoming[guild].id)
+        -- Players added by a change while a full roster is arriving count as seen in it, so its end does not remove them
+        local added = {}
+        Upsert(g, list, added)
+        for _, s in pairs(incoming[guild] and incoming[guild].snaps or {}) do
+            for name in pairs(added) do s.names[name] = true end
+        end
         g.updated = GetServerTime()
         Changed()
         return true

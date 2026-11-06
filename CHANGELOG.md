@@ -774,3 +774,17 @@ The first 1.5 h log with about 900 players online (240 with the addon in one gui
 **Limitations:**
 - A player on a fresh install gets other guilds' rosters when their relay asks or with the next full roster (up to 30 minutes).
 - Older versions still ask and answer as before until they update.
+
+# 0.13.8 – guild list IV, V, VI; whole rosters through the relays; new members on the chat
+
+- **Guild list:** "Jagódki Nadina", "Jagódki Nadina II", "Jagódki Nadina IV", "Jagódki Nadina V" and "Jagódki Nadina VI". "Jagódki Nadina III" is removed: the game does not allow three identical characters in a row in a guild name, so that guild could not be created and "IV" was founded instead. V and VI are on the list in advance.
+- **Chat tags:** JN, JN2, JN4, JN5, JN6.
+
+From the third big log (21:12–02:54, three guilds, 0.13.7 for about half the players at the start and most at the end): requests and claims dropped by a factor of 3–4 and the second guild's full roster finally arrived (997 members), but a big guild's roster (113–128 parts) rarely arrived whole, rosters of the own guild went out about 2.5 times an hour, professions were sent after every skill-up, and new members of the third guild were hidden on the chat.
+
+- **Whole rosters through the relays:** parts are now collected per roster. When two senders' rosters arrive mixed (a big one takes minutes through two relays), neither starts over any more, so both can be completed. A request is answered with a full roster at most every 10 minutes (was 1), and the asking relay waits while parts are still arriving and asks again after 5 minutes (was 70 s).
+- **Professions sent less often:** a change of one's own skills goes out at most every 10 minutes (the first one at once; the own row updates at once). On a fresh server skills went up every few minutes and every send reached all guilds through the relays (one player sent 99 times in 5.7 h).
+- **New guild members on the chat:** a message on the chat channel from the secret key is shown also from a player not yet in the guild rosters here, with a gray [?] tag instead of the guild. Only community members know that channel. Before, the first messages of someone who had just joined a guild were hidden. The public channel still shows only players of listed guilds.
+
+**Limitations:**
+- Players on 0.13.7 and older do not know V and VI. IV was already on the list.

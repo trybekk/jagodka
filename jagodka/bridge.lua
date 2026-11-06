@@ -386,11 +386,16 @@ end
 local GUILD_TAGS = {
     ["Jagódki Nadina"] = "JN",
     ["Jagódki Nadina II"] = "JN2",
-    ["Jagódki Nadina III"] = "JN3",
     ["Jagódki Nadina IV"] = "JN4",
+    ["Jagódki Nadina V"] = "JN5",
+    ["Jagódki Nadina VI"] = "JN6",
 }
--- "[JN]" with a gray bracket and a muted purple tag
+-- Guild of a chat channel author not known from the rosters yet (HandleChannelMessage)
+local UNKNOWN_GUILD = "?"
+
+-- "[JN]" with a gray bracket and a muted purple tag; "[?]" in gray for a guild not known yet
 local function GuildLabel(guild)
+    if not guild or guild == UNKNOWN_GUILD then return "|cff808080[?]|r" end
     return "|cff808080[|r|cff9d7fc0" .. (GUILD_TAGS[guild] or guild) .. "|r|cff808080]|r"
 end
 
@@ -934,13 +939,16 @@ local function HandleChannelList(list, isKeyChannel)
     end
 end
 
--- A message on the channel (shared chat from 0.12.0): accepted from players of listed guilds only
--- (status packet or roster); the guild comes from there, not from the message
-local function HandleChannelMessage(text, playerName, lineID)
+-- A message on the channel (shared chat from 0.12.0): from players of listed guilds (status packet or roster);
+-- the guild comes from there, not from the message. On the chat channel from the secret key, a player not
+-- known yet is shown too, without a guild tag: only community members know that channel, and a player who
+-- has just joined a guild is missing from its roster here for a while (the first big log hid their messages).
+local function HandleChannelMessage(text, playerName, lineID, isKeyChannel)
     if not ctx or not text or not playerName then return end
     local author = Most.PlayerKey(playerName)
     if author == MyName() then OwnEchoArrived() end
     local p = Most.FindKnownPlayer(author)
+    if not p and isKeyChannel then p = { guild = UNKNOWN_GUILD } end
     if not p then Count(debug.rejected, "channel message from a player not in the listed guilds") return end
     local tab = "Ogolny"
     for t, tag in pairs(TAB_TAGS) do
@@ -1037,7 +1045,11 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
         -- 9th argument = channel name without number, 11th = line ID. Both channels: the public one still
         -- carries messages from versions before 0.13.0 and from players without the key.
         local name = select(7, ...)
-        if name == ChannelName() or (name ~= nil and name == KeyChannelName()) then HandleChannelMessage(arg1, arg2, select(9, ...)) end
+        if name == ChannelName() then
+            HandleChannelMessage(arg1, arg2, select(9, ...), false)
+        elseif name ~= nil and name == KeyChannelName() then
+            HandleChannelMessage(arg1, arg2, select(9, ...), true)
+        end
         return
     end
     if event == "CHAT_MSG_CHANNEL_LIST" then

@@ -25,7 +25,8 @@ local table = _G.table
 
 local Most = addonTable.Most
 
-local CHECK_INTERVAL = 60    -- how often we check our own skills and send changes (s)
+local CHECK_INTERVAL = 60    -- how often we check our own skills (s)
+local SEND_INTERVAL = 600    -- a change of our own skills is sent at most this often (s)
 local FIRST_SEND_DELAY = 6   -- first send after login (s)
 local SYNC_REQUEST_DELAY = 10 -- after login we ask a guildmate for the professions we do not have yet (s)
 local SYNC_RETRY_AFTER = 25  -- no answer after this many seconds: we ask again
@@ -62,6 +63,7 @@ local ctx = nil
 local known = {}       -- name -> { p = { code = { rank, max } }, ts = time }; JagodkiChatDB.professions
 local lastSent = nil   -- the last payload sent over GUILD
 local lastError = nil  -- the last error reading own professions, logged once
+local lastSentAt = 0   -- when lastSent went out
 
 -- Spell name and icon: GetSpellInfo on older clients, C_Spell.GetSpellInfo (a table) on newer ones (it may
 -- be missing on WoW Forever); without either, the English name and a question mark
@@ -146,10 +148,13 @@ local function SendOwnIfChanged()
         if ctx.onChanged then ctx.onChanged() end
         return
     end
+    -- A change goes out at most every SEND_INTERVAL (the first one at once): on a fresh server skills go up
+    -- every few minutes, and every send reaches all guilds through the relays. My own row updates at once.
     if payload ~= lastSent then
-        lastSent = payload
-        Most.Send("PROF", payload, "low")
         if ctx.onChanged then ctx.onChanged() end
+        if lastSent and GetTime() - lastSentAt < SEND_INTERVAL then return end
+        lastSent, lastSentAt = payload, GetTime()
+        Most.Send("PROF", payload, "low")
     end
 end
 
