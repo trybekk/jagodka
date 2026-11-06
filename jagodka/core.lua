@@ -86,6 +86,11 @@ MainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 MainFrame:Hide()
 -- Esc closes the window, like the game's own windows (the first Esc only leaves a focused input)
 table.insert(_G.UISpecialFrames, "JagodkiNadinaMainFrame")
+-- Above the game's ordinary windows (bags, character, map...); our own popups (event details, creator,
+-- calendar day, note), menus, the game's dialogs and tooltips are on higher layers and stay above it.
+-- Toplevel: a click brings it to the front among windows of the same layer.
+MainFrame:SetFrameStrata("HIGH")
+MainFrame:SetToplevel(true)
 
 MainFrame:EnableMouse(true)
 MainFrame:SetMovable(true)

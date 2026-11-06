@@ -788,3 +788,7 @@ From the third big log (21:12–02:54, three guilds, 0.13.7 for about half the p
 
 **Limitations:**
 - Players on 0.13.7 and older do not know V and VI. IV was already on the list.
+
+# 0.13.9 – addon window on top
+
+- **Always on top of the game's windows:** the addon window is on a higher layer (`HIGH`) than bags, the character window, the map and other ordinary windows, and a click brings it to the front. The addon's own popups (event details, creator, calendar day, note), menus, the game's dialogs and tooltips are on higher layers and stay above it.
