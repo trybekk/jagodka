@@ -46,6 +46,9 @@ local LOG_MAX = 300                 -- messages kept
 local HISTORY_MAX = 50              -- messages sent to an officer who asks
 local HISTORY_PART_BYTES = 150      -- text bytes per history whisper
 local SAME_MESSAGE_WINDOW = 120     -- the same author and text within this many seconds = the same message
+local RALLY_COOLDOWN = 300                 -- the button sends at most this often (s)
+local RALLY_SHOW_AGAIN = 60                -- a receiver shows it at most this often, also from several officers (s)
+local lastRallySent, lastRallyShown = -RALLY_COOLDOWN, -RALLY_SHOW_AGAIN
 
 local Officers = {}
 addonTable.Officers = Officers
@@ -209,13 +212,19 @@ local function HasSame(e)
     return false
 end
 
-local function Add(e)
+-- Listeners for new officers' messages (the game chat tab, chattab.lua): fn(entry, live)
+local listeners = {}
+function Officers.OnNewMessage(fn) table.insert(listeners, fn) end
+
+-- live: from the channel now (not history from another officer)
+local function Add(e, live)
     if HasSame(e) then return end
     local i = #log
     while i > 0 and (log[i].ts or 0) > e.ts do i = i - 1 end
     table.insert(log, i + 1, e)
     while #log > LOG_MAX do table.remove(log, 1) end
     if ctx then ctx.onChanged() end
+    for _, fn in ipairs(listeners) do fn(e, live) end
 end
 
 -- From core.lua (the input, a hardware event): true when sent; otherwise false and the reason
@@ -241,7 +250,7 @@ function Officers.HandleMessage(text, playerName, lineID)
     local ts = GetServerTime()
     lineSeq = lineSeq + 1
     Add({ id = string.format("O.%s.%x.%s", author, ts, tostring(lineID or lineSeq)), ts = ts, guild = (p and p.guild) or Most.MyGuild() or "?",
-        author = author, tab = TAB, src = "A", text = text, via = "C" })
+        author = author, tab = TAB, src = "A", text = text, via = "C" }, true)
 end
 
 -- ============================================================================
@@ -288,7 +297,7 @@ end
 -- PACKETS (core.lua); only direct whispers from officers count. Returns true if handled.
 -- ============================================================================
 function Officers.HandlePacket(pType, payload, senderName, channel)
-    if pType ~= "OKEY" and pType ~= "OKREQ" and pType ~= "OHREQ" and pType ~= "OHIST" then return false end
+    if pType ~= "OKEY" and pType ~= "OKREQ" and pType ~= "OHREQ" and pType ~= "OHIST" and pType ~= "ORALLY" then return false end
     -- Never through GUILD or a relay (FW): the key and the messages must not pass through members' clients
     if channel ~= "WHISPER" or senderName == Most.MyName() or not IsMeOfficer() or not IsOfficer(senderName) then return true end
     if pType == "OKEY" then
@@ -317,6 +326,12 @@ function Officers.HandlePacket(pType, payload, senderName, channel)
         SendHistory(senderName, tonumber(payload) or 0)
     elseif pType == "OHIST" then
         HandleHistoryPart(payload)
+    elseif pType == "ORALLY" then
+        if GetTime() - lastRallyShown >= RALLY_SHOW_AGAIN then
+            lastRallyShown = GetTime()
+            Officers.ShowRally()
+            Note("rally from " .. senderName)
+        end
     end
     return true
 end
@@ -361,6 +376,89 @@ function Officers.OnNotice(notice)
         local name = Officers.ChannelName()
         if name then Most.HideFromChat(name) end
     end
+end
+
+-- ============================================================================
+-- RALLY: a big red message in the middle of the screen with a sound, for officers (Monitoring button)
+-- ============================================================================
+-- The button whispers ORALLY to every online officer (direct whispers only, as the key; members never get
+-- it), at most every RALLY_COOLDOWN. A receiver shows it for an officer by the rosters, at most every RALLY_SHOW_AGAIN.
+local RALLY_TEXT = "OFICEROWIE!\nNamawiajcie wszystkich do instalacji addonu\nJagodki Nadina - Community!"
+local RALLY_FOR, RALLY_FADE = 3, 0.6       -- seconds shown, then fading out
+local rally = nil
+
+local function RallyFrame()
+    if rally then return rally end
+    rally = CreateFrame("Frame", nil, _G.UIParent)
+    rally:SetSize(900, 160)
+    rally:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 180)
+    rally:SetFrameStrata("FULLSCREEN_DIALOG")
+    rally.text = rally:CreateFontString(nil, "OVERLAY")
+    rally.text:SetFont("Fonts\\FRIZQT__.TTF", 34, "THICKOUTLINE")
+    rally.text:SetTextColor(1, 0.1, 0.1)
+    rally.text:SetShadowOffset(2, -2)
+    rally.text:SetAllPoints()
+    rally.text:SetJustifyH("CENTER")
+    rally:Hide()
+    rally:SetScript("OnUpdate", function(self, elapsed)
+        self.age = self.age + elapsed
+        local showFor = self.showFor or RALLY_FOR
+        if self.age > showFor + RALLY_FADE then self:Hide() return end
+        self:SetAlpha(self.age > showFor and (1 - (self.age - showFor) / RALLY_FADE) or 1)
+    end)
+    return rally
+end
+
+-- The same big message for other uses (the chat test request): text, seconds shown, and the chat font, which
+-- has the Polish letters the big game font lacks
+function Officers.ShowBanner(text, seconds, chatFont)
+    local f = RallyFrame()
+    f.text:SetFont(chatFont and "Fonts\\ARIALN.TTF" or "Fonts\\FRIZQT__.TTF", chatFont and 30 or 34, "THICKOUTLINE")
+    f.text:SetText(text)
+    f.showFor = seconds or RALLY_FOR
+    f.age = 0
+    f:SetAlpha(1)
+    f:Show()
+    if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
+end
+
+-- Chat test request (core.lua sends CTEST to everyone; an officer by the rosters asks): the big message for
+-- everyone, at most once a minute also when several officers ask
+local CHAT_TEST_TEXT = "TEST CZATÓW!\nNapisz krótką wiadomość testową na każdym czacie społeczności:\nGeneral (/jnglobal), Trade (/jntrade) i LFG (/jnlfg)"
+local lastChatTestShown = -60
+function Officers.ShowChatTest()
+    if GetTime() - lastChatTestShown < 60 then return end
+    lastChatTestShown = GetTime()
+    Officers.ShowBanner(CHAT_TEST_TEXT, 6, true)
+    Note("global chat test request shown")
+end
+
+function Officers.ShowRally()
+    local f = RallyFrame()
+    f.text:SetFont("Fonts\\FRIZQT__.TTF", 34, "THICKOUTLINE")
+    f.showFor = RALLY_FOR
+    f.text:SetText(RALLY_TEXT)
+    f.age = 0
+    f:SetAlpha(1)
+    f:Show()
+    -- Played once: the same raid warning sound as the update reminder (update.lua)
+    if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
+end
+
+-- Monitoring button: to every online officer and to me. Returns ok, or false and seconds to wait / nil (not an officer)
+function Officers.SendRally()
+    if not IsMeOfficer() then return false end
+    local wait = RALLY_COOLDOWN - (GetTime() - lastRallySent)
+    if wait > 0 then return false, math.ceil(wait) end
+    lastRallySent = GetTime()
+    local sent = 0
+    for _, name in ipairs(OnlineOfficers()) do
+        Most.Whisper(name, "ORALLY", "1", "high")
+        sent = sent + 1
+    end
+    lastRallyShown = GetTime()
+    Officers.ShowRally()
+    return true, sent
 end
 
 -- For Monitoring: the state, never the key or the channel name

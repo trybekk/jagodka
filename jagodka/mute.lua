@@ -205,11 +205,7 @@ local function HandleRequest(sender, rawSender, since)
         if (m.ts or 0) > since then table.insert(list, Encode(name, m)) end
     end
     if #list == 0 then return end
-    pendingRequests[sender] = true
-    C_Timer.After(0.5 + math.random() * 2, function()
-        if not pendingRequests[sender] then return end
-        pendingRequests[sender] = nil
-        Most.Send("MCLAIM", sender, "low")
+    Most.ClaimAndAnswer(pendingRequests, sender, 0.5 + math.random() * 2, function() Most.Send("MCLAIM", sender, "high") end, function()
         for _, payload in ipairs(list) do Most.Whisper(rawSender, "MUTE", payload) end
     end)
 end
@@ -238,7 +234,7 @@ function Mute.HandlePacket(pType, payload, senderName, rawSender)
         if senderName ~= MyName() and FindPlayer(senderName) then HandleRequest(senderName, rawSender, payload) end
         return true
     elseif pType == "MCLAIM" then
-        if senderName ~= MyName() then pendingRequests[payload] = nil end
+        if senderName ~= MyName() then Most.ClaimSeen(pendingRequests, payload, senderName) end
         return true
     end
     return false
@@ -279,7 +275,9 @@ function Mute.DecorateName(row, nameText, name)
     end
     icon.name = name
     icon:ClearAllPoints()
-    icon:SetPoint("LEFT", nameText, "LEFT", nameText:GetStringWidth() + 3, 0)
+    -- After the name, or at the end of a cut one (its column width)
+    local shown = nameText:GetWidth()
+    icon:SetPoint("LEFT", nameText, "LEFT", math.min(nameText:GetStringWidth(), (shown and shown > 0) and shown or 9999) + 3, 0)
     icon:Show()
 end
 

@@ -43,8 +43,8 @@ local TOPICS = {
             "- *Esc* closes the window together with everything opened from it (event window, menus, confirmations).",
             "",
             "# What is where",
-            "- *Tabs* at the top: Community Chat, Roster (all members), Events, Calendar and this Help. Officers also see Monitoring.",
-            "- *Right column*, always visible: your character, upcoming events, officers online, guilds and classes. See the Right column topic.",
+            "- *Tabs* at the top: Community Chat, Roster (all members), Events, Calendar, LFG, this Help and Settings. Officers also see Monitoring.",
+            "- *Right column*, always visible: your character, upcoming events and LFG, officers online, guilds and classes. See the Right column topic.",
             "- *Online* in the top right corner: everyone online from all our guilds.",
             "",
             "# After logging in",
@@ -65,7 +65,7 @@ local TOPICS = {
             "- *Esc* zamyka okno razem ze wszystkim, co z niego otworzono (okno wydarzenia, menu, potwierdzenia).",
             "",
             "# Co gdzie jest",
-            "- *Zakładki* u góry: Community Chat, Roster (wszyscy członkowie), Events, Calendar i ta pomoc. Oficerowie widzą też Monitoring.",
+            "- *Zakładki* u góry: Community Chat, Roster (wszyscy członkowie), Events, Calendar, LFG, ta pomoc i Settings. Oficerowie widzą też Monitoring.",
             "- *Prawa kolumna*, zawsze widoczna: twoja postać, najbliższe wydarzenia, oficerowie online, gildie i klasy. Zobacz temat Prawa kolumna.",
             "- *Online* w prawym górnym rogu: wszyscy online ze wszystkich naszych gildii.",
             "",
@@ -88,15 +88,28 @@ local TOPICS = {
             "- *General*: everyday talk.",
             "- *Trade*: buying, selling, crafting. Messages start with *[Trade]*.",
             "- *LFG*: looking for a group or players. Messages start with *[LFG]*.",
-            "- Pick the channel with the tabs above the chat.",
+            "- Officers also have the *Officers* chat (see Officer tools).",
             "",
-            "# Writing",
-            "- Type in the box at the bottom and press *Enter* or *Send*.",
+            "# Writing in this window",
+            "- Pick the channel with the tabs above the chat, type in the box at the bottom and press *Enter* or *Send*.",
             "- *Shift + click* an item in your bags (or a link in any chat) to put its link in the message.",
             "",
-            "# In the game chat",
-            "- The same chat is also a *Jagodki Nadina* tab in your game chat. While that tab is selected, what you type in the game's input goes to the community chat (the input shows *Jagódki:*).",
+            "# The tab in your game chat",
+            "- The community chat is also the *Jagodki Nadina - General* tab in your game chat, so you can follow it without opening this window. Its lines start with the *blueberry*.",
+            "- While that tab is selected, what you type in the game's input goes to the community chat: the input shows *Jagódki:*.",
+            "- In *Settings > Chats* the tab can also show the community's Trade and LFG, the officers chat (officers), whispers, guild, party and other channels.",
             "- The tab missing? */jagodka tab* creates it again.",
+            "",
+            "# Chat commands",
+            "Four commands, one per community chat:",
+            "- */jnglobal*: General.",
+            "- */jntrade*: Trade.",
+            "- */jnlfg*: LFG.",
+            "- */jnofficers*: the officers chat (officers only).",
+            "*Switch the input* to a chat: type the command and press *Tab* (or a space). The input shows *Jagódki Trade:* (or LFG, Officers, or just *Jagódki:* for General) and every message goes there until you switch again.",
+            "*Send one message* from any chat tab: put the text after the command, e.g. */jntrade WTS Copper Ore 5s* or */jnlfg LF tank RFC*.",
+            "- After a */g*, */p* or a whisper from the community tab, the next Enter goes back to the chat you switched to.",
+            "- Game commands (*/target*, */w*, */g*...) work as usual in every mode.",
             "",
             "# Who wrote it",
             "- *[JN]*, *[JN2]*, *[JN4]*: the author's guild. *[21]*: their level. The name is in the class color.",
@@ -112,15 +125,28 @@ local TOPICS = {
             "- *General*: codzienne rozmowy.",
             "- *Trade*: kupno, sprzedaż, craftowanie. Wiadomości zaczynają się od *[Trade]*.",
             "- *LFG*: szukanie grupy albo graczy. Wiadomości zaczynają się od *[LFG]*.",
-            "- Kanał wybierasz zakładkami nad czatem.",
+            "- Oficerowie mają też czat *Officers* (zobacz Narzędzia oficera).",
             "",
-            "# Pisanie",
-            "- Pisz w polu na dole i naciśnij *Enter* albo *Send*.",
+            "# Pisanie w tym oknie",
+            "- Wybierz kanał zakładkami nad czatem, pisz w polu na dole i naciśnij *Enter* albo *Send*.",
             "- *Shift + klik* na przedmiot w torbie (albo link na dowolnym czacie) wstawia jego link do wiadomości.",
             "",
-            "# W czacie gry",
-            "- Ten sam czat jest też zakładką *Jagodki Nadina* w czacie gry. Gdy ta zakładka jest wybrana, to, co wpiszesz w pole czatu gry, trafia na czat społeczności (pole pokazuje *Jagódki:*).",
+            "# Zakładka w czacie gry",
+            "- Czat społeczności to też zakładka *Jagodki Nadina - General* w czacie gry, więc możesz go śledzić bez otwierania tego okna. Jego linie zaczynają się od *jagódki*.",
+            "- Gdy ta zakładka jest wybrana, to, co wpiszesz w pole czatu gry, trafia na czat społeczności: pole pokazuje *Jagódki:*.",
+            "- W *Settings > Chats* zakładka może też pokazywać Trade i LFG społeczności, czat oficerów (oficerowie), szepty, gildię, grupę i inne kanały.",
             "- Brakuje zakładki? */jagodka tab* tworzy ją od nowa.",
+            "",
+            "# Komendy czatu",
+            "Cztery komendy, po jednej na każdy czat społeczności:",
+            "- */jnglobal*: General.",
+            "- */jntrade*: Trade.",
+            "- */jnlfg*: LFG.",
+            "- */jnofficers*: czat oficerów (tylko oficerowie).",
+            "*Przełączenie pola* na czat: wpisz komendę i naciśnij *Tab* (albo spację). Pole pokazuje *Jagódki Trade:* (albo LFG, Officers, a dla General samo *Jagódki:*) i każda wiadomość idzie tam, dopóki nie przełączysz dalej.",
+            "*Jedna wiadomość* z dowolnej zakładki czatu: tekst po komendzie, np. */jntrade WTS Copper Ore 5s* albo */jnlfg LF tank RFC*.",
+            "- Po */g*, */p* albo szepcie z zakładki społeczności następny Enter wraca na czat, na który się przełączyłeś.",
+            "- Komendy gry (*/target*, */w*, */g*...) działają normalnie w każdym trybie.",
             "",
             "# Kto napisał",
             "- *[JN]*, *[JN2]*, *[JN4]*: gildia autora. *[21]*: jego poziom. Imię jest w kolorze klasy.",
@@ -129,8 +155,7 @@ local TOPICS = {
             "",
             "Wiadomości napisane przed twoim zalogowaniem przychodzą same po wejściu do gry.",
         },
-    },
-    {
+    },    {
         key = "roster", icon = ICON_BERRY,
         title = { en = "Roster", pl = "Roster (członkowie)" },
         en = {
@@ -289,6 +314,43 @@ local TOPICS = {
         },
     },
     {
+        key = "lfg", icon = "Interface\\GroupFrame\\UI-Group-LeaderIcon",
+        title = { en = "LFG", pl = "LFG (szukanie grupy)" },
+        en = {
+            "Looking for a group across all our guilds, like the game's own tool, but for our community.",
+            "",
+            "# Listing yourself",
+            "- *List me* (top right): tick the roles you can play, add up to 4 activities and a short note.",
+            "- Activities: any dungeon, raid or battleground from the list (as in Create Event), *Questing* (here, in your current zone, or any zone of the world by continent), or *Anything*.",
+            "- Your listing lasts 3 hours and stays over */reload*. *My listing*, a *click* on your own row (edit) or a *right click* on it (edit or remove).",
+            "- Listing yourself or changing it also posts a short notice on the community *LFG* chat with an *[Open in LFG]* link: a click opens this tab on your listing.",
+            "",
+            "# Finding people",
+            "- The table shows everyone listed: player, level, guild, roles, what they look for and their note.",
+            "- *Search* by name, guild, dungeon, zone or note; click a column to sort.",
+            "- *Activity filter*: the same choices as when listing yourself: a whole group (*All: Dungeons*), one dungeon, raid or battleground, questing anywhere, here or in one zone. Players open to *Anything* show under every filter. *Role filter*: Tank, Healer or DPS. *Reset* clears it all.",
+            "- Several activities show as the first one *+N*: *hover* a row to see all of them.",
+            "- New listings show up for everyone within seconds. Someone who logs out stays on the list grayed as *(offline)* for 10 minutes (a relog or a reload), then goes. *Sync* (next to My listing) asks for the list again, at most once a minute.",
+            "- *Right click* a row: whisper, invite to the group, or *Invite to my event*: pick one of your upcoming events and the player gets a whisper with an *[Open event]* link: it opens the event with the spec menu, so they sign up with one more click. *Shift + click* whispers at once.",
+        },
+        pl = {
+            "Szukanie grupy we wszystkich naszych gildiach, jak narzędzie z gry, ale dla naszej społeczności.",
+            "",
+            "# Wpisanie się",
+            "- *List me* (prawy górny róg): zaznacz role, które możesz grać, dodaj do 4 aktywności i krótką notkę.",
+            "- Aktywności: dowolny loch, rajd albo battleground z listy (jak przy Create Event), *Questing* (tutaj, w twojej obecnej strefie, albo dowolna strefa świata według kontynentu) albo *Anything*.",
+            "- Wpis trwa 3 godziny i zostaje po */reload*. *My listing*, *klik* na własnym wierszu (edycja) albo *prawy klik* na nim (edycja lub zdjęcie).",
+            "- Wpisanie się albo zmiana wpisu wysyła też krótką informację na czat *LFG* społeczności z linkiem *[Open in LFG]*: kliknięcie otwiera tę zakładkę na twoim wpisie.",
+            "",
+            "# Szukanie ludzi",
+            "- Tabela pokazuje wszystkich wpisanych: gracz, poziom, gildia, role, czego szuka i notka.",
+            "- *Search* szuka po imieniu, gildii, lochu, strefie albo notce; klik w kolumnę sortuje.",
+            "- *Filtr aktywności*: te same wybory co przy wpisywaniu się: cała grupa (*All: Dungeons*), jeden loch, rajd albo battleground, questowanie gdziekolwiek, tutaj albo w jednej strefie. Gracze otwarci na *Anything* pokazują się przy każdym filtrze. *Filtr roli*: Tank, Healer albo DPS. *Reset* czyści wszystko.",
+            "- Kilka aktywności widać jako pierwszą *+N*: *najedź* na wiersz, żeby zobaczyć wszystkie.",
+            "- Nowe wpisy pojawiają się u wszystkich w kilka sekund. Kto się wyloguje, zostaje na liście wyszarzony jako *(offline)* przez 10 minut (relog albo reload), potem znika. *Sync* (obok My listing) prosi o listę jeszcze raz, najwyżej raz na minutę.",
+            "- *Prawy klik* na wierszu: szept, zaproszenie do grupy albo *Invite to my event*: wybierz jedno ze swoich nadchodzących wydarzeń, a gracz dostanie szept z linkiem *[Open event]*: otwiera wydarzenie od razu z menu speców, więc zapisuje się jednym kliknięciem więcej. *Shift + klik*: od razu szept.",
+        },
+    },    {
         key = "column", icon = "Interface\\GossipFrame\\PetitionGossipIcon",
         title = { en = "Right column", pl = "Prawa kolumna" },
         en = {
@@ -299,8 +361,9 @@ local TOPICS = {
             "- The thin purple bar along the bottom is your experience (gone at the maximum level).",
             "- *Hover* the card for all the details; *Armory* gives the link to your page (Ctrl+C copies it).",
             "",
-            "# Upcoming Events",
-            "- Two tabs: *Signed up* (yours) and *Other*, nearest first. Opening the window always shows Signed up.",
+            "# Events / LFG",
+            "- Three tabs: *Signed* (events you are signed up for), *Other* (other events), nearest first, and *LFG*. Opening the window always shows Signed.",
+            "- *LFG*: your listing, one line per activity you are listed for, with how many others (online) are listed for the same in brackets, their names and your roles on hover (the tab shows how many, in green), how long you have waited (*ends Nm* in orange when it is about to end). *Click* any line to edit your listing (or to list yourself): the LFG tab opens with all listings, filters reset. *Right click*: change or remove.",
             "- A line shows the day and time (*Today* in green), the title and how many signed up.",
             "- *Mouse wheel* scrolls when there are more than 4; the thin bar on the right shows where you are.",
             "- *Hover* for the details, *click* to open the event.",
@@ -324,8 +387,9 @@ local TOPICS = {
             "- Cienki fioletowy pasek na dole to doświadczenie (znika na maksymalnym poziomie).",
             "- *Najedź* na kartę po wszystkie szczegóły; *Armory* daje link do twojej strony (Ctrl+C kopiuje).",
             "",
-            "# Upcoming Events",
-            "- Dwie zakładki: *Signed up* (twoje) i *Other*, od najbliższego. Po otwarciu okna zawsze jest Signed up.",
+            "# Events / LFG",
+            "- Trzy zakładki: *Signed* (wydarzenia, na które się zapisałeś), *Other* (pozostałe wydarzenia), od najbliższego, oraz *LFG*. Po otwarciu okna zawsze jest Signed.",
+            "- *LFG*: twój wpis, po jednej linii na każdą aktywność, na którą jesteś wpisany, w nawiasie ilu innych (online) wpisało się na to samo, ich imiona i twoje role po najechaniu (zakładka pokazuje ich liczbę na zielono), jak długo czekasz (*ends Nm* na pomarańczowo, gdy wpis zaraz wygaśnie). *Kliknij* dowolną linię, żeby edytować wpis (albo się wpisać): otworzy się zakładka LFG ze wszystkimi wpisami i wyczyszczonymi filtrami. *Prawy klik*: zmień albo usuń.",
             "- Linia pokazuje dzień i godzinę (*Today* na zielono), tytuł i liczbę zapisanych.",
             "- *Kółko myszy* przewija, gdy jest ich więcej niż 4; cienki pasek po prawej pokazuje, gdzie jesteś.",
             "- *Najedź* po szczegóły, *kliknij*, żeby otworzyć wydarzenie.",
@@ -343,6 +407,41 @@ local TOPICS = {
         },
     },
     {
+        key = "settings", icon = "Interface\\Icons\\INV_Misc_Gear_01",
+        title = { en = "Settings", pl = "Ustawienia" },
+        en = {
+            "Your own choices, saved for each character separately.",
+            "",
+            "# Chats",
+            "- The *Jagodki Nadina - General* tab in your game chat always shows the community chat. In *Settings > Chats* you tick what else it shows, so you can keep just that one tab open.",
+            "- *Community chats*: the community's Trade and LFG, and for officers the officers chat, each marked [Trade], [LFG] or [Officers] in its own color.",
+            "- *Game messages*: whispers, guild chat (/g), guild officer chat (/o), party, raid, say, yell, emotes, system messages.",
+            "- *Game channels*: every channel your character is on right now (General, Trade, LookingForGroup...).",
+            "- A tick works at once, no */reload*. Nothing ticked = the tab is as before.",
+            "- Community lines start with the *blueberry*; everything else looks as usual in the game (whispers pink, [Guild], [2. Trade]...).",
+            "",
+            "# Writing in that tab",
+            "- What you type goes to the community chat (the input shows *Jagódki:*).",
+            "- */g*, */p*, */w* and *R* (reply) work as usual. After such a message, the next one goes back to the community chat you switched to.",
+            "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* + *Tab* switch the input to that chat; with text after them they send it there from any tab. Details: Community Chat > Chat commands.",
+        },
+        pl = {
+            "Twoje własne wybory, zapisywane dla każdej postaci osobno.",
+            "",
+            "# Czaty",
+            "- Zakładka *Jagodki Nadina - General* w czacie gry zawsze pokazuje czat społeczności. W *Settings > Chats* zaznaczasz, co jeszcze ma pokazywać, żeby trzymać otwartą tylko tę jedną zakładkę.",
+            "- *Community chats*: Trade i LFG społeczności, a dla oficerów czat oficerów, każdy oznaczony [Trade], [LFG] albo [Officers] we własnym kolorze.",
+            "- *Game messages*: szepty, czat gildii (/g), czat oficerski gildii (/o), grupa, rajd, say, yell, emotki, komunikaty systemowe.",
+            "- *Kanały gry*: każdy kanał, na którym twoja postać teraz jest (General, Trade, LookingForGroup...).",
+            "- Zaznaczenie działa od razu, bez */reload*. Nic nie zaznaczone = zakładka jak dotąd.",
+            "- Linie czatu społeczności zaczynają się od *jagódki*; reszta wygląda jak zwykle w grze (szepty różowe, [Guild], [2. Trade]...).",
+            "",
+            "# Pisanie w tej zakładce",
+            "- To, co wpisujesz, idzie na czat społeczności (pole pokazuje *Jagódki:*).",
+            "- */g*, */p*, */w* i *R* (odpowiedź) działają jak zwykle. Po takiej wiadomości następna wraca na czat społeczności, na który się przełączyłeś.",
+            "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* + *Tab* przełączają pole na ten czat; z tekstem po nich wysyłają go tam z dowolnej zakładki. Szczegóły: Czat społeczności > Komendy czatu.",
+        },
+    },    {
         key = "tips", icon = "Interface\\Icons\\INV_Misc_QuestionMark",
         title = { en = "Tips and problems", pl = "Porady i problemy" },
         en = {
@@ -361,6 +460,7 @@ local TOPICS = {
             "# Commands",
             "- */jagodka*: open or close the window.",
             "- */jagodka tab*: bring back the Jagodki Nadina tab in the game chat.",
+            "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* (officers): switch the input with Tab, or add text to send it.",
             "- */jagodka reset*: default window size and place.",
             "",
             "# Updates",
@@ -383,6 +483,7 @@ local TOPICS = {
             "# Komendy",
             "- */jagodka*: otwiera i zamyka okno.",
             "- */jagodka tab*: przywraca zakładkę Jagodki Nadina w czacie gry.",
+            "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* (oficerowie): przełączanie pola Tabem albo wysyłka z tekstem.",
             "- */jagodka reset*: domyślny rozmiar i miejsce okna.",
             "",
             "# Aktualizacje",
@@ -428,6 +529,17 @@ local TOPICS = {
             "1. Open the *CurseForge* app and update *Jagodki Nadina - Community*.",
             "2. In the game type */reload* (or log in again).",
             "3. Check: the version in the window's title.",
+            "",
+            "# Whispers and guild chat in the community tab",
+            "1. Open *Settings > Chats*.",
+            "2. Tick *Whispers*, *Guild chat (/g)* or anything else you want.",
+            "3. They show in the *Jagodki Nadina - General* tab at once; community lines keep the blueberry.",
+            "",
+            "# Sell something on the community Trade from the game chat",
+            "1. Select the *Jagodki Nadina - General* tab in your game chat.",
+            "2. Type */jntrade* and press *Tab*: the input shows *Jagódki Trade:*.",
+            "3. Write your offer and press *Enter*. Next messages go to Trade too.",
+            "4. Back to General: */jnglobal* + *Tab*. One message only: */jntrade WTS ...* from any tab.",
         },
         pl = {
             "Najczęstsze sprawy, krok po kroku.",
@@ -464,6 +576,17 @@ local TOPICS = {
             "1. Otwórz aplikację *CurseForge* i zaktualizuj *Jagodki Nadina - Community*.",
             "2. W grze wpisz */reload* (albo zaloguj się jeszcze raz).",
             "3. Sprawdź: wersja jest w tytule okna.",
+            "",
+            "# Szepty i czat gildii w zakładce społeczności",
+            "1. Otwórz *Settings > Chats*.",
+            "2. Zaznacz *Whispers*, *Guild chat (/g)* albo cokolwiek innego.",
+            "3. Pojawią się od razu w zakładce *Jagodki Nadina - General*; linie społeczności mają jagódkę.",
+            "",
+            "# Sprzedaż na Trade społeczności z czatu gry",
+            "1. Wybierz zakładkę *Jagodki Nadina - General* w czacie gry.",
+            "2. Wpisz */jntrade* i naciśnij *Tab*: pole pokazuje *Jagódki Trade:*.",
+            "3. Wpisz ofertę i naciśnij *Enter*. Kolejne wiadomości też idą na Trade.",
+            "4. Powrót na General: */jnglobal* + *Tab*. Tylko jedna wiadomość: */jntrade WTS ...* z dowolnej zakładki.",
         },
     },
     {
@@ -552,6 +675,7 @@ local TOPICS = {
             "- The *Officers* tab in Community Chat, after LFG: a chat only for officers and guild masters of all our guilds. Members do not see the tab and cannot read or write in it.",
             "- It runs on its own secret channel, whose key travels only between officers. When someone loses the officer rank, the addon makes a new key by itself; *New officers key* in Monitoring does it by hand.",
             "- Messages you missed arrive from another officer after login.",
+            "- From the game chat: */jnofficers* + *Tab* switches the input to the officers chat, */jnofficers text* sends one message.",
             "- Right after login the channel needs a moment (up to 2 minutes for the very first key). A message that cannot go yet stays in the box with a note; send it again in a moment, or use */jagodka sync*.",
             "- Your messages never go through the relays: without the officers channel they are not sent at all, so nothing reaches members by accident.",
             "",
@@ -567,6 +691,11 @@ local TOPICS = {
             "",
             "# Updates",
             "- *Remind outdated* (in Monitoring) shows a note by the minimap to everyone with an older addon than yours (once every 5 minutes).",
+            "",
+            "# Big messages on the screen",
+            "- *Officers: promote the addon* (Monitoring): every officer online gets a big red message with a sound, asking to get everyone to install the addon. Members never see it.",
+            "- *Global chat test request* (Monitoring): everyone with the addon gets a big message with a sound, asking for a test message on General, Trade and LFG. Handy after an update or a new chat key, to check the chats work for everyone.",
+            "- Both at most once every 5 minutes; nobody sees the same message more than once a minute, even when several officers click.",
             "",
             "Right after login officer actions wait a few seconds for the sync to finish, so nobody acts on old data.",
         },
@@ -587,6 +716,7 @@ local TOPICS = {
             "- Zakładka *Officers* w Community Chat, za LFG: czat tylko dla oficerów i Guild Masterów wszystkich naszych gildii. Członkowie nie widzą zakładki i nie mogą w niej czytać ani pisać.",
             "- Działa na własnym tajnym kanale, którego klucz krąży tylko między oficerami. Gdy ktoś straci rangę oficera, addon sam tworzy nowy klucz; *New officers key* w Monitoringu robi to ręcznie.",
             "- Wiadomości, które przegapiłeś, przychodzą od innego oficera po zalogowaniu.",
+            "- Z czatu gry: */jnofficers* + *Tab* przełącza pole na czat oficerów, */jnofficers tekst* wysyła jedną wiadomość.",
             "- Zaraz po zalogowaniu kanał potrzebuje chwili (do 2 minut przy pierwszym kluczu). Wiadomość, której nie da się jeszcze wysłać, zostaje w polu z komunikatem; wyślij ją za chwilę albo użyj */jagodka sync*.",
             "- Twoje wiadomości nigdy nie idą przez relaye: bez kanału oficerów w ogóle się nie wysyłają, więc nic nie trafi przypadkiem do członków.",
             "",
@@ -602,6 +732,11 @@ local TOPICS = {
             "",
             "# Aktualizacje",
             "- *Remind outdated* (w Monitoringu) pokazuje okienko przy minimapie wszystkim, którzy mają starszy addon niż ty (raz na 5 minut).",
+            "",
+            "# Duże napisy na ekranie",
+            "- *Officers: promote the addon* (Monitoring): każdy oficer online dostaje duży czerwony napis z dźwiękiem z prośbą o namawianie wszystkich do instalacji addonu. Członkowie go nie widzą.",
+            "- *Global chat test request* (Monitoring): każdy z addonem dostaje duży napis z dźwiękiem z prośbą o wiadomość testową na General, Trade i LFG. Przydatne po aktualizacji albo nowym kluczu czatu, żeby sprawdzić, czy czaty działają u wszystkich.",
+            "- Oba najwyżej raz na 5 minut; nikt nie widzi tego samego napisu częściej niż raz na minutę, nawet gdy kliknie kilku oficerów.",
             "",
             "Zaraz po zalogowaniu akcje oficera czekają kilka sekund na koniec synchronizacji, żeby nikt nie działał na starych danych.",
         },
@@ -635,6 +770,8 @@ local TOPICS = {
             "# Actions",
             "- *Sync now*: the sync after login again (once a minute), the same as */jagodka sync*.",
             "- *Remind outdated*: a note by the minimap for everyone with an older addon than yours (once every 5 minutes; reaches players on 0.14.0 or newer).",
+            "- *Officers: promote the addon*: a big red message with a sound for every officer online: get everyone to install the addon (once every 5 minutes; members do not see it).",
+            "- *Global chat test request*: the same kind of message for everyone with the addon: write a test message on General, Trade and LFG (once every 5 minutes).",
             "- *Update test*: shows the update window, to see what players see.",
             "- *New chat key*: a new chat channel, see Officer tools.",
             "- *New officers key*: a new officers chat channel, see Officer tools.",
@@ -665,6 +802,8 @@ local TOPICS = {
             "# Akcje",
             "- *Sync now*: synchronizacja po zalogowaniu jeszcze raz (raz na minutę), to samo co */jagodka sync*.",
             "- *Remind outdated*: okienko przy minimapie dla wszystkich, którzy mają starszy addon niż ty (raz na 5 minut; dociera do graczy z 0.14.0 lub nowszym).",
+            "- *Officers: promote the addon*: duży czerwony napis z dźwiękiem dla wszystkich oficerów online: namawiajcie wszystkich do instalacji addonu (raz na 5 minut; członkowie go nie widzą).",
+            "- *Global chat test request*: taki sam napis dla wszystkich z addonem: napiszcie wiadomość testową na General, Trade i LFG (raz na 5 minut).",
             "- *Update test*: pokazuje okno aktualizacji, żeby zobaczyć, co widzą gracze.",
             "- *New chat key*: nowy kanał czatu, patrz Narzędzia oficera.",
             "- *New officers key*: nowy kanał czatu oficerów, patrz Narzędzia oficera.",
@@ -702,6 +841,8 @@ end
 -- UI
 -- ============================================================================
 local ctx, panel, nav, content, text, child, scroll, langDD = nil, nil, nil, nil, nil, nil, nil, nil
+local measure = nil        -- hidden copy of the text, to find where a heading is (Help.Open)
+local goToHeading = nil    -- heading number to scroll to after the next Render
 local navItems, selected = {}, "start"
 
 local function Lang()
@@ -767,7 +908,87 @@ local function Render()
     child:SetWidth(width)
     text:SetWidth(width - 10)
     child:SetHeight(text:GetStringHeight() + 20)
+    -- From a "?" button: scrolled so the chosen heading is at the top (the text before it, measured)
+    local target = 0
+    if goToHeading then
+        for _, topic in ipairs(TOPICS) do
+            if topic.key == selected then
+                local before, n = {}, 0
+                for _, line in ipairs(topic[lang]) do
+                    if line:sub(1, 2) == "# " then
+                        n = n + 1
+                        if n == goToHeading then break end
+                    end
+                    table.insert(before, line)
+                end
+                if n == goToHeading and #before > 0 then
+                    measure:SetWidth(width - 10)
+                    measure:SetText(Format(before))
+                    target = measure:GetStringHeight() + 4
+                end
+            end
+        end
+        goToHeading = nil
+    end
     scroll:SetVerticalScroll(0)
+    -- The scroll range is known only after the new text is laid out (next frame)
+    if target > 0 then
+        _G.C_Timer.After(0, function()
+            scroll:UpdateScrollChildRect()
+            scroll:SetVerticalScroll(math.max(0, math.min(target, scroll:GetVerticalScrollRange())))
+        end)
+    end
+end
+
+-- Opens the Help tab on a topic, scrolled to its heading number `heading` (the same order in both languages)
+function Help.Open(topicKey, heading)
+    if not ctx then return end
+    selected, goToHeading = topicKey, heading
+    -- Opening the tab draws it (OnShow); an already open tab is drawn here
+    local wasShown = panel:IsVisible()
+    ctx.showTab()
+    if wasShown then Render() end
+end
+
+-- The help badge: the quest log's yellow question mark on a round dark badge with a thin gold ring.
+-- size: an even number, so the ring, the inner circle and the mark stay centered on whole pixels.
+-- frameType "Button" for the "?" buttons, "Frame" for the Help tab's icon (core.lua).
+local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+function Help.Badge(parent, size, frameType)
+    local b = CreateFrame(frameType or "Frame", nil, parent)
+    b:SetSize(size, size)
+    b.ring = b:CreateTexture(nil, "BACKGROUND")
+    b.ring:SetAllPoints()
+    b.ring:SetTexture(CIRCLE)
+    b.ring:SetVertexColor(0.85, 0.65, 0.15, 1)
+    b.bg = b:CreateTexture(nil, "BORDER")
+    b.bg:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+    b.bg:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+    b.bg:SetTexture(CIRCLE)
+    b.bg:SetVertexColor(0.08, 0.06, 0.03, 1)
+    b.tex = b:CreateTexture(nil, "ARTWORK")
+    b.tex:SetSize(size - 4, size - 4)
+    b.tex:SetPoint("CENTER", b, "CENTER", 0, 0)
+    b.tex:SetTexture("Interface\\GossipFrame\\ActiveQuestIcon")
+    return b
+end
+
+-- A small "?" for a feature: hover = which help, click = that help (90% opaque). The caller places it.
+function Help.Button(parent, topicKey, heading, label)
+    local b = Help.Badge(parent, 14, "Button")
+    b:SetAlpha(0.9)
+    b:SetScript("OnEnter", function(self)
+        self:SetAlpha(1)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Help: " .. tostring(label), 1, 0.82, 0)
+        _G.GameTooltip:AddLine("Click to read about it", 0.8, 0.8, 0.8)
+        _G.GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self) self:SetAlpha(0.9) _G.GameTooltip:Hide() end)
+    b:SetScript("OnClick", function(self)
+        if self.onClick then self.onClick() else Help.Open(topicKey, heading) end
+    end)
+    return b
 end
 
 -- core.lua: c = { isOfficer = function, applyStyle = function(frame) }
@@ -844,6 +1065,12 @@ function Help.Attach(p, c)
     text:SetJustifyH("LEFT") text:SetJustifyV("TOP")
     text:SetSpacing(4)
     UseFont(text, 14)
+    measure = child:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    measure:SetJustifyH("LEFT") measure:SetJustifyV("TOP")
+    measure:SetSpacing(4)
+    UseFont(measure, 14)
+    measure:SetAlpha(0)
+    measure:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
     panel:SetScript("OnShow", Render)
     content:SetScript("OnSizeChanged", function() Render() end)
 end

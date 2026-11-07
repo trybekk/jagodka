@@ -223,6 +223,24 @@ local function KeyChannelName()
     return addonTable.Key and addonTable.Key.ChannelName()
 end
 
+-- For Monitoring when joining fails: the channels we are on, ours named by their role (never the secret names),
+-- so the game's channel limit or another addon's channels show in the log
+function Most.ChannelListText()
+    local list, out = { _G.GetChannelList() }, {}
+    local keyName = KeyChannelName()
+    local offName = addonTable.Officers and addonTable.Officers.ChannelName()
+    for i = 1, #list, 3 do
+        local id, name = list[i], list[i + 1]
+        if type(name) == "string" then
+            local low = name:lower()
+            if keyName and low == keyName:lower() then name = "Jagodka chat"
+            elseif offName and low == offName:lower() then name = "Jagodka officers" end
+        end
+        table.insert(out, tostring(id) .. " " .. tostring(name))
+    end
+    return #out .. " channels: " .. (#out > 0 and table.concat(out, ", ") or "-")
+end
+
 -- ============================================================================
 -- SEND QUEUE (keeps the order and stays within Blizzard's limits)
 -- ============================================================================
@@ -420,10 +438,19 @@ end
 
 -- "[JN] [60] Name: text"; addon window: "21:05 [JN] [60] Name: text" (showTime)
 -- textColor: text color, e.g. "ff3cb43c" (the color is restored after item links)
+-- An LFG listing notice (lfg.lua sends "!lfg ..." on the LFG chat): the marker becomes a link that opens the
+-- author's listing in the LFG tab. The link is built here, by each client, never sent: a link typed into a
+-- chat message would be refused by the game.
+local LFG_MARK = "!lfg "
+local function LfgLink(author) return "|cff6cc4e6|Hgarrmission:jagodkalfg:" .. tostring(author) .. "|h[Open in LFG]|h|r" end
+
 function Most.FormatEntry(e, textColor, showTime)
     if e.src == "S" then return "|cff00ccff[System]: " .. e.text .. "|r" end
     local text = e.text
+    local lfg = text:sub(1, #LFG_MARK) == LFG_MARK
+    if lfg then text = text:sub(#LFG_MARK + 1) end
     if textColor then text = "|c" .. textColor .. text:gsub("|r", "|r|c" .. textColor) .. "|r" end
+    if lfg then text = text .. " " .. LfgLink(e.author) end
     local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
     return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), text)
 end
@@ -690,6 +717,33 @@ end
 -- everyone scheduling an answer sent dozens of claims (and answers) before the first claim arrived. Now only
 -- about ANSWERERS of the guild's online players with the addon try at all, picked at random each time.
 local ANSWERERS = 4
+
+-- One answer per sync request. Before, guildmates whose random waits ended within a second of each other all
+-- answered (the 0.14.1 log: about half the requests got 2 to 30 answers). Now after the wait we send the claim
+-- and wait CLAIM_CONFIRM more: a claim from someone else cancels ours when it came before ours, or when both
+-- were sent and their name sorts first. tbl[key] is a token while we wait, so "if tbl[key]" checks still work.
+local CLAIM_CONFIRM = 1.5
+function Most.ClaimAndAnswer(tbl, key, delay, sendClaim, answer)
+    local token = { claimed = false }
+    tbl[key] = token
+    C_Timer.After(delay, function()
+        if tbl[key] ~= token then return end
+        token.claimed = true
+        sendClaim()
+        C_Timer.After(CLAIM_CONFIRM, function()
+            if tbl[key] ~= token then return end
+            tbl[key] = nil
+            answer()
+        end)
+    end)
+end
+
+-- Someone else's claim for the same request (callers skip their own)
+function Most.ClaimSeen(tbl, key, claimer)
+    local token = tbl[key]
+    if not token then return end
+    if type(token) ~= "table" or not token.claimed or tostring(claimer) < MyName() then tbl[key] = nil end
+end
 -- The relay never answers when anyone else of the guild can: its queue also carries every packet between
 -- guilds, and a long answer there delayed rosters and changes for the other guilds.
 function Most.ShouldAnswer()
@@ -711,12 +765,8 @@ local function HandleHistoryRequest(sender, rawSender, since)
     end
     if #list == 0 then return end
     while #list > HISTORY_SYNC_MAX do table.remove(list, 1) end
-    pendingHistory[sender] = true
-    -- Random delay: one person answers, the others see HCLAIM and give up
-    C_Timer.After(0.5 + math.random() * 2, function()
-        if not pendingHistory[sender] then return end
-        pendingHistory[sender] = nil
-        Most.Send("HCLAIM", sender, "high")
+    -- Random delay: one person answers, the others see HCLAIM and give up (Most.ClaimAndAnswer)
+    Most.ClaimAndAnswer(pendingHistory, sender, 0.5 + math.random() * 2, function() Most.Send("HCLAIM", sender, "high") end, function()
         for _, e in ipairs(list) do
             for _, packet in ipairs(EncodeParts(e)) do Most.Whisper(rawSender, "HIST", packet) end
         end
@@ -767,7 +817,7 @@ function Most.HandlePacket(pType, payload, channel, senderName, rawSender)
         end
         return true
     elseif pType == "HCLAIM" then
-        if senderName ~= MyName() then pendingHistory[payload] = nil end
+        if senderName ~= MyName() then Most.ClaimSeen(pendingHistory, payload, senderName) end
         return true
     end
     return false
@@ -784,6 +834,8 @@ local LIVE_PACKETS = {
     EV_SIGN = true, EV_SPEC = true, EV_RL = true, EV_KICK = true,
     -- Events from 0.14.0 (events.lua)
     EH = true, ED = true, ES = true, EK = true, EX = true,
+    -- LFG listings (lfg.lua)
+    LF = true, LX = true,
     -- A delayed status packet would make the player look offline, and their packets would be ignored
     PING = true, PONG = true,
     -- Roster changes (who logged in or out): small and rare, but behind a big guild's full roster they
@@ -835,7 +887,7 @@ end
 -- Packet types the relay does not pass on to other guilds, except its own (Route)
 local OWN_GUILD_ONLY = {
     PING = true, PONG = true, KREQ = true,
-    HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true,
+    HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true, LQ = true, LC = true,
     PREQ = true, PREQN = true, PCLAIM = true,
 }
 
@@ -1082,6 +1134,13 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
     if event == "CHAT_MSG_CHANNEL_NOTICE" then
         -- arg1 = notice type, 7th extra argument (arg9) = channel name without number
         local channelBaseName = select(7, ...)
+        -- Every notice about our channels goes to the log (joins, leaves, wrong password, throttling...)
+        if addonTable.Monitor and type(channelBaseName) == "string" then
+            local low, keyName, offName = channelBaseName:lower(), KeyChannelName(), addonTable.Officers and addonTable.Officers.ChannelName()
+            local which = (low == ChannelName():lower() and "public") or (keyName and low == keyName:lower() and "chat")
+                or (offName and low == offName:lower() and "officers") or nil
+            if which then addonTable.Monitor.Channel("Channel notice (" .. which .. "): " .. tostring(arg1)) end
+        end
         if channelBaseName ~= nil and channelBaseName == KeyChannelName() then addonTable.Key.OnNotice(arg1) return end
         if channelBaseName ~= nil and addonTable.Officers and channelBaseName == addonTable.Officers.ChannelName() then addonTable.Officers.OnNotice(arg1) return end
         if channelBaseName ~= ChannelName() then return end
@@ -1091,7 +1150,9 @@ Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
             Warn("Global channel unavailable: " .. channelProblem .. ". Report this to an officer.")
             if addonTable.Monitor then addonTable.Monitor.Channel("Public channel unavailable: " .. channelProblem, true) end
         elseif arg1 == "YOU_LEFT" and not channelProblem then
-            -- Another addon (e.g. one tidying channels) removed us: we come back after a moment
+            -- Another addon (e.g. one tidying channels) removed us: we come back after a moment. Logged, so a
+            -- channel that keeps dropping shows in Monitoring (Channel filter) with its time.
+            if addonTable.Monitor then addonTable.Monitor.Channel("Left the public channel (by the game or another addon), joining again in 5 s") end
             C_Timer.After(5, Most.JoinChannel)
         elseif arg1 == "YOU_JOINED" or arg1 == "YOU_CHANGED" then
             channelProblem = nil

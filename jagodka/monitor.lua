@@ -32,7 +32,7 @@ local LOG_SIZE = 1000
 local SAVED_LOG_SIZE = 100000      -- entries in the saved log; the oldest are overwritten
 local SAVE_STATE_INTERVAL = 60    -- how often the saved log gets the statistics (s)
 local SAVE_NETWORK_INTERVAL = 300 -- how often it gets the Network view, which is long (s)
-local STATS_HEIGHT = 160
+local STATS_HEIGHT = 220
 local WATCH_INTERVAL = 5          -- how often we check the relay and linked guilds (s)
 local CHANNEL_LIST_INTERVAL = 30  -- how often an open tab reads the channel member list (s)
 local MAX_NAMES_SHOWN = 15
@@ -42,17 +42,18 @@ local TYPES = {
     GMSG = { "chat", "chat message" }, HIST = { "chat", "chat history" }, HREQ = { "chat", "history request" }, HCLAIM = { "chat", "history request taken" },
     KEY = { "channel", "chat channel key" }, KREQ = { "channel", "chat channel key request" },
     OKEY = { "channel", "officers chat key" }, OKREQ = { "channel", "officers chat key request" },
-    OHREQ = { "channel", "officers chat history request" }, OHIST = { "channel", "officers chat history" },
+    OHREQ = { "channel", "officers chat history request" }, OHIST = { "channel", "officers chat history" }, ORALLY = { "channel", "officers rally" },
     EV_ADD = { "events", "event" }, EV_DESC = { "events", "event description" }, EV_EDIT = { "events", "event edit" }, EV_REM = { "events", "event removed" },
     EV_RM = { "events", "event removal marker" }, EV_REQ = { "events", "events request" }, EV_CLAIM = { "events", "events request taken" }, EV_ROS = { "events", "sign-up list" },
     EV_SIGN = { "events", "sign-up" }, EV_SPEC = { "events", "sign-up spec" }, EV_RL = { "events", "raid leader mark" }, EV_KICK = { "events", "removal from event" },
     EH = { "events", "event" }, ED = { "events", "event description" }, ES = { "events", "sign-up" }, EK = { "events", "taken off an event" },
     EX = { "events", "event cancelled" }, EQ = { "events", "events sync request" }, EC = { "events", "events sync taken" },
+    LF = { "events", "LFG listing" }, LX = { "events", "LFG listing removed" }, LQ = { "events", "LFG sync request" }, LC = { "events", "LFG sync taken" },
     RF = { "rosters", "full roster" }, RD = { "rosters", "roster change" }, RQ = { "rosters", "roster request" },
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
-    UPD = { "presence", "officer's update reminder" },
+    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
 local FILTERS = {
@@ -60,7 +61,7 @@ local FILTERS = {
     { key = "mutes", label = "Mutes" }, { key = "presence", label = "Presence" }, { key = "relay", label = "Relay" }, { key = "sync", label = "Sync" },
     { key = "errors", label = "Errors" },
 }
-local SYNC_STAGES = { "channel", "history", "events", "rosters" }
+local SYNC_STAGES = { "channel", "history", "events", "rosters", "lfg" }
 
 local Monitor = {}
 addonTable.Monitor = Monitor
@@ -75,7 +76,7 @@ local showNetwork = false
 local startedAt = GetTime()
 local stats = {
     tx = 0, txBytes = 0, txFailed = 0, rx = 0, rxBytes = 0, errors = 0, throttled = 0,
-    lastError = nil, txTimes = {}, rxTimes = {}, byType = {},
+    lastError = nil, txTimes = {}, rxTimes = {}, byType = {}, waits = {},
 }
 local peers = {}             -- name -> { tx, rx, fwTx, fwRx, lastTx, lastRx }: who we exchange packets with directly
 local syncStages = {}        -- stage -> latest state, also after the sync bar has cleared its own
@@ -172,6 +173,8 @@ local function Detail(pType, payload)
     if pType == "EK" then return Field(b) .. ", by " .. Field(d) end
     if pType == "EX" then return "by " .. Field(c) end
     if pType == "EQ" then local since = tonumber(a) or 0 return since > 0 and ("newer than " .. date("%d.%m %H:%M", since)) or "everything" end
+    if pType == "LF" then return Field(a) end
+    if pType == "LX" or pType == "LC" then return Field(a) end
     if pType == "OHIST" then return "from " .. Field(b) end
     return nil
 end
@@ -206,6 +209,9 @@ function Monitor.TX(msg, kind, target, ok, result, waited, tries)
     byType.tx = byType.tx + 1
     byType.bytes = byType.bytes + #msg
     Stamp(stats.txTimes)
+    -- How long packets waited in our queue, for the last 5 minutes (statistics: queue wait)
+    table.insert(stats.waits, { GetTime(), waited or 0 })
+    while stats.waits[1] and GetTime() - stats.waits[1][1] > 300 do table.remove(stats.waits, 1) end
     if target then
         local peer = Peer(target)
         peer.tx = peer.tx + 1
@@ -341,7 +347,15 @@ local function BuildStats()
         .. "   |cffffd100Linked guilds:|r " .. (#info.linked > 0 and table.concat(info.linked, ", ") or "-"))
     table.insert(lines, string.format("|cff66ccffTX:|r %d packets, %s, %d/min, %d failed, %d limited   |cff66ff99RX:|r %d packets, %s, %d/min",
         stats.tx, Kilobytes(stats.txBytes), RecentCount(stats.txTimes), stats.txFailed, stats.throttled, stats.rx, Kilobytes(stats.rxBytes), RecentCount(stats.rxTimes)))
-    table.insert(lines, "|cffffd100Queue:|r " .. info.queueHigh .. " high, " .. info.queueLow .. " low"
+    -- Queue wait over the last 5 minutes: how long sent packets waited (relay load shows here first)
+    local waitSum, waitMax = 0, 0
+    for _, w in ipairs(stats.waits) do waitSum, waitMax = waitSum + w[2], math.max(waitMax, w[2]) end
+    local waitText = (#stats.waits > 0) and string.format("   |cffffd100Wait (5 min):|r avg %.1f s, max %.0f s", waitSum / #stats.waits, waitMax) or ""
+    -- Events and LFG at a glance
+    local ev, lfg = addonTable.Events, addonTable.LFG and addonTable.LFG.GetMonitorInfo and addonTable.LFG.GetMonitorInfo()
+    local evCount = ev and #ev.List() or 0
+    table.insert(lines, "|cffffd100Events:|r " .. evCount .. (lfg and ("   |cffffd100LFG:|r " .. lfg.total .. " listed (" .. lfg.offline .. " offline), mine: " .. (lfg.mine and "listed" or "none")) or ""))
+    table.insert(lines, "|cffffd100Queue:|r " .. info.queueHigh .. " high, " .. info.queueLow .. " low" .. waitText
         .. (info.queueOldest and string.format(" (oldest %.0f s)", info.queueOldest) or "") .. "   |cffffd100Chat log:|r " .. info.history .. " messages")
     -- Who has which version
     local versions, online = {}, 0
@@ -484,6 +498,14 @@ local function BuildNetwork()
         table.insert(lines, "List not read yet")
     else
         table.insert(lines, #missing > 0 and table.concat(missing, ", ") or "-")
+    end
+
+    -- LFG listings: who, when listed, when last heard of, offline grace
+    local lfgInfo = addonTable.LFG and addonTable.LFG.GetMonitorInfo and addonTable.LFG.GetMonitorInfo()
+    if lfgInfo then
+        Heading(lines, "LFG listings (" .. lfgInfo.total .. ")")
+        if #lfgInfo.rows == 0 then table.insert(lines, "-") end
+        for _, r in ipairs(lfgInfo.rows) do table.insert(lines, r) end
     end
 
     Heading(lines, "Sync")
@@ -740,6 +762,7 @@ function Monitor.Attach(panel, c)
     end)
     updatePreview:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
     updatePreview:SetScript("OnClick", function() addonTable.Update.Preview() end)
+    if addonTable.Help then addonTable.Help.Button(panel, "monitoring", nil, "Monitoring"):SetPoint("LEFT", updatePreview, "RIGHT", 8, 0) end
     local clear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     clear:SetSize(50, 22)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -26)
@@ -777,7 +800,8 @@ function Monitor.Attach(panel, c)
     c.applyStyle(statsBox)
     statsText = statsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statsText:SetPoint("TOPLEFT", statsBox, "TOPLEFT", 8, -6)
-    statsText:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -8, 6)
+    -- The text ends above the two rows of buttons at the bottom
+    statsText:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -8, 52)
     statsText:SetJustifyH("LEFT")
     statsText:SetJustifyV("TOP")
     -- The same as "/jagodka key" (officers, key.lua): a new chat channel key, after a confirmation, because
@@ -827,6 +851,46 @@ function Monitor.Attach(panel, c)
         _G.GameTooltip:Show()
     end)
     officersKey:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- Rally: a big red message with a sound in the middle of the screen of every online officer (officers.lua)
+    local rallyBtn = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    rallyBtn:SetHeight(20)
+    -- A second row above the first: one row did not fit five buttons at the smallest window
+    rallyBtn:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -6, 28)
+    rallyBtn:SetText("Officers: promote the addon")
+    FitButton(rallyBtn)
+    rallyBtn:SetScript("OnClick", function()
+        if not addonTable.Officers then return end
+        local ok, n = addonTable.Officers.SendRally()
+        if ok then Monitor.Note("Rally sent to " .. n .. " officers online")
+        elseif n then Monitor.Note("Rally was just sent - try again in " .. n .. " s")
+        else Monitor.Note("Promote the addon: officers only") end
+    end)
+    rallyBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Shows every officer online (all our guilds, with 0.14.2 or newer) a big red message in the middle of the screen, with a sound: get everyone to install the addon.\nMembers never see it. At most every 5 minutes.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    rallyBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- Chat test request: the same big message for everyone with the addon, asking for a test message on each
+    -- community chat (core.lua sends CTEST, officers.lua shows it). At most every 5 minutes.
+    local chatTestBtn = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    chatTestBtn:SetHeight(20)
+    chatTestBtn:SetPoint("RIGHT", rallyBtn, "LEFT", -4, 0)
+    chatTestBtn:SetText("Global chat test request")
+    FitButton(chatTestBtn)
+    chatTestBtn:SetScript("OnClick", function()
+        if not addonTable.SendChatTest then return end
+        local ok, wait = addonTable.SendChatTest()
+        if ok then Monitor.Note("Chat test request sent to all guilds")
+        elseif wait then Monitor.Note("Chat test request was just sent - try again in " .. wait .. " s")
+        else Monitor.Note("Chat test request: officers only") end
+    end)
+    chatTestBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Asks everyone with the addon (all guilds, 0.14.2 or newer), with a big message and a sound, to write a test message on each community chat (General, Trade, LFG).\nAt most every 5 minutes.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    chatTestBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local logBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     logBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -52)

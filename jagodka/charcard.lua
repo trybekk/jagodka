@@ -132,7 +132,7 @@ function CharCard.Attach(parent, applyStyle)
     card.armory = armory
     card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     card.name:SetPoint("TOPLEFT", card.portrait, "TOPRIGHT", 10, -1)
-    card.name:SetPoint("RIGHT", card, "RIGHT", -8, 0)
+    card.name:SetPoint("RIGHT", card, "RIGHT", -24, 0) -- room for the "?" (core.lua)
     card.info = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     card.info:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -3)
     card.info:SetTextColor(0.8, 0.8, 0.8)

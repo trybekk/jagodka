@@ -332,9 +332,7 @@ function Events.Request(force)
 end
 
 local function Answer(asker, since)
-    pending[asker] = nil
     answeredAt[asker] = GetTime()
-    Most.Send("EC", Enc(asker), "high")
     local sent = 0
     for _, ev in ipairs(db) do
         if (ev.rev or 0) > since then SendHeader(ev, asker) sent = sent + 1 end
@@ -356,10 +354,8 @@ local function HandleRequest(asker, since)
     if not Most.ShouldAnswer() then return end
     -- Nothing newer than what they have: no answer at all
     if Newest() <= since then return end
-    pending[asker] = true
-    C_Timer.After(0.5 + math.random() * 2, function()
-        if pending[asker] then Answer(asker, since) end
-    end)
+    Most.ClaimAndAnswer(pending, asker, 0.5 + math.random() * 2, function() Most.Send("EC", Enc(asker), "high") end,
+        function() Answer(asker, since) end)
 end
 
 -- ============================================================================
@@ -489,7 +485,7 @@ function Events.HandlePacket(pType, payload, senderName, channel)
     elseif pType == "EC" then
         Activity()
         local asker = Dec(payload)
-        if senderName ~= MyName() and asker then pending[asker] = nil end
+        if senderName ~= MyName() and asker then Most.ClaimSeen(pending, asker, senderName) end
         return true
     end
     if pType ~= "EH" and pType ~= "ED" and pType ~= "ES" and pType ~= "EK" and pType ~= "EX" then return false end

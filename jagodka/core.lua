@@ -180,7 +180,7 @@ addonTable.Sync.Attach(MainFrame, OnlineText)
 
 local Panels = {}
 -- Tab numbers are used everywhere; Help (7) is shown before Monitoring (TAB_ORDER)
-local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help"}
+local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help", "Settings", "LFG"}
 
 -- Column order; x and width are starting values, membersView.LayoutColumns fits them to the content.
 -- field = the row element placed at the column's position
@@ -313,7 +313,8 @@ local function ShowTab(tabIndex)
 end
 
 -- Buttons left to right in this order: Help before Monitoring (officers only, last, so hiding it leaves no gap)
-for _, i in ipairs({ 1, 2, 3, 4, 5, 7, 6 }) do
+-- LFG (9) right after Calendar
+for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6 }) do
     local name = tabNames[i]
     local btn = CreateFrame("Button", nil, MainFrame, "BackdropTemplate")
     btn:SetSize(115, 32)
@@ -353,8 +354,16 @@ for _, i in ipairs({ 1, 2, 3, 4, 5, 7, 6 }) do
         "Interface\\Icons\\INV_Misc_PocketWatch_01",
         "Interface\\Icons\\INV_Misc_Spyglass_02",
         "Interface\\Icons\\INV_Misc_QuestionMark",
+        "Interface\\Icons\\INV_Misc_Gear_01",
+        "Interface\\GroupFrame\\UI-Group-LeaderIcon",
     }
-    if TAB_ICONS[i] then
+    if i == 7 then
+        -- Help: the same round badge as the "?" buttons next to the features (help.lua)
+        btn.icon = addonTable.Help.Badge(btn, 16)
+        btn.text:ClearAllPoints()
+        btn.text:SetPoint("CENTER", btn, "CENTER", 10, 0)
+        btn.icon:SetPoint("RIGHT", btn.text, "LEFT", -5, 0)
+    elseif TAB_ICONS[i] then
         btn.icon = btn:CreateTexture(nil, "OVERLAY")
         btn.icon:SetSize(16, 16)
         btn.icon:SetTexture(TAB_ICONS[i])
@@ -365,7 +374,7 @@ for _, i in ipairs({ 1, 2, 3, 4, 5, 7, 6 }) do
     end
     -- As wide as the icon and name with 15 px free on each side (at least 80), so all 6 tabs fit next to
     -- the character card
-    btn:SetWidth(math.max(80, math.ceil(btn.text:GetStringWidth()) + (btn.icon and 21 or 0) + 2 * 15))
+    btn:SetWidth(math.max(64, math.ceil(btn.text:GetStringWidth()) + (btn.icon and 21 or 0) + 2 * 10))
     if i ~= 3 then MainFrame.tabX = MainFrame.tabX + btn:GetWidth() + 5 end
 
     btn:SetScript("OnEnter", function(self)
@@ -709,6 +718,14 @@ end
 tBtn:SetScript("OnClick", function() currentChatTab = name UpdateChatTabVisuals() end)
 chatTabButtons[name] = tBtn
 end
+-- "?" over the chat (help.lua): the chat topic, or the officers chat on the Officers tab
+do
+local help = addonTable.Help.Button(ChatPanel, "chat", nil, "Community Chat")
+help:SetPoint("BOTTOMRIGHT", ChatPanel, "TOPRIGHT", -4, 4)
+help.onClick = function()
+if currentChatTab == addonTable.Officers.TAB then addonTable.Help.Open("officer", 3) else addonTable.Help.Open("chat") end
+end
+end
 if chatTabButtons.Oficerowie then chatTabButtons.Oficerowie:Hide() end
 -- Officers chat (officers.lua): officers by the guild rosters, online officers for the key and history
 addonTable.Officers.Init({
@@ -831,6 +848,7 @@ local ResetViewBtn = CreateFrame("Button", nil, Panels[2], "UIPanelButtonTemplat
 ResetViewBtn:SetSize(70, 22)
 ResetViewBtn:SetPoint("LEFT", ShowOfflineCheck.label, "RIGHT", 15, 0)
 ResetViewBtn:SetText("Reset")
+addonTable.Help.Button(Panels[2], "roster", nil, "Roster"):SetPoint("LEFT", ResetViewBtn, "RIGHT", 8, 0)
 ResetViewBtn:SetScript("OnClick", function()
 SearchEditBox:SetText("")
 SearchEditBox:ClearFocus()
@@ -922,7 +940,7 @@ _G.UIDropDownMenu_AddButton(info, level)
 if menuMember.event and addonTable.Events.CanManage(menuMember.event) then
 local event = menuMember.event
 info = _G.UIDropDownMenu_CreateInfo()
-info.text, info.notCheckable = "|cffff5555Remove from event|r", true
+info.text, info.notCheckable = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t |cffff5555Remove from event|r", true
 info.func = function() EventSync.Kick(event, target) end
 _G.UIDropDownMenu_AddButton(info, level)
 end
@@ -1022,7 +1040,8 @@ for _, col in ipairs(columns) do content = content + widths[col.key] end
 local room = TableContainer:GetWidth() - 25 - ROW_INSET - FIRST_X
 local padding = math.max(MIN_PADDING, math.min(PADDING, math.floor((room - content) / (#columns - 1))))
 local over = content + padding * (#columns - 1) - room
-for _, cut in ipairs({ { "location", 80 }, { "rank", 60 }, { "guild", 70 } }) do
+-- Then text is cut, column by column down to a minimum, so the last columns never leave the table
+for _, cut in ipairs({ { "location", 60 }, { "rank", 50 }, { "guild", 60 }, { "location", 40 }, { "name", 100 }, { "class", 60 }, { "guild", 40 }, { "rank", 36 } }) do
 if over > 0 then
 local take = math.min(over, math.max(0, widths[cut[1]] - cut[2]))
 widths[cut[1]] = widths[cut[1]] - take
@@ -1035,6 +1054,7 @@ col.x, col.width = x, widths[col.key]
 col.header:SetSize(col.width, 18)
 col.header:ClearAllPoints()
 col.header:SetPoint("TOPLEFT", TableContainer, "TOPLEFT", x + ROW_INSET, -6)
+col.header.text:SetWidth(col.width) col.header.text:SetJustifyH("LEFT") col.header.text:SetWordWrap(false)
 for _, row in ipairs(tableRows) do
 row[col.field]:ClearAllPoints()
 -- center = the width of an icon centered in its column
@@ -1043,6 +1063,9 @@ end
 x = x + col.width + padding
 end
 for _, row in ipairs(tableRows) do
+-- Name and class are cut too (the name keeps room for the mute icon, the class for its icon)
+row.nameText:SetWidth(math.max(20, widths.name - 25)) row.nameText:SetJustifyH("LEFT") row.nameText:SetWordWrap(false)
+row.classText:SetWidth(math.max(20, widths.class - 18)) row.classText:SetJustifyH("LEFT") row.classText:SetWordWrap(false)
 row.guildText:SetWidth(widths.guild) row.guildText:SetJustifyH("LEFT") row.guildText:SetWordWrap(false)
 row.rankText:SetWidth(widths.rank)
 row.locationBox:SetWidth(widths.location)
@@ -1295,6 +1318,7 @@ DetailsContainer:SetScript("OnHide", function(self) selectedEventIndex = nil sel
 do
 local CloseDetails = CreateFrame("Button", nil, DetailsContainer, "UIPanelCloseButton")
 CloseDetails:SetPoint("TOPRIGHT", DetailsContainer, "TOPRIGHT", 0, 0)
+addonTable.Help.Button(DetailsContainer, "events", 3, "Signing up"):SetPoint("RIGHT", CloseDetails, "LEFT", -2, 0)
 end
 local LHeader = Panels[4]:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 LHeader:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 4, -14)
@@ -1493,9 +1517,9 @@ local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if ev then EventSync.SetStatus(ev, "N") end
 end)
 local withdraw = CreateFrame("Button", nil, DetailsContainer, "UIPanelButtonTemplate")
-withdraw:SetSize(80, 20)
+withdraw:SetSize(94, 20)
 withdraw:SetPoint("LEFT", notComing, "RIGHT", 4, 0)
-withdraw:SetText("Withdraw")
+withdraw:SetText("|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t Withdraw")
 withdraw:SetScript("OnClick", function()
 local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if ev then EventSync.SetStatus(ev, "X") end
@@ -1504,7 +1528,8 @@ end
 local EditEventBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
 EditEventBtn:SetSize(60, 24) EditEventBtn:SetText("Edit") EditEventBtn:Hide()
 local RemoveEventBtn = CreateFrame("Button", nil, DetailsContainer, "GameMenuButtonTemplate")
-RemoveEventBtn:SetSize(70, 24) RemoveEventBtn:SetPoint("BOTTOMRIGHT", DetailsContainer, "BOTTOMRIGHT", -10, 15) RemoveEventBtn:SetText("|cffff0000Cancel|r") RemoveEventBtn:Hide()
+-- Removing buttons: white text with a red X (red text on the red button was hard to read)
+RemoveEventBtn:SetSize(90, 24) RemoveEventBtn:SetPoint("BOTTOMRIGHT", DetailsContainer, "BOTTOMRIGHT", -10, 15) RemoveEventBtn:SetText("|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t |cffffffffCancel|r") RemoveEventBtn:Hide()
 EditEventBtn:SetPoint("RIGHT", RemoveEventBtn, "LEFT", -4, 0)
 local function UpdateFilterVisuals()
 for fType, btn in pairs(filterButtons) do
@@ -1566,13 +1591,14 @@ local eventColumns = {
 { name = "Event", key = "title", field = "titleText" },
 { name = "Instance", key = "dungeon", field = "dungeonText" },
 { name = "Guild", key = "guild", field = "guildText" },
-{ name = "Created by", key = "creator", field = "creatorText" },
+{ name = "By", key = "creator", field = "creatorText" },
 { name = "Signed", key = "signed", field = "signedText" },
-{ name = "Your sign-up", key = "sign", field = "signBtn", icon = true, noSort = true },
+{ name = "You", key = "sign", field = "signBtn", icon = true, noSort = true },
 { name = "Invite", key = "invite", field = "inviteBtn", icon = true, noSort = true },
 }
 -- Sign-up menu on the row's icon: the specs of my class, the current one checked
 local SignMenu = CreateFrame("Frame", "JagodkiSignMenu", UIParent, "UIDropDownMenuTemplate")
+EventSync.SignMenu = SignMenu
 _G.UIDropDownMenu_Initialize(SignMenu, function(self, level)
 local ev = SignMenu.event
 if not ev then return end
@@ -1607,7 +1633,7 @@ info.func = function() EventSync.SetStatus(ev, "N") end
 _G.UIDropDownMenu_AddButton(info, level)
 if st then
 info = _G.UIDropDownMenu_CreateInfo()
-info.text, info.notCheckable = "|cffff5555Withdraw my sign-up|r", true
+info.text, info.notCheckable = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14:0:0|t |cffff5555Withdraw my sign-up|r", true
 info.func = function() EventSync.SetStatus(ev, "X") end
 _G.UIDropDownMenu_AddButton(info, level)
 end
@@ -1716,8 +1742,10 @@ local function CellText(ev, key)
 if key == "type" then return addonTable.InstanceType(ev.dungeon) end
 if key == "signed" then
 local t, h, d = SignedCounts(ev)
-return (t + h + d) .. "  (T" .. t .. " H" .. h .. " D" .. d .. ")"
+return (t + h + d) .. " (" .. t .. "/" .. h .. "/" .. d .. ")"
 end
+-- The date without the year, so the table fits the window (the guild keeps its full name)
+if key == "date" then return ((ev.date or "-"):gsub("^(%d+%.%d+)%.%d+$", "%1")) end
 return ev[key] or "-"
 end
 -- Date and time of an event for sorting
@@ -1794,18 +1822,22 @@ eventsView.sortKey, eventsView.desc, eventsView.page = nil, false, 1
 UpdateEventHeaders()
 UpdateEventsList()
 end)
--- As in the Members table: each column fits its longest text; a narrow window loses padding first, then text is cut
+-- Each column fits its longest text. The two button columns are fixed; when the window is narrow, the
+-- padding goes first, then the text columns are cut down to a minimum, then the sign-up button is narrowed,
+-- so nothing ever reaches past the table (it overlapped the right column before).
+local MIN_WIDTH = { title = 50, dungeon = 40, creator = 40, guild = 60, signed = 40, date = 34, time = 30, type = 26 }
 local function LayoutEventColumns()
 local TextWidth = membersView.TextWidth
 local widths, content = {}, 0
 for _, col in ipairs(eventColumns) do
 local width = TextWidth(col.name .. " ^")
 if col.key == "invite" then
-width = math.max(width, TextWidth("Invite all") + 20)
+width = TextWidth("Invite all") + 16
 elseif col.icon then
--- Room for the longest text the button can show, plus its edges
+-- Room for the longest text the button can show, plus its edges, at most 100
 width = math.max(width, TextWidth("Sign up") + 20)
 for _, spec in ipairs(EventSync.CLASS_SPECS[select(2, UnitClass("player"))] or {}) do width = math.max(width, TextWidth(spec.name .. " v") + 20) end
+width = math.min(width, 100)
 else
 for _, ev in ipairs(eventsList) do width = math.max(width, TextWidth(CellText(ev, col.key))) end
 end
@@ -1813,14 +1845,20 @@ widths[col.key] = width
 content = content + width
 end
 local room = ListContainer:GetWidth() - 25 - EV_ROW_INSET - EV_FIRST_X
-local padding = math.max(EV_MIN_PADDING, math.min(EV_PADDING, math.floor((room - content) / (#eventColumns - 1))))
-local over = content + padding * (#eventColumns - 1) - room
-for _, cut in ipairs({ { "title", 90 }, { "dungeon", 70 }, { "creator", 60 }, { "guild", 70 } }) do
+local gaps = #eventColumns - 1
+local padding = math.max(EV_MIN_PADDING, math.min(EV_PADDING, math.floor((room - content) / gaps)))
+local over = content + padding * gaps - room
+-- The guild is cut last: its full name matters more than a long title or instance
+for _, key in ipairs({ "title", "dungeon", "creator", "signed", "date", "time", "type", "guild" }) do
 if over > 0 then
-local take = math.min(over, math.max(0, widths[cut[1]] - cut[2]))
-widths[cut[1]] = widths[cut[1]] - take
+local take = math.min(over, math.max(0, widths[key] - MIN_WIDTH[key]))
+widths[key] = widths[key] - take
 over = over - take
 end
+end
+if over > 0 then
+local take = math.min(over, math.max(0, widths.sign - 50))
+widths.sign = widths.sign - take
 end
 local x = EV_FIRST_X
 for _, col in ipairs(eventColumns) do
@@ -1828,11 +1866,18 @@ local width = widths[col.key]
 col.header:SetSize(width, 18)
 col.header:ClearAllPoints()
 col.header:SetPoint("TOPLEFT", ListContainer, "TOPLEFT", x + EV_ROW_INSET, -6)
+-- A cut header ends with "..." instead of running into the next one
+col.header.text:SetWidth(width) col.header.text:SetJustifyH("LEFT") col.header.text:SetWordWrap(false)
 for _, row in ipairs(eventRows) do
-row[col.field]:ClearAllPoints()
--- center = the width of an icon centered in its column
-row[col.field]:SetPoint("LEFT", row, "LEFT", x + (col.center and math.floor((col.width - col.center) / 2) or 0), 0)
-row[col.field]:SetWidth(width)
+local cell = row[col.field]
+cell:ClearAllPoints()
+cell:SetPoint("LEFT", row, "LEFT", x, 0)
+cell:SetWidth(width)
+-- A button's text is cut to the button too
+if col.icon and cell.GetFontString and cell:GetFontString() then
+local label = cell:GetFontString()
+label:SetWidth(width - 10) label:SetWordWrap(false)
+end
 end
 x = x + width + padding
 end
@@ -1951,6 +1996,7 @@ _G.GameTooltip:SetText("Asks for the latest events and sign-ups, as after login.
 _G.GameTooltip:Show()
 end)
 SyncEventsBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+addonTable.Help.Button(Panels[4], "events", nil, "Events"):SetPoint("RIGHT", SyncEventsBtn, "LEFT", -8, 0)
 end
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
 CreatorFrame:SetSize(320, 450) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
@@ -2249,7 +2295,36 @@ end)
 -- ============================================================================
 addonTable.Monitor.Attach(Panels[6], { activePlayers = activePlayers, applyStyle = ApplyModernStyle })
 -- Help tab (help.lua): officers' topics only for officers
-addonTable.Help.Attach(Panels[7], { isOfficer = IsPlayerOfficer, applyStyle = ApplyModernStyle })
+addonTable.Help.Attach(Panels[7], { isOfficer = IsPlayerOfficer, applyStyle = ApplyModernStyle, showTab = function() ShowTab(7) end })
+-- Settings tab (settings.lua)
+addonTable.Settings.Attach(Panels[8], { applyStyle = ApplyModernStyle, isOfficer = IsPlayerOfficer })
+-- Opens an event in the Events tab by its id ([Open event] links in whispers, lfg.lua); false when unknown here
+function addonTable.OpenEvent(id)
+for idx, ev in ipairs(eventsList) do
+if ev.id == id then
+MainFrame:Show()
+ShowTab(4)
+selectedEventIndex = idx
+UpdateEventDetails()
+-- From an invitation and not signed up yet: the spec menu opens at once (a sign-up always needs a spec)
+local start = addonTable.Events.Start(ev)
+if ev.roster and ev.roster[Most.MyName()] then
+UIErrorsFrame:AddMessage("You are already signed up for this event", 0.25, 0.85, 0.25, 1, 3)
+elseif start and start < time() then
+UIErrorsFrame:AddMessage("This event has already started", 1, 0.5, 0.2, 1, 3)
+else
+UIErrorsFrame:AddMessage("Pick your spec to sign up", 1, 0.82, 0, 1, 3)
+EventSync.SignMenu.event = ev
+_G.ToggleDropDownMenu(1, nil, EventSync.SignMenu, "cursor", 0, 0)
+end
+return true
+end
+end
+return false
+end
+-- LFG tab (lfg.lua): roles per class from the event specs, the Roster's row menu (whisper, invite)
+addonTable.LFG.Attach(Panels[9], { applyStyle = ApplyModernStyle, classRoles = EventSync.CLASS_ROLES, onRowClick = membersView.OnRowClick,
+open = function() MainFrame:Show() ShowTab(9) end })
 -- The rank is known only some time after login and can change, so this runs on guild updates
 function EventSync.UpdateMonitoringTab()
 if IsPlayerOfficer() then
@@ -2325,6 +2400,7 @@ local NextBtn = CreateFrame("Button", nil, Cal, "UIPanelButtonTemplate")
 NextBtn:SetSize(30, 22) NextBtn:SetPoint("LEFT", PrevBtn, "RIGHT", 4, 0) NextBtn:SetText(">")
 local TodayBtn = CreateFrame("Button", nil, Cal, "UIPanelButtonTemplate")
 TodayBtn:SetSize(60, 22) TodayBtn:SetPoint("LEFT", NextBtn, "RIGHT", 8, 0) TodayBtn:SetText("Today")
+addonTable.Help.Button(Cal, "calendar", nil, "Calendar"):SetPoint("LEFT", TodayBtn, "RIGHT", 8, 0)
 local MonthText = Cal:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 MonthText:SetPoint("TOP", Cal, "TOP", 0, HEADER_Y - 3)
 -- Filters above the header: [x] Signed up  [x] Other      Search: [........]
@@ -2714,6 +2790,7 @@ BuildCalendar()
 -- ============================================================================
 -- My character above the column (charcard.lua)
 addonTable.CharCard.Attach(MainFrame, ApplyModernStyle)
+addonTable.Help.Button(addonTable.CharCard.frame, "column", 1, "Your character"):SetPoint("TOPRIGHT", addonTable.CharCard.frame, "TOPRIGHT", -6, -6)
 -- 7a. UPCOMING EVENTS (top of the column): two tabs, "Signed up" (events I am signed up for) and "Other",
 -- each sorted from the nearest. 4 rows high; more = mouse wheel, with a thin position bar on the right.
 -- Click = the event in the Events tab, hover = its details. Kept in EventSync.Side (no new file locals).
@@ -2730,12 +2807,14 @@ S.panel:EnableMouseWheel(true)
 -- chat tabs (so the section is no taller)
 S.header = S.panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 S.header:SetPoint("BOTTOMLEFT", S.panel, "TOPLEFT", 12, 5)
-S.header:SetText("Upcoming Events")
+-- Three tabs: events I am signed up for, other events, and LFG (lfg.lua: my listing, one row per activity)
+S.header:SetText("Events / LFG")
+addonTable.Help.Button(S.panel, "column", 2, "Events / LFG"):SetPoint("LEFT", S.header, "RIGHT", 6, 0)
 S.tabs = {}
-for i = 1, 2 do
+for i = 1, 3 do
 local t = CreateFrame("Button", nil, S.panel, "BackdropTemplate")
-t:SetSize(78, 20)
-if i == 2 then t:SetPoint("BOTTOMRIGHT", S.panel, "TOPRIGHT", -6, 0) end
+t:SetSize(i == 3 and 62 or 72, 20)
+if i == 3 then t:SetPoint("BOTTOMRIGHT", S.panel, "TOPRIGHT", -6, 0) end
 t:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 t:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
 t.bg = t:CreateTexture(nil, "BACKGROUND") t.bg:SetAllPoints()
@@ -2745,6 +2824,7 @@ t.text = t:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall") t.text:SetPoi
 t:SetScript("OnClick", function() S.tab, S.offset = i, 0 S.Render() end)
 S.tabs[i] = t
 end
+S.tabs[2]:SetPoint("BOTTOMRIGHT", S.tabs[3], "BOTTOMLEFT", -4, 0)
 S.tabs[1]:SetPoint("BOTTOMRIGHT", S.tabs[2], "BOTTOMLEFT", -4, 0)
 S.empty = S.panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 S.empty:SetPoint("CENTER", S.panel, "CENTER", 0, 0)
@@ -2768,8 +2848,9 @@ row.count:SetPoint("RIGHT", row, "RIGHT", -4, 0) row.count:SetJustifyH("RIGHT")
 row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 row.title:SetPoint("LEFT", row.when, "RIGHT", 4, 0) row.title:SetPoint("RIGHT", row.count, "LEFT", -6, 0)
 row.title:SetJustifyH("LEFT") row.title:SetWordWrap(false)
-row:SetScript("OnClick", function(self) S.Open(self.ev) end)
-row:SetScript("OnEnter", function(self) S.ShowTooltip(self) end)
+row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+row:SetScript("OnClick", function(self, button) if self.item then addonTable.LFG.SideClick(self, button) elseif button == "LeftButton" then S.Open(self.ev) end end)
+row:SetScript("OnEnter", function(self) if self.item then addonTable.LFG.SideTooltip(self) else S.ShowTooltip(self) end end)
 row:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 S.rows[i] = row
 end
@@ -2792,21 +2873,33 @@ end
 function S.Render()
 if not S.panel:IsVisible() then return end
 local mine, others = S.Lists()
-S.tabs[1].text:SetText("Signed up (" .. #mine .. ")")
+local lfgItems, lfgCount = addonTable.LFG.SideItems()
+S.tabs[1].text:SetText("Signed (" .. #mine .. ")")
 S.tabs[2].text:SetText("Other (" .. #others .. ")")
+-- LFG: how many activities I am listed for (green while listed)
+S.tabs[3].text:SetText(lfgCount > 0 and ("LFG |cff00ff00(" .. lfgCount .. ")|r") or "LFG (0)")
 for i, t in ipairs(S.tabs) do
 local active = i == S.tab
 t.bg:SetColorTexture(active and 0.18 or 0.08, active and 0.1 or 0.08, active and 0.24 or 0.11, active and 0.9 or 0.6)
 t.topLine:SetColorTexture(0.75, 0.25, 1, active and 1 or 0)
 t.text:SetTextColor(active and 1 or 0.7, active and 1 or 0.7, active and 1 or 0.7)
 end
-local list = S.tab == 1 and mine or others
+local list = (S.tab == 1 and mine) or (S.tab == 2 and others) or lfgItems
 S.offset = math.max(0, math.min(S.offset, #list - S.ROWS))
 S.empty:SetText(S.tab == 1 and "You are not signed up for any event" or "No other upcoming events")
 if #list == 0 then S.empty:Show() else S.empty:Hide() end
 for i, row in ipairs(S.rows) do
 local item = list[i + S.offset]
-if item then
+row.item = nil
+row:SetAlpha(1)
+if item and S.tab == 3 then
+-- LFG: my listing, one row per activity (type, name; roles and the waiting time on the first row)
+row.item, row.ev = item, nil
+row.when:SetText(item.left)
+row.title:SetText(item.mid)
+row.count:SetText(item.right)
+row:Show()
+elseif item then
 local ev = item.ev
 row.ev = ev
 local today = date("%d.%m.%Y") == ev.date
@@ -2831,6 +2924,9 @@ end
 S.panel:SetScript("OnMouseWheel", function(_, delta) S.offset = S.offset - delta S.Render() end)
 -- Each time the window opens: the "Signed up" tab, from the top
 S.panel:SetScript("OnShow", function() S.tab, S.offset = 1, 0 S.Render() end)
+-- LFG changes redraw the column at once; the minutes count on every 30 s while the LFG tab is shown
+addonTable.LFG.SideRender = S.Render
+C_Timer.NewTicker(30, function() if S.tab == 3 then S.Render() end end)
 function S.ShowTooltip(row)
 local ev = row.ev
 if not ev then return end
@@ -2879,6 +2975,7 @@ SideGuilds.panel:SetPoint("TOPRIGHT", RightPanel, "BOTTOMRIGHT", 0, -SideGuilds.
 ApplyModernStyle(SideGuilds.panel)
 SideGuilds.header = SideGuilds.panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 SideGuilds.header:SetPoint("BOTTOMLEFT", SideGuilds.panel, "TOPLEFT", 12, 5)
+addonTable.Help.Button(SideGuilds.panel, "column", 4, "Guilds"):SetPoint("LEFT", SideGuilds.header, "RIGHT", 6, 0)
 -- Members of all listed guilds per class (the game gives no race or spec in the roster), 3 x 3 grid
 SideGuilds.classPanel = CreateFrame("Frame", nil, MainFrame, "BackdropTemplate")
 SideGuilds.classPanel:SetPoint("TOPLEFT", SideGuilds.panel, "BOTTOMLEFT", 0, -SideGuilds.HEADER_GAP)
@@ -2886,6 +2983,7 @@ SideGuilds.classPanel:SetPoint("TOPRIGHT", SideGuilds.panel, "BOTTOMRIGHT", 0, -
 ApplyModernStyle(SideGuilds.classPanel)
 SideGuilds.classHeader = SideGuilds.classPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 SideGuilds.classHeader:SetPoint("BOTTOMLEFT", SideGuilds.classPanel, "TOPLEFT", 12, 5)
+addonTable.Help.Button(SideGuilds.classPanel, "column", 5, "Classes"):SetPoint("LEFT", SideGuilds.classHeader, "RIGHT", 6, 0)
 function SideGuilds.Layout()
 -- Always SHOWN guild rows high; more guilds = mouse wheel, with a thin position bar (as Upcoming Events)
 local guildsH = SideGuilds.SHOWN * SideGuilds.ROW_H + 6
@@ -3007,6 +3105,7 @@ end
 SideGuilds.panel:SetScript("OnSizeChanged", function(self) if self:IsVisible() then SideGuilds.Render() end end)
 local HeaderText = RightPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 HeaderText:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 12, 18)
+addonTable.Help.Button(RightPanel, "column", 3, "Officers online"):SetPoint("LEFT", HeaderText, "RIGHT", 6, 0)
 local scrollFrame = CreateFrame("ScrollFrame", "JagodkiRightListScrollFrame", RightPanel, "FauxScrollFrameTemplate")
 scrollFrame:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 0, -5)
 scrollFrame:SetPoint("BOTTOMRIGHT", RightPanel, "BOTTOMRIGHT", -26, 5)
@@ -3114,6 +3213,7 @@ Most.RequestHistory()
 Mute.Request()
 C_Timer.After(2, function() EventSync.Request(true) end)
 C_Timer.After(4, Roster.RequestStale)
+C_Timer.After(6, function() addonTable.LFG.Request(true) end)
 end
 C_Timer.After(2, SyncAll)
 C_Timer.After(14, function()
@@ -3135,6 +3235,7 @@ C_Timer.After(4, Roster.RequestStale)
 C_Timer.After(6, addonTable.Professions.Resync)
 C_Timer.After(8, addonTable.Key.Request)
 C_Timer.After(10, addonTable.Officers.Request)
+C_Timer.After(12, function() addonTable.LFG.Request(true) end)
 return true
 end
 -- The "Sync now" button in Monitoring (monitor.lua) does the same
@@ -3143,6 +3244,19 @@ addonTable.ManualSync = EventSync.ManualSync
 -- relays pass it on like any packet). Receivers show the update note only when their version is older and
 -- the sender is an officer by the guild rosters (update.lua). At most every UPDATE_REMIND_COOLDOWN seconds.
 EventSync.UPDATE_REMIND_COOLDOWN, EventSync.lastUpdateRemind = 300, -300
+-- "Chat test" in Monitoring (officers): one CTEST packet to all guilds (GUILD and the relays); everyone with the
+-- addon shows the request to write on each community chat, when it comes from an officer by the rosters.
+-- At most every 5 minutes.
+EventSync.lastChatTest = -300
+function addonTable.SendChatTest()
+if not IsPlayerOfficer() then return false end
+local wait = 300 - (GetTime() - EventSync.lastChatTest)
+if wait > 0 then return false, math.ceil(wait) end
+EventSync.lastChatTest = GetTime()
+SendJagodkaNetworkPacket("CTEST", "1", "high")
+addonTable.Officers.ShowChatTest()
+return true
+end
 function addonTable.SendUpdateReminder()
 if not IsPlayerOfficer() then return false end
 local wait = EventSync.UPDATE_REMIND_COOLDOWN - (GetTime() - EventSync.lastUpdateRemind)
@@ -3228,8 +3342,13 @@ end)
 -- "I am online" signal every minute (no answer expected) + cleanup of logged-out players
 C_Timer.NewTicker(60, function()
 if announced then AddMyselfToActiveList() SendStatusPacket("PONG") end
--- Another addon (or a disconnect) may have removed us from the global channel, so we come back
-if not Most.GetChannelId() then Most.JoinChannel() end
+-- Another addon (or a disconnect) may have removed us from the global channel or the chat channel, so we
+-- come back. The chat channel is checked on its own: before, it was retried only with the public one.
+local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
+if not Most.GetChannelId() or keyMissing then
+addonTable.Monitor.Channel("Not on the " .. (keyMissing and "chat" or "public") .. " channel, joining again (" .. Most.ChannelListText() .. ")")
+Most.JoinChannel()
+end
 PruneOfflinePlayers()
 end)
 -- Guild roster refreshed every 20 s to quickly learn who logged out (e.g. the relay)
@@ -3298,10 +3417,17 @@ end
 CheckPlayerVersion(senderName, ver)
 local existingIndex = GetPlayerIndex(senderName)
 local playerData = { name = senderName, level = lvl, class = cls, guild = gld or "Brak", rank = rnk or "Brak", rankIndex = tonumber(rIdx), version = ver, zone = DecodeField(zone), lastSeen = GetTime() }
+-- The regular signal of a player we know with nothing new (most of them, every minute from each player):
+-- only the time is kept, no redrawing (with hundreds online the tables were redrawn several times a second)
+local old = existingIndex and activePlayers[existingIndex]
+local same = old and old.level == playerData.level and old.guild == playerData.guild and old.rank == playerData.rank
+and old.rankIndex == playerData.rankIndex and old.version == playerData.version and old.zone == playerData.zone and old.class == playerData.class
 if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
+if not same then
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
 if MainFrame:IsShown() then UpdateGuildTable() end
+end
 -- Only the relay answers, by whisper to the greeter (several PINGs during a relog = one answer). With hundreds
 -- of players everyone answering would flood the newcomer; they learn the relay at once and the rest from
 -- the regular status packets within a minute.
@@ -3321,12 +3447,17 @@ if not senderInfo and senderName ~= myName then addonTable.Monitor.Note("Ignored
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer
 if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsKnownOfficer(senderName, senderInfo.guild) end
-if pType == "UPD" then
+if pType == "CTEST" then
+-- An officer's chat test request: the big message for everyone (officers.lua); mine was shown when sent
+if senderName ~= myName and senderIsOfficer then addonTable.Officers.ShowChatTest() end
+elseif pType == "UPD" then
 -- An officer's reminder to update: only for an older version than theirs (update.lua)
 if senderName ~= myName and senderIsOfficer and CompareVersions(ADDON_VERSION, payload) < 0 then addonTable.Update.Remind(payload) end
 else
 -- Events (EH/ED/ES/EK/EX, sync EQ/EC): events.lua. Old EV_* packets (before 0.14.0) are ignored.
+if not addonTable.LFG.HandlePacket(pType, payload, senderName, channel) then
 addonTable.Events.HandlePacket(pType, payload, senderName, channel)
+end
 end
 end
 end

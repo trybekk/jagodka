@@ -299,14 +299,10 @@ function Professions.HandlePacket(pType, payload, senderName)
         if senderName == Most.MyName() or not IsAllowedPlayer(senderName) or not Most.ShouldAnswer() then return true end
         local entries = EntriesSince(senderName, tonumber(payload) or 0)
         if #entries == 0 then return true end
-        pendingRequests[senderName] = true
-        -- Random delay: one guildmate answers, the others see PCLAIM and give up
-        C_Timer.After(0.5 + math.random() * 2.5, function()
-            if not pendingRequests[senderName] then return end
-            pendingRequests[senderName] = nil
-            Most.Send("PCLAIM", senderName, "low")
-            SendEntries(senderName, entries, "low")
-        end)
+        -- Random delay: one guildmate answers, the others see PCLAIM and give up (Most.ClaimAndAnswer). The claim
+        -- goes high: as a low one it waited behind other packets and up to 30 guildmates answered.
+        Most.ClaimAndAnswer(pendingRequests, senderName, 0.5 + math.random() * 2.5, function() Most.Send("PCLAIM", senderName, "high") end,
+            function() SendEntries(senderName, entries, "low") end)
         return true
     elseif pType == "PREQN" then
         if senderName == Most.MyName() or not IsAllowedPlayer(senderName) or not Most.ShouldAnswer() then return true end
@@ -315,17 +311,12 @@ function Professions.HandlePacket(pType, payload, senderName)
         local entries = EntriesFor(senderName, list)
         if #entries == 0 then return true end
         local key = senderName .. "#" .. id
-        pendingRequests[key] = true
         -- A short random delay: the one who answers first sends PCLAIM, the others give up
-        C_Timer.After(0.2 + math.random() * 1.3, function()
-            if not pendingRequests[key] then return end
-            pendingRequests[key] = nil
-            Most.Send("PCLAIM", key, "high")
-            SendEntries(senderName, entries, "high")
-        end)
+        Most.ClaimAndAnswer(pendingRequests, key, 0.2 + math.random() * 1.3, function() Most.Send("PCLAIM", key, "high") end,
+            function() SendEntries(senderName, entries, "high") end)
         return true
     elseif pType == "PCLAIM" then
-        if senderName ~= Most.MyName() then pendingRequests[payload] = nil end
+        if senderName ~= Most.MyName() then Most.ClaimSeen(pendingRequests, payload, senderName) end
         if payload == Most.MyName() then answered = true end
         return true
     elseif pType == "PSYNC" then
