@@ -569,11 +569,14 @@ local function TogglePreserve()
         savedLog.recording = false
         _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording stopped. The log is written on /reload, logout or exit, to: " .. SavedFilePath())
     else
+        -- A new recording starts with an empty file: the previous log is removed at once (no relog needed)
+        wipe(savedLog.lines)
+        savedLog.nextIndex, savedLog.total = 1, 0
         savedLog.recording = true
         SaveSessionLine("Recording started")
         addonTable.Most.RefreshChannelList()
         SaveState()
-        _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording started.")
+        _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording started (the previous log was removed).")
     end
     UpdatePreserveButton()
 end
@@ -713,7 +716,7 @@ function Monitor.Attach(panel, c)
     preserveBtn:SetScript("OnClick", TogglePreserve)
     preserveBtn:SetScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:SetText("Saves this log for this character.\nThe game writes the file on /reload, logout or exit.\nFile: " .. SavedFilePath(), 1, 1, 1, 1, true)
+        _G.GameTooltip:SetText("Saves this log for this character.\nTurning it on starts a new log (the previous one is removed).\nThe game writes the file on /reload, logout or exit.\nFile: " .. SavedFilePath(), 1, 1, 1, 1, true)
         _G.GameTooltip:Show()
     end)
     preserveBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
