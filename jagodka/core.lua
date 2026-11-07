@@ -3202,6 +3202,8 @@ local p = activePlayers[i]
 local offlineInRoster = p.guild == myGuild and myGuildRosterLoaded and myGuildRoster[p.name] ~= true and now - (p.lastSeen or 0) > 30
 -- The same for another guild's player (e.g. its relay) once that guild's roster says offline (Roster.IsOnline)
 or (p.guild ~= myGuild and Roster.IsOnline(p.name, p.guild) == false and now - (p.lastSeen or 0) > 30)
+-- My own other character (the account plays one at a time), e.g. still listed as its guild's relay
+or Roster.IsMyOtherCharacter(p.name)
 if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONLINE_TIMEOUT) then table.remove(activePlayers, i) changed = true end
 end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end

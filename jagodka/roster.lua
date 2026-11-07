@@ -33,7 +33,10 @@ local MAX_ADDON_BYTES = 205  -- below the 255-byte limit with room for the relay
 local FULL_INTERVAL = 3600   -- full roster every 60 min (changes go as deltas in between); a big guild's is 100+ parts
 local FULL_COOLDOWN = 60     -- a full roster at most once per minute
 local ASK_COOLDOWN = 300     -- the relay asks for the same guild's roster at most this often (s)
-local ANSWER_COOLDOWN = 600  -- requests are answered with a full roster at most this often (a big one takes minutes)
+local ANSWER_COOLDOWN = 1800 -- requests are answered with a full roster at most this often (a big one takes minutes;
+                             -- at 600 a guild of 1000 sent its 128-part roster every 15-20 min, the 2026-11-07 log)
+local NEARLY_WHOLE = 0.95    -- a roster with this share of its parts counts as fresh for asking (parts get lost on the
+                             -- way through the relays, and one missing part made the other guild ask again and again)
 local RETRY_AFTER = 300      -- after this many seconds we ask again for a roster that did not arrive whole
 local MAX_RETRIES = 2        -- how many times we ask again
 local STILL_ARRIVING = 60    -- a roster with a part newer than this many seconds is still on its way
@@ -58,7 +61,8 @@ local lastFull, lastFullSlot, lastSent = 0, nil, {}
 -- When a guildmate last started sending our guild's full roster: the senders' views of who is online can
 -- differ for a moment, and two of them sent the same 100+ part roster at once
 local lastOwnFullAt = -math.huge
-local OWN_FULL_WAIT = 15     -- the sender waits a random 0..this many seconds and skips if someone else started
+local OWN_FULL_WAIT = 45     -- the sender waits a random 0..this many seconds and skips if someone else started
+                             -- (at 15 two senders still started in the same second)
 local incoming = {} -- guild -> { last = time of the last part, snaps = { [snap] = { got = { [idx] = true }, count, names, last } } }
 
 local function MyGuild() return (GetGuildInfo("player")) end
@@ -223,12 +227,23 @@ end
 
 -- EVERYONE computes changes since the previous check (everyone sees the same roster), only the
 -- sender sends them, so changing the sender does not require a full roster.
--- Status only: "+Name" / "-Name"; new member or different level/rank: full entry.
+-- Status only: "+Name" / "-Name"; new member or different level/rank: full entry; "!Name" = left the guild
+-- (from 0.14.1: before, only the next whole roster removed players who left, while new members came at once,
+-- so a full guild showed more than 1000 members; older versions skip "!" entries).
 local function SendDelta(send)
     local guild = MyGuild()
     local g = guild and rosters[guild]
     if not g then return end
     local entries = {}
+    -- Only from a whole roster (show offline on): with offline players hidden, a missing name may just be offline
+    if g.complete then
+        for name in pairs(lastSent) do
+            if not g.members[name] then
+                lastSent[name] = nil
+                table.insert(entries, "!" .. name)
+            end
+        end
+    end
     for name, m in pairs(g.members) do
         local e, old = EncodeEntry(name, m), lastSent[name]
         if old ~= e then
@@ -288,7 +303,7 @@ RetryRequests = function()
     local list, waiting = {}, false
     for guild, askedAt in pairs(asked) do
         local g, inc = rosters[guild], incoming[guild]
-        if (g and (g.fullAt or 0) >= askedAt) or not Most.GetRelayName(guild) then
+        if (g and math.max(g.fullAt or 0, g.nearlyAt or 0) >= askedAt) or not Most.GetRelayName(guild) then
             asked[guild] = nil
         elseif inc and GetTime() - (inc.last or 0) < STILL_ARRIVING then
             -- Parts are still coming: wait instead of asking again
@@ -321,7 +336,8 @@ local function RequestStale()
         -- No whole roster yet, or the last whole one is older than a full interval: changes alone (RD) also
         -- make "updated" fresh, but they never add the members that did not change
         local arriving = incoming[guild] and GetTime() - (incoming[guild].last or 0) < STILL_ARRIVING
-        if guild ~= MyGuild() and (not g or not g.fullAt or now - g.fullAt > FRESH_FOR) and Most.GetRelayName(guild)
+        local freshAt = g and math.max(g.fullAt or 0, g.nearlyAt or 0) or 0
+        if guild ~= MyGuild() and now - freshAt > FRESH_FOR and Most.GetRelayName(guild)
             and not arriving and now - (lastAskedAt[guild] or 0) >= ASK_COOLDOWN then
             lastAskedAt[guild] = now
             table.insert(list, Enc(guild))
@@ -353,7 +369,11 @@ end
 local function Upsert(g, list, names)
     for e in list:gmatch("[^;]+") do
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
-        if flag then
+        local left = e:match("^!([^,]+)$")
+        if left then
+            -- Left the guild
+            g.members[Most.PlayerKey(left)] = nil
+        elseif flag then
             -- Status change only (the next full roster adds an unknown player)
             local m = g.members[Most.PlayerKey(statusName)]
             if m then m.o = (flag == "+") end
@@ -404,6 +424,13 @@ function Roster.HandlePacket(pType, payload, senderName)
         end
         Upsert(g, list, s.names)
         g.updated = GetServerTime()
+        -- Nearly whole: fresh enough to stop asking (nearlyAt), but nobody is removed and it does not decide
+        -- membership (fullAt stays for a whole roster), since the missing parts may hold anyone
+        if s.count < total and not s.nearly and s.count >= math.ceil(total * NEARLY_WHOLE) then
+            s.nearly = true
+            g.nearlyAt = GetServerTime()
+            if addonTable.Monitor then addonTable.Monitor.Note("Roster of " .. guild .. " from " .. senderName .. " nearly whole (" .. s.count .. "/" .. total .. " parts): no new request") end
+        end
         -- All parts received: anyone missing from the full roster left the guild (or is offline,
         -- when the sender has "show offline" turned off)
         if s.count >= total then
@@ -474,6 +501,27 @@ local function IsLive(guild)
 end
 Roster.IsLive = IsLive
 
+-- My own other characters: the account can have only one character in the game at a time, so while I play
+-- this one, the others are offline, even when their guild's roster has not said so yet (nobody with the addon
+-- online there to report the logout). Kept account-wide in JagodkiChatDB.myCharacters (name -> realm).
+local function MyCharacters()
+    _G.JagodkiChatDB = _G.JagodkiChatDB or {}
+    _G.JagodkiChatDB.myCharacters = _G.JagodkiChatDB.myCharacters or {}
+    return _G.JagodkiChatDB.myCharacters
+end
+function Roster.IsMyOtherCharacter(name)
+    return name ~= nil and name ~= Most.MyName() and MyCharacters()[name] == _G.GetRealmName()
+end
+local MyOther = Roster.IsMyOtherCharacter
+do
+    local remember = CreateFrame("Frame")
+    remember:RegisterEvent("PLAYER_ENTERING_WORLD")
+    remember:SetScript("OnEvent", function()
+        local name = Most.MyName()
+        if name and name ~= "" then MyCharacters()[name] = _G.GetRealmName() end
+    end)
+end
+
 function Roster.GetGuildSummary(guild)
     local g = rosters[guild]
     local live = IsLive(guild)
@@ -482,13 +530,14 @@ function Roster.GetGuildSummary(guild)
         for name, m in pairs(g.members) do
             seen[name] = true
             total = total + 1
-            if live and m.o then online = online + 1 end
+            if live and m.o and not MyOther(name) then online = online + 1 end
         end
     end
-    -- Players with the addon whose roster has not arrived yet
-    if ctx then
+    -- Players with the addon whose roster has not arrived yet (only until a whole roster has come: after it,
+    -- someone missing from it is not counted twice, e.g. a player who has just moved to another guild)
+    if ctx and not (g and g.fullAt) then
         for _, p in ipairs(ctx.activePlayers) do
-            if p.guild == guild and not seen[p.name] then
+            if p.guild == guild and not seen[p.name] and not MyOther(p.name) then
                 total, online = total + 1, online + 1
             end
         end
@@ -549,6 +598,7 @@ end
 function Roster.IsOnline(name, guild)
     local g = guild and rosters[guild]
     local m = g and g.members[name]
+    if MyOther(name) then return false end
     if not m or GetServerTime() - (g.updated or 0) > ONLINE_INFO_FOR then return nil end
     return m.o == true
 end
@@ -568,7 +618,7 @@ function Roster.ClassCounts()
                     local c = counts[m.c] or { total = 0, online = 0 }
                     counts[m.c] = c
                     c.total = c.total + 1
-                    if live and m.o then c.online = c.online + 1 end
+                    if live and m.o and not MyOther(name) then c.online = c.online + 1 end
                 end
             end
         end
@@ -610,7 +660,7 @@ function Roster.BuildList(showOffline)
     for _, p in ipairs(ctx.activePlayers) do
         -- Another guild's player whose roster already says offline (e.g. a relay who just logged out) is
         -- taken from the roster below instead, as offline, without waiting for the online timeout
-        if p.guild == myGuild or Roster.IsOnline(p.name, p.guild) ~= false or GetTime() - (p.lastSeen or 0) <= 30 then
+        if not MyOther(p.name) and (p.guild == myGuild or Roster.IsOnline(p.name, p.guild) ~= false or GetTime() - (p.lastSeen or 0) <= 30) then
             seen[p.name] = true
             -- Location: the game's roster for my guild (fresher), otherwise what the player sent
             local own = p.guild == myGuild and rosters[myGuild] and rosters[myGuild].members[p.name]
@@ -622,7 +672,7 @@ function Roster.BuildList(showOffline)
         if ctx.isGuildAllowed(guild) then
             local live = IsLive(guild)
             for name, m in pairs(g.members) do
-                local online = m.o and live
+                local online = m.o and live and not MyOther(name)
                 if not seen[name] and (online or showOffline) then
                     seen[name] = true
                     table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = (online and guild == myGuild and m.z ~= "") and m.z or nil, online = online })
