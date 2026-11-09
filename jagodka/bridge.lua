@@ -425,6 +425,7 @@ end
 local GUILD_TAGS = {
     ["Jagódki Nadina"] = "JN",
     ["Jagódki Nadina II"] = "JN2",
+    ["Jagódki Nadina IIl"] = "JN3",   -- the third guild ("III" is not allowed by the game)
     ["Jagódki Nadina IV"] = "JN4",
     ["Jagódki Nadina V"] = "JN5",
     ["Jagódki Nadina VI"] = "JN6",

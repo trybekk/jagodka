@@ -48,10 +48,11 @@ end
 -- 0B. SHARED CHANNEL AND GUILD WHITELIST CONFIGURATION
 -- ============================================================================
 local AllowedGuilds = {}
--- Community guilds: "Jagódki Nadina", "... II", "... IV", "... V", "... VI". There is no "III": the game does
--- not allow three identical characters in a row in a guild name, so that guild could not be created.
+-- Community guilds: "Jagódki Nadina", "... II", "... IIl", "... IV", "... V", "... VI". There is no "III": the
+-- game does not allow three identical characters in a row in a guild name, so the third guild is "IIl" (two
+-- capital i and a small L, which looks like III; from 0.15.1, tag JN3).
 -- Another guild = another suffix and an addon version bump. Chat tags: GUILD_TAGS in bridge.lua.
-for _, suffix in ipairs({ "", " II", " IV", " V", " VI" }) do
+for _, suffix in ipairs({ "", " II", " IIl", " IV", " V", " VI" }) do
     AllowedGuilds["Jagódki Nadina" .. suffix] = true
 end
 -- Listed but not created yet: hidden in the Guilds tab and the guilds panel only (still on the list above,
