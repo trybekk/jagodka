@@ -309,10 +309,14 @@ end
 local function TagBeforeSend(box, send)
     if send ~= 1 or not box then return end
     local mode = InputMode(box)
-    local tag = mode and MODES[mode].tag
-    if not tag then return end
+    if not mode or mode == "Oficerowie" then return end
     local text = box:GetText() or ""
-    if text:find("%S") and not text:find("^%s*/") and text:sub(1, #tag) ~= tag then box:SetText(tag .. text) end
+    if not text:find("%S") or text:find("^%s*/") then return end
+    local tag = MODES[mode].tag
+    if tag and text:sub(1, #tag) ~= tag then box:SetText(tag .. text) end
+    -- 0.15.2: the message must come back from the channel, or it goes through the relays (bridge.lua)
+    local plain = (tag and text:sub(1, #tag) == tag) and text:sub(#tag + 1) or text
+    if Most.ExpectEcho and not addonTable.Mute.IsMuted(Most.MyName()) then Most.ExpectEcho(mode, plain) end
 end
 
 -- "/jntrade" + Tab or a space: switches the input to that mode (like "/g " in the game)

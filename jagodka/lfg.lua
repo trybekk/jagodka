@@ -363,6 +363,102 @@ function LFG.InviteToEvent(name, ev)
     _G.SendChatMessage(text, "WHISPER", nil, Most.GameName(name))
 end
 
+-- ============================================================================
+-- "LOOKING FOR..." ON THE COMMUNITY CHAT (0.15.2)
+-- ============================================================================
+-- When I write on the community General or LFG chat that I am looking for a group for something ("szukam
+-- kogos na DM", "LFG SFK", "lfm strat") and players are listed in LFG for the same activity, a hint shows
+-- for me alone, with their names and an [Open in LFG] link. Nothing is sent: the game lets the addon write
+-- on a channel only from a key press or a click, and an automatic answer from hundreds of clients would be
+-- spam. The same activity is hinted at most every HINT_AGAIN.
+local HINT_AGAIN = 300
+local hintedAt = {}
+local SEEK_WORDS = { "lfg", "lfm", "lf", "lf1m", "lf2m", "lf3m", "lf4m", "szukam", "szuka", "szukamy", "szukacie", "kto na", "ktos na",
+    "ktos idzie", "kto idzie", "chetni", "chetny", "need", "potrzebny", "potrzebna", "potrzebuje", "brakuje", "wbijam", "ide na" }
+-- Short names players use; one may mean several (DM: the Deadmines at low level, Dire Maul at 60)
+local ALIASES = {
+    rfc = { "Ragefire Chasm" }, wc = { "Wailing Caverns" }, dm = { "The Deadmines", "Dire Maul" }, vc = { "The Deadmines" },
+    deadmines = { "The Deadmines" }, sfk = { "Shadowfang Keep" }, bfd = { "Blackfathom Deeps" }, stocks = { "The Stockade" },
+    stockade = { "The Stockade" }, gnomer = { "Gnomeregan" }, rfk = { "Razorfen Kraul" }, sm = { "Scarlet Monastery" },
+    cath = { "Scarlet Monastery" }, rfd = { "Razorfen Downs" }, ulda = { "Uldaman" }, uld = { "Uldaman" }, zf = { "Zul'Farrak" },
+    mara = { "Maraudon" }, st = { "Sunken Temple" }, brd = { "Blackrock Depths" }, lbrs = { "Lower Blackrock Spire" },
+    ubrs = { "Upper Blackrock Spire" }, strat = { "Stratholme" }, strath = { "Stratholme" }, scholo = { "Scholomance" },
+    scholo2 = { "Scholomance" }, zg = { "Zul'Gurub" }, aq20 = { "Ruins of Ahn'Qiraj" }, mc = { "Molten Core" }, ony = { "Onyxia's Lair" },
+    onyxia = { "Onyxia's Lair" }, bwl = { "Blackwing Lair" }, aq40 = { "Temple of Ahn'Qiraj" }, naxx = { "Naxxramas" },
+    wsg = { "Warsong Gulch" }, ab = { "Arathi Basin" }, av = { "Alterac Valley" },
+}
+-- Lower case, Polish letters without accents, only letters / digits / spaces, with a space on both ends
+local PL = { ["ą"] = "a", ["ć"] = "c", ["ę"] = "e", ["ł"] = "l", ["ń"] = "n", ["ó"] = "o", ["ś"] = "s", ["ź"] = "z", ["ż"] = "z",
+    ["Ą"] = "a", ["Ć"] = "c", ["Ę"] = "e", ["Ł"] = "l", ["Ń"] = "n", ["Ó"] = "o", ["Ś"] = "s", ["Ź"] = "z", ["Ż"] = "z" }
+local function Norm(s)
+    s = tostring(s or ""):gsub("|H.-|h(.-)|h", "%1"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    s = s:gsub("[\196\197\195][\128-\191]", function(ch) return PL[ch] or ch end):lower()
+    s = s:gsub("'", ""):gsub("[^%w]+", " ")
+    return " " .. s .. " "
+end
+local function NormName(n) return Norm(n):gsub("^ the ", " ") end
+
+-- The activities my message names, as listing activity names (only those someone is listed for count later)
+local function NamedActivities(text)
+    local msg = Norm(text)
+    local seeking = false
+    for _, w in ipairs(SEEK_WORDS) do if msg:find(" " .. w .. " ", 1, true) then seeking = true break end end
+    if not seeking then return nil end
+    local names = {}
+    for word in msg:gmatch("%S+") do
+        for _, n in ipairs(ALIASES[word] or {}) do names[n] = true end
+    end
+    -- Full names (and zones for questing) of what is listed right now
+    for _, l in ipairs(listings) do
+        for _, a in ipairs(l.acts) do
+            local n = NormName(a.n)
+            if #n > 4 and msg:find(n, 1, true) then names[a.n] = true end
+        end
+    end
+    return names
+end
+
+function LFG.CheckOwnMessage(text)
+    local names = NamedActivities(text)
+    if not names then return end
+    local me = Most().MyName()
+    for name in pairs(names) do
+        if GetTime() - (hintedAt[name] or -HINT_AGAIN) >= HINT_AGAIN then
+            local who = {}
+            for _, l in ipairs(listings) do
+                if l ~= mine and l.name ~= me and not l.offlineSince then
+                    for _, a in ipairs(l.acts) do
+                        if a.n == name then table.insert(who, l.name) break end
+                    end
+                end
+            end
+            if #who > 0 then
+                hintedAt[name] = GetTime()
+                local shown = {}
+                for i = 1, math.min(5, #who) do shown[i] = who[i] end
+                local text = (#who == 1 and "1 player is" or (#who .. " players are")) .. " looking for |cffffd100" .. name .. "|r in LFG right now: "
+                    .. table.concat(shown, ", ") .. (#who > 5 and (" and " .. (#who - 5) .. " more") or "") .. ". "
+                    .. "|cff6cc4e6|Hgarrmission:jagodkalfg:" .. name .. "|h[Open in LFG]|h|r" .. (mine and "" or " - or list yourself there.")
+                local frame = (addonTable.Zakladka and addonTable.Zakladka.Frame and addonTable.Zakladka.Frame()) or _G.DEFAULT_CHAT_FRAME
+                if frame then frame:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end
+                -- And in the addon window's chat (a line for me alone, never sent)
+                addonTable.Most.AddSystem(text)
+                if addonTable.Monitor then addonTable.Monitor.Note("LFG: hint for my message about " .. name .. " (" .. #who .. " listed)") end
+            end
+        end
+    end
+end
+
+-- My own messages on the community General and LFG chats (bridge.lua's log; not my own LFG notice)
+addonTable.Most.OnNewEntry(function(e, live)
+    if not live or e.src ~= "A" or e.author ~= addonTable.Most.MyName() then return end
+    if e.tab ~= "Ogolny" and e.tab ~= "Szukaj grupy" then return end
+    if type(e.text) ~= "string" or e.text:find("^!lfg ") then return end
+    local text = e.text
+    -- A moment later, so the hint shows under my message
+    addonTable.SafeTimer.After(0.3, function() LFG.CheckOwnMessage(text) end)
+end)
+
 -- A click on [Open in LFG] in any chat: the addon window on the LFG tab, searching for that player
 function LFG.Open(name)
     if not ctx or not ctx.open then return end
@@ -651,6 +747,7 @@ local function ShowTooltip(row, anchor)
     tip:AddLine(color and color:WrapTextInColorCode(l.name) or l.name)
     tip:AddLine("Level " .. tostring(l.level) .. " " .. tostring(_G.LOCALIZED_CLASS_NAMES_MALE and _G.LOCALIZED_CLASS_NAMES_MALE[l.class] or l.class) .. ", " .. tostring(l.guild), 0.8, 0.8, 0.8)
     tip:AddLine("Roles: " .. RolesText(l.roles), 1, 1, 1)
+    if addonTable.Discord then addonTable.Discord.AddLine(tip, l.name) end
     tip:AddLine(" ")
     for _, a in ipairs(l.acts) do
         local t = TYPE_BY_KEY[a.t] or TYPE_BY_KEY.other

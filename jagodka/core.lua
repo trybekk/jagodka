@@ -945,6 +945,13 @@ info.text, info.notCheckable = "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:14:14
 info.func = function() EventSync.Kick(event, target) end
 _G.UIDropDownMenu_AddButton(info, level)
 end
+-- Their Discord name, when they shared one (discord.lua): a window to copy it
+if addonTable.Discord.Get(target) then
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Copy Discord name (" .. addonTable.Discord.Get(target) .. ")", true
+info.func = function() addonTable.Discord.Copy(target) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
 -- Mute / Unmute as in the chat menu (permissions: mute.lua)
 local muted, me = Mute.IsMuted(target), Most.MyName()
 if (muted and Mute.CanUnmute(me)) or (not muted and Mute.CanMute(me, target)) then
@@ -3472,7 +3479,8 @@ elseif pType == "UPD" then
 if senderName ~= myName and senderIsOfficer and CompareVersions(ADDON_VERSION, payload) < 0 then addonTable.Update.Remind(payload) end
 else
 -- Events (EH/ED/ES/EK/EX, sync EQ/EC): events.lua. Old EV_* packets (before 0.14.0) are ignored.
-if not addonTable.LFG.HandlePacket(pType, payload, senderName, channel) then
+if not addonTable.LFG.HandlePacket(pType, payload, senderName, channel)
+and not addonTable.Discord.HandlePacket(pType, payload, senderName, channel) then
 addonTable.Events.HandlePacket(pType, payload, senderName, channel)
 end
 end
@@ -3521,6 +3529,16 @@ end
 if msg and msg:lower():match("^%s*key%s*$") then
 local text = addonTable.Key.Create("/jagodka key", true) and "New chat channel key sent to the community." or "Only officers can create a new chat channel key."
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r " .. text) end
+return
+end
+-- "/jagodka perf [on|off|reset]" = the profiler (safe.lua): on / off, and without a word the report
+if msg and msg:lower():match("^%s*perf") then
+local word = msg:lower():match("^%s*perf%s+(%a+)")
+local P = addonTable.Perf
+local out = _G.DEFAULT_CHAT_FRAME
+if word == "on" or word == "reset" then P.Start() if out then out:AddMessage("|cffbf40ff[Jagodka]|r Profiler on. Play a while, then /jagodka perf for the report, /jagodka perf off to stop.") end
+elseif word == "off" then P.stoppedAt = GetTime() P.Stop() if out then out:AddMessage("|cffbf40ff[Jagodka]|r Profiler off. /jagodka perf shows what it measured.") end
+elseif out then for _, line in ipairs(P.Report()) do out:AddMessage("|cffbf40ff[Jagodka]|r " .. line) end end
 return
 end
 -- "/jagodka tab" = recreate the "Jagodki Nadina" tab in the game chat (chattab.lua)

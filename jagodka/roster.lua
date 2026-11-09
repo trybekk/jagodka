@@ -45,6 +45,7 @@ local ONLINE_INFO_FOR = 600  -- another guild's roster tells who is online only 
 local READY_DELAY = 65       -- after login we wait until we know the others (otherwise everyone thinks they are the sender);
                              -- only the relay answers a PING, the rest is known from their regular status packet (every 60 s)
 local SENDER_ROTATION = 300  -- the roster sender changes every this many seconds
+local GUILD_CAP = 1000      -- the game's limit of members in a guild (the summary never shows more)
 local FRESH_FOR = FULL_INTERVAL + 300 -- a whole roster this old still decides who is a member (one full roster + 5 min)
 
 local Roster = {}
@@ -556,6 +557,10 @@ function Roster.GetGuildSummary(guild)
             end
         end
     end
+    -- A guild holds at most 1000 members (the game's cap, it never changes): a roster that has not yet
+    -- dropped a few who left (JN2 showed 1009) is shown as 1000
+    total = math.min(total, GUILD_CAP)
+    online = math.min(online, total)
     return { live = live, total = total, online = online, updated = g and g.updated }
 end
 

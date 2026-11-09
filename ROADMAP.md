@@ -32,7 +32,7 @@ Zasady bez zmian:
 
 ---
 
-## 0.15.2: stabilność i płynność (małe ryzyko)
+## 0.15.2: stabilność i płynność (wydana razem z poprawką czatu, nickami Discorda i podpowiedziami LFG)
 
 1. **Poprawki błędów, które pokaże `safe.lua`.** Pierwszy log z 0.15.1 powie, co naprawdę się wysypuje.
 2. **Rozłożone tickery:** każdy cykliczny timer startuje z losowym opóźnieniem (do 60 s), żeby kilkanaście tickerów nie ruszało w tej samej klatce. To mniej przycięć co minutę. Zmiana w jednym miejscu (`SafeTimer.NewTicker`).

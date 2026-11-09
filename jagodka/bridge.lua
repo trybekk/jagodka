@@ -651,6 +651,7 @@ local function OwnEchoArrived()
     channelEchoSeen = true
     local rec = awaitingEcho[1]
     if not rec then return end
+    if rec.fromGameTab and addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab came back from the chat channel") end
     rec.parts = rec.parts - 1
     if rec.parts <= 0 then table.remove(awaitingEcho, 1) end
 end
@@ -692,6 +693,31 @@ function Most.SayOnChannel(tab, text)
         addonTable.Monitor.Channel("Own message sent on " .. which .. (#parts > 1 and (", " .. #parts .. " parts") or ""))
     end
     return true
+end
+
+-- A message typed in the community tab of the game chat: the game sends it on the chat channel itself (chattab.lua
+-- calls this right before). It gets the same check as the addon window's: when it does not come back from the
+-- channel within ECHO_WAIT, it goes through the relays. Before 0.15.2 such messages had no check at all, so
+-- when the channel did not take them (the server refused them, e.g. a channel set to moderated) nobody saw them
+-- and nothing showed in the log (a report of 09.11: "nobody sees my messages, I see theirs").
+local lastExpected = { text = nil, at = 0 }
+function Most.ExpectEcho(tab, text)
+    if not text or text == "" then return end
+    -- The game's input may run its parse hook twice for one message (the global function and the input's
+    -- own method): one check per message
+    if lastExpected.text == text and GetTime() - lastExpected.at < 1 then return end
+    lastExpected.text, lastExpected.at = text, GetTime()
+    local rec = { tab = tab, text = text, guild = MyGuild(), parts = 1, fromGameTab = true }
+    table.insert(awaitingEcho, rec)
+    if addonTable.Monitor then addonTable.Monitor.Channel("Own message sent on the chat channel from the game chat tab") end
+    C_Timer.After(ECHO_WAIT, function()
+        if rec.parts <= 0 then return end
+        for i, r in ipairs(awaitingEcho) do
+            if r == rec then table.remove(awaitingEcho, i) break end
+        end
+        if addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab did not come back from the channel, resent through the relays", true) end
+        if rec.guild and Most.IsGuildAllowed(rec.guild) then Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild) end
+    end)
 end
 
 -- Publishes a message typed by the player: on the channel, or through the relays when there is no channel
@@ -924,6 +950,7 @@ local OWN_GUILD_ONLY = {
     PING = true, PONG = true, KREQ = true,
     HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true, LQ = true, LC = true,
     PREQ = true, PREQN = true, PCLAIM = true,
+    DQ = true, DC = true,   -- Discord names (discord.lua)
 }
 
 function Most.Route(text, channel, senderName)
@@ -1132,6 +1159,7 @@ end
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE_USER")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
@@ -1141,8 +1169,12 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
         relayReadyAt = GetTime() + RELAY_READY_DELAY
         return
     end
-    -- Chat events with secret text (dungeons): skipped, see Most.IsSecret
-    if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, select(7, ...)) then return end
+    -- Chat events with secret text (dungeons): skipped, see Most.IsSecret. Only what we read is checked: the
+    -- text, the author, the channel name (9th) and the line ID (11th). 0.15.1 checked every argument, the
+    -- sender's GUID and flags included, which the addon never reads; when one of them was secret for the
+    -- reader (e.g. a player of another sub-realm on WoW: Forever) the whole message was dropped, so a player
+    -- whose messages everyone had seen on 0.15.0 was seen by nobody on 0.15.1 (report of 09.11).
+    if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, (select(7, ...)), (select(9, ...))) then return end
     if event == "CHAT_MSG_SYSTEM" then
         -- "X has gone offline": a logged-out player (e.g. switching characters) loses the relay role at once
         local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")
@@ -1168,6 +1200,20 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
         if name == ChannelName() then HandleChannelList(arg1)
         elseif name ~= nil and name == KeyChannelName() then HandleChannelList(arg1, true)
         elseif name ~= nil and addonTable.Officers and name == addonTable.Officers.ChannelName() then addonTable.Officers.HandleList(arg1) end
+        return
+    end
+    -- Moderation on our channels (0.15.2): mutes, kicks, bans, moderators, owner changes, a channel set to
+    -- moderated (then only moderators may speak). Logged, so a chat that stops for some players shows why.
+    if event == "CHAT_MSG_CHANNEL_NOTICE_USER" then
+        local base = select(7, ...)
+        if addonTable.Monitor and type(base) == "string" then
+            local low, keyName, offName = base:lower(), KeyChannelName(), addonTable.Officers and addonTable.Officers.ChannelName()
+            local which = (low == ChannelName():lower() and "public") or (keyName and low == keyName:lower() and "chat")
+                or (offName and low == offName:lower() and "officers") or nil
+            local actor = select(3, ...)
+            if which then addonTable.Monitor.Channel("Channel event (" .. which .. "): " .. tostring(arg1) .. " " .. tostring(arg2 or "")
+                .. ((actor and actor ~= "") and (" by " .. tostring(actor)) or ""), true) end
+        end
         return
     end
     if event == "CHAT_MSG_CHANNEL_NOTICE" then

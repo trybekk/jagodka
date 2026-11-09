@@ -98,9 +98,11 @@ end
 -- ============================================================================
 local SECTIONS = {
     { key = "chats", title = "Chats", icon = "Interface\\GossipFrame\\GossipGossipIcon" },
+    { key = "profile", title = "Profile", icon = "Interface\\FriendsFrame\\UI-Toast-ChatInviteIcon" },
 }
 
 local panel, ctx, nav, content, selected = nil, nil, nil, nil, "chats"
+local profile = nil   -- the Profile section (Discord name, discord.lua)
 local checks, channelChecks = {}, {}
 
 local function NewCheck(parent, label, onClick)
@@ -120,6 +122,12 @@ local function Render()
         local active = item.key == selected
         item.bg:SetColorTexture(active and 0.18 or 1, active and 0.1 or 1, active and 0.24 or 1, active and 0.9 or 0)
         item.bar:SetShown(active)
+    end
+    -- One section at a time: Chats (content) or Profile
+    content:SetShown(selected == "chats")
+    if profile then
+        profile:SetShown(selected == "profile")
+        if selected == "profile" and not profile.box:HasFocus() then profile.box:SetText(addonTable.Discord and addonTable.Discord.Mine() or "") end
     end
     for _, c in ipairs(checks) do c:SetChecked(cfg.groups[c.key] and true or false) end
     -- The officers chat only for officers
@@ -231,4 +239,55 @@ function Settings.Attach(p, c)
     content.noChannels:SetPoint("TOPLEFT", content.channelsHeader, "BOTTOMLEFT", 0, -8)
     content.noChannels:SetText("You are not on any game channel right now.")
     panel:SetScript("OnShow", Render)
+
+    -- PROFILE: the Discord name others see on hover (discord.lua); saved for the account
+    profile = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    profile:SetPoint("TOPLEFT", nav, "TOPRIGHT", 8, 0)
+    profile:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    ctx.applyStyle(profile)
+    profile:Hide()
+    profile.title = profile:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    profile.title:SetPoint("TOPLEFT", profile, "TOPLEFT", 16, -14)
+    profile.title:SetText("Profile")
+    if addonTable.Help then addonTable.Help.Button(profile, "settings", 1, "Settings"):SetPoint("LEFT", profile.title, "RIGHT", 8, 0) end
+    profile.line = profile:CreateTexture(nil, "ARTWORK")
+    profile.line:SetHeight(1)
+    profile.line:SetPoint("TOPLEFT", profile, "TOPLEFT", 16, -38) profile.line:SetPoint("TOPRIGHT", profile, "TOPRIGHT", -16, -38)
+    profile.line:SetColorTexture(0.75, 0.25, 1, 0.5)
+    profile.intro = profile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    profile.intro:SetPoint("TOPLEFT", profile, "TOPLEFT", 16, -48)
+    profile.intro:SetPoint("RIGHT", profile, "RIGHT", -16, 0)
+    profile.intro:SetJustifyH("LEFT")
+    profile.intro:SetText("Share your Discord name with the community, if you like: players of our guilds see it in one small line when they hover any of your characters, and can copy it from the Roster menu. It reaches everyone within minutes and stays. Saved for your account (all your characters). Leave it empty and save to stop sharing it.")
+    profile.label = profile:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    profile.label:SetPoint("TOPLEFT", profile.intro, "BOTTOMLEFT", 0, -18)
+    profile.label:SetText("Discord name")
+    profile.box = CreateFrame("EditBox", nil, profile, "InputBoxTemplate")
+    profile.box:SetSize(220, 26)
+    profile.box:SetPoint("TOPLEFT", profile.label, "BOTTOMLEFT", 6, -6)
+    profile.box:SetAutoFocus(false)
+    profile.box:SetMaxLetters(37)
+    profile.status = profile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    profile.status:SetPoint("TOPLEFT", profile.box, "BOTTOMLEFT", -6, -10)
+    profile.status:SetPoint("RIGHT", profile, "RIGHT", -16, 0)
+    profile.status:SetJustifyH("LEFT")
+    local function SaveDiscord()
+        if not addonTable.Discord then return end
+        local ok, why = addonTable.Discord.SetMine(profile.box:GetText())
+        profile.box:ClearFocus()
+        if ok then
+            local mine = addonTable.Discord.Mine()
+            profile.status:SetText(mine ~= "" and ("|cff00ff00Saved.|r Others see: |TInterface\\FriendsFrame\\UI-Toast-ChatInviteIcon:14:14:0:0|t |cff7289da" .. mine .. "|r")
+                or "|cff00ff00Saved.|r You are not sharing a Discord name.")
+        else
+            profile.status:SetText("|cffff5555" .. why .. "|r")
+        end
+    end
+    profile.save = CreateFrame("Button", nil, profile, "GameMenuButtonTemplate")
+    profile.save:SetSize(90, 26)
+    profile.save:SetPoint("LEFT", profile.box, "RIGHT", 10, 0)
+    profile.save:SetText("Save")
+    profile.save:SetScript("OnClick", SaveDiscord)
+    profile.box:SetScript("OnEnterPressed", SaveDiscord)
+    profile.box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 end

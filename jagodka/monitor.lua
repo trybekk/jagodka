@@ -54,6 +54,7 @@ local TYPES = {
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
     UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" },
+    DI = { "presence", "Discord name" }, DQ = { "presence", "Discord names request" }, DC = { "presence", "Discord names request taken" }, DL = { "presence", "Discord names" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
 local FILTERS = {
