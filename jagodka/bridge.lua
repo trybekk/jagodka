@@ -706,9 +706,9 @@ end
 -- community is split, and my own messages go through the guild and the relays too (they reach every sub-realm;
 -- a reader who gets both copies shows one: HasSameMessage). Not split = the channel alone, as before.
 -- ============================================================================
-local SPLIT_CHECK_EVERY = 120   -- how often the member list is read (s)
+local SPLIT_CHECK_EVERY = 300   -- how often the member list is read (s); 5 min: a long list for every client, so not often
 local keyChannelMembers = {}    -- name -> when last seen on the chat channel's member list
-local SPLIT_MIN_MISSING = 2     -- this many known online addon players missing from my channel = split
+local SPLIT_MIN_MISSING = 3     -- this many known online addon players missing from my channel = split (3: fewer false alarms right after logins)
 local splitMissing = {}         -- names of the last check that were missing
 local split = false
 Most.MyRealm = function() return _G.GetNormalizedRealmName and _G.GetNormalizedRealmName() or nil end
