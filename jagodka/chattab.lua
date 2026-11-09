@@ -306,12 +306,22 @@ end
 
 -- Trade and LFG: the game sends the text itself on the chat channel; right before it does (after it parsed the
 -- text, ChatEdit_ParseText), the tag goes in front, unless it is a command or already tagged
+-- The parse hook can run twice for one message (the global function and the input's method)
+local lastOfficerText, lastOfficerAt = nil, 0
 local function TagBeforeSend(box, send)
     if send ~= 1 or not box then return end
     local mode = InputMode(box)
-    if not mode or mode == "Oficerowie" then return end
+    if not mode then return end
     local text = box:GetText() or ""
     if not text:find("%S") or text:find("^%s*/") then return end
+    -- The officers chat: officers on another sub-realm get it as a direct whisper (officers.lua)
+    if mode == "Oficerowie" then
+        if addonTable.Officers.SendDirect and (not lastOfficerText or lastOfficerText ~= text or GetTime() - lastOfficerAt > 1) then
+            lastOfficerText, lastOfficerAt = text, GetTime()
+            addonTable.Officers.SendDirect(text)
+        end
+        return
+    end
     local tag = MODES[mode].tag
     if tag and text:sub(1, #tag) ~= tag then box:SetText(tag .. text) end
     -- 0.15.2: the message must come back from the channel, or it goes through the relays (bridge.lua)
