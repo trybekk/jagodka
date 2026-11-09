@@ -695,6 +695,53 @@ function Most.SayOnChannel(tab, text)
     return true
 end
 
+-- ============================================================================
+-- SUB-REALMS (0.15.2): WoW: Forever splits a realm into sub-realms ("CAMWOWEU5Realm8PvP"). The guild and
+-- whispers reach every sub-realm, but a channel made by players exists once per sub-realm: the same name and
+-- password on another sub-realm is another channel with other people. A player on another sub-realm than the
+-- rest wrote on a channel nobody else was on; the server still sent his message back to him, so the echo check
+-- saw nothing wrong (report of 09.11: "nobody sees me, I see them").
+-- Every few minutes each client reads the chat channel's member list (the players of its own sub-realm there)
+-- and compares it with the addon players it knows to be online. When some of them are missing from it, the
+-- community is split, and my own messages go through the guild and the relays too (they reach every sub-realm;
+-- a reader who gets both copies shows one: HasSameMessage). Not split = the channel alone, as before.
+-- ============================================================================
+local SPLIT_CHECK_EVERY = 120   -- how often the member list is read (s)
+local keyChannelMembers = {}    -- name -> when last seen on the chat channel's member list
+local SPLIT_MIN_MISSING = 2     -- this many known online addon players missing from my channel = split
+local splitMissing = {}         -- names of the last check that were missing
+local split = false
+Most.MyRealm = function() return _G.GetNormalizedRealmName and _G.GetNormalizedRealmName() or nil end
+
+local function CheckSplit()
+    if not ctx or not addonTable.Key or not addonTable.Key.ChannelId() then return end
+    local now, me, missing = GetTime(), MyName(), {}
+    for _, p in ipairs(ctx.activePlayers) do
+        -- Online for a while (time to join the channel after login) and with a version that has the key
+        if p.name ~= me and now - (p.lastSeen or 0) < 150 and not (tostring(p.version or ""):match("^0%.1[0-2]%.") or tostring(p.version or ""):match("^0%.[0-9]%."))
+            and now - (keyChannelMembers[p.name] or -math.huge) > SPLIT_CHECK_EVERY * 2 then
+            table.insert(missing, p.name)
+        end
+    end
+    local was = split
+    split = #missing >= SPLIT_MIN_MISSING
+    splitMissing = missing
+    if split ~= was and addonTable.Monitor then
+        table.sort(missing)
+        addonTable.Monitor.Channel(split and ("Community split across sub-realms: " .. #missing .. " addon players online are not on my chat channel ("
+            .. table.concat(missing, ", ", 1, math.min(5, #missing)) .. (#missing > 5 and ", ..." or "") .. "); my chat also goes through the guilds. My sub-realm: " .. tostring(Most.MyRealm()))
+            or "Chat channel complete again (everyone on my sub-realm): chat on the channel alone")
+    end
+end
+function Most.IsSplit() return split, splitMissing end
+
+-- My message on the channel, also through the guilds while the community is split (sub-realms)
+local function AlsoThroughGuilds(tab, text)
+    if not split or not text or text == "" then return end
+    local guild = MyGuild()
+    if guild and Most.IsGuildAllowed(guild) then Most.Publish(tab, text, "A", MyName(), guild) end
+end
+
 -- A message typed in the community tab of the game chat: the game sends it on the chat channel itself (chattab.lua
 -- calls this right before). It gets the same check as the addon window's: when it does not come back from the
 -- channel within ECHO_WAIT, it goes through the relays. Before 0.15.2 such messages had no check at all, so
@@ -707,6 +754,7 @@ function Most.ExpectEcho(tab, text)
     -- own method): one check per message
     if lastExpected.text == text and GetTime() - lastExpected.at < 1 then return end
     lastExpected.text, lastExpected.at = text, GetTime()
+    AlsoThroughGuilds(tab, text)
     local rec = { tab = tab, text = text, guild = MyGuild(), parts = 1, fromGameTab = true }
     table.insert(awaitingEcho, rec)
     if addonTable.Monitor then addonTable.Monitor.Channel("Own message sent on the chat channel from the game chat tab") end
@@ -722,7 +770,7 @@ end
 
 -- Publishes a message typed by the player: on the channel, or through the relays when there is no channel
 function Most.PublishTyped(tab, text, author, guild)
-    if Most.SayOnChannel(tab, text) then return end
+    if Most.SayOnChannel(tab, text) then AlsoThroughGuilds(tab, text) return end
     local reason = channelChatBlocked and "the channel did not take our messages this session"
         or ((addonTable.Key and addonTable.Key.HasKey()) and "not on the chat channel yet" or "no public channel")
     if addonTable.Monitor then addonTable.Monitor.Channel("Own message sent through the relays: " .. reason) end
@@ -1057,6 +1105,7 @@ local function HandleChannelList(list, isKeyChannel)
         -- On the list the owner has "*" and a moderator "@"
         local name = Most.PlayerKey((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
         if name ~= "" then channelMembers[name] = now end
+        if isKeyChannel and name ~= "" then keyChannelMembers[name] = now end
         if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
         if isRelay and greeted < maxGreetings and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
@@ -1167,6 +1216,14 @@ Listener:RegisterEvent("PLAYER_LOGIN")
 addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, event, arg1, arg2, ...)
     if event == "PLAYER_LOGIN" then
         relayReadyAt = GetTime() + RELAY_READY_DELAY
+        -- Sub-realms: read the chat channel's members every few minutes, check a moment after the answer
+        C_Timer.NewTicker(SPLIT_CHECK_EVERY, function()
+            if addonTable.Key and addonTable.Key.ChannelId() then
+                Most.ListChannel(KeyChannelName())
+                C_Timer.After(5, CheckSplit)
+            end
+        end)
+        C_Timer.After(30, function() if addonTable.Monitor then addonTable.Monitor.Channel("My sub-realm: " .. tostring(Most.MyRealm())) end end)
         return
     end
     -- Chat events with secret text (dungeons): skipped, see Most.IsSecret. Only what we read is checked: the
