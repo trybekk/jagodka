@@ -85,7 +85,7 @@ end
 -- 1. MAIN WINDOW CONFIGURATION AND BASIC DRAWING FUNCTIONS
 -- ============================================================================
 local MainFrame = CreateFrame("Frame", "JagodkiNadinaMainFrame", UIParent, "BackdropTemplate")
-MainFrame:SetSize(1000, 735)
+MainFrame:SetSize(1000, 775)
 MainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 MainFrame:Hide()
 -- Esc closes the window, like the game's own windows (the first Esc only leaves a focused input)
@@ -102,9 +102,9 @@ MainFrame:SetClampedToScreen(true)
 -- Window position and size: JagodkiMinimapDB.window (loaded after ADDON_LOADED, section 9).
 -- Moved only by the title bar, resized with the handle in the bottom right corner.
 -- Minimum size = default (the layout is built for it), a larger window = more content.
--- Minimum height 735: the right column (character card, upcoming events, officers, guilds, classes) needs it; minimum width
+-- Minimum height 775 (735 before 0.15.1, +40 for a fourth guild row): the right column (character card, upcoming events, officers, guilds, classes) needs it; minimum width
 -- 1000: the right column is 330 wide, and the character card at its top must not cover the last tab button (Monitoring)
-local WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H = 1000, 735, 1600, 1100
+local WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H = 1000, 775, 1600, 1100
 MainFrame:SetResizable(true)
 if MainFrame.SetResizeBounds then MainFrame:SetResizeBounds(WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H)
 else MainFrame:SetMinResize(WIN_MIN_W, WIN_MIN_H) MainFrame:SetMaxResize(WIN_MAX_W, WIN_MAX_H) end
@@ -2967,7 +2967,7 @@ ApplyModernStyle(RightPanel)
 -- ============================================================================
 -- Tag and name, online / all members, a bar with the online share, and "active" or when data last came.
 -- Guilds without anyone with the addon online are grayed out. (It replaced the Guilds tab.)
-local SideGuilds = { rows = {}, cells = {}, ROW_H = 40, HEADER_GAP = 28, CLASS_ROW_H = 22, SHOWN = 3, offset = 0,
+local SideGuilds = { rows = {}, cells = {}, ROW_H = 40, HEADER_GAP = 28, CLASS_ROW_H = 22, SHOWN = 4, offset = 0, -- 4: all our guilds (JN, II, IIl, IV) without scrolling
 CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" } }
 -- The guilds and classes panels are as tall as their content; the officers list above takes the rest
 SideGuilds.panel = CreateFrame("Frame", nil, MainFrame, "BackdropTemplate")
