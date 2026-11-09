@@ -10,7 +10,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetTime = _G.GetTime
 local ipairs, pairs = _G.ipairs, _G.pairs
@@ -192,7 +192,7 @@ end
 -- Global channel: stage from login until joining the channel
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:SetScript("OnEvent", function()
+addonTable.SafeScript(Listener, "OnEvent", "sync.lua:195", function()
     Sync.Start("channel")
     Sync.StartLoginLock()
 end)

@@ -12,7 +12,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local InCombatLockdown = _G.InCombatLockdown
 local GetAddOnMetadata = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
@@ -80,7 +80,7 @@ end
 -- WHEN TO SHOW
 -- ============================================================================
 local CombatWatcher = CreateFrame("Frame")
-CombatWatcher:SetScript("OnEvent", function(self)
+addonTable.SafeScript(CombatWatcher, "OnEvent", "update.lua:83", function(self)
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     local version = pending
     pending = nil
@@ -170,7 +170,7 @@ end
 local REMIND_AGAIN_AFTER = 1800
 local remindedAt, remindPending = {}, nil
 local RemindCombatWatcher = CreateFrame("Frame")
-RemindCombatWatcher:SetScript("OnEvent", function(self)
+addonTable.SafeScript(RemindCombatWatcher, "OnEvent", "update.lua:173", function(self)
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     local version = remindPending
     remindPending = nil

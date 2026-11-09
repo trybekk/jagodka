@@ -677,6 +677,7 @@ local TOPICS = {
             "- Messages you missed arrive from another officer after login.",
             "- From the game chat: */jnofficers* + *Tab* switches the input to the officers chat, */jnofficers text* sends one message.",
             "- Right after login the channel needs a moment (up to 2 minutes for the very first key). A message that cannot go yet stays in the box with a note; send it again in a moment, or use */jagodka sync*.",
+            "- In dungeons and battlegrounds the game blocks addon messages, so the community chat and the lists may stop there. After you leave, the addon catches up by itself within seconds (the same as */jagodka sync*).",
             "- Your messages never go through the relays: without the officers channel they are not sent at all, so nothing reaches members by accident.",
             "",
             "# Muting on the community chat",
@@ -718,6 +719,7 @@ local TOPICS = {
             "- Wiadomości, które przegapiłeś, przychodzą od innego oficera po zalogowaniu.",
             "- Z czatu gry: */jnofficers* + *Tab* przełącza pole na czat oficerów, */jnofficers tekst* wysyła jedną wiadomość.",
             "- Zaraz po zalogowaniu kanał potrzebuje chwili (do 2 minut przy pierwszym kluczu). Wiadomość, której nie da się jeszcze wysłać, zostaje w polu z komunikatem; wyślij ją za chwilę albo użyj */jagodka sync*.",
+            "- W dungeonach i na battlegroundach gra blokuje wiadomości addonów, więc czat społeczności i listy mogą tam stanąć. Po wyjściu addon sam nadrabia w kilka sekund (to samo co */jagodka sync*).",
             "- Twoje wiadomości nigdy nie idą przez relaye: bez kanału oficerów w ogóle się nie wysyłają, więc nic nie trafi przypadkiem do członków.",
             "",
             "# Wyciszanie na czacie społeczności",
@@ -933,7 +935,7 @@ local function Render()
     scroll:SetVerticalScroll(0)
     -- The scroll range is known only after the new text is laid out (next frame)
     if target > 0 then
-        _G.C_Timer.After(0, function()
+        addonTable.SafeTimer.After(0, function()
             scroll:UpdateScrollChildRect()
             scroll:SetVerticalScroll(math.max(0, math.min(target, scroll:GetVerticalScrollRange())))
         end)

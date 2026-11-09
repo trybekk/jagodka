@@ -26,7 +26,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetServerTime = _G.GetServerTime
 local GetTime = _G.GetTime
@@ -524,7 +524,7 @@ end
 
 local Ticker = CreateFrame("Frame")
 Ticker:RegisterEvent("PLAYER_LOGIN")
-Ticker:SetScript("OnEvent", function()
+addonTable.SafeScript(Ticker, "OnEvent", "events.lua:527", function()
     C_Timer.NewTicker(60, Events.Prune)
     C_Timer.NewTicker(30, CheckReminders)
 end)

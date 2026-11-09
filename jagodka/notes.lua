@@ -11,7 +11,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetGuildInfo = _G.GetGuildInfo
 local GetServerTime = _G.GetServerTime
@@ -233,7 +233,7 @@ local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("GUILD_ROSTER_UPDATE")
 Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
-Listener:SetScript("OnEvent", function(self, event, arg1)
+addonTable.SafeScript(Listener, "OnEvent", "notes.lua:236", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
         _G.JagodkiChatDB = _G.JagodkiChatDB or {}

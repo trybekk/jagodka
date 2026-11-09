@@ -14,7 +14,7 @@ local addonName, addonTable = ...
 
 local _G = _G
 local CreateFrame = _G.CreateFrame
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local UnitLevel, UnitRace, UnitClass, UnitXP, UnitXPMax = _G.UnitLevel, _G.UnitRace, _G.UnitClass, _G.UnitXP, _G.UnitXPMax
 local GetGuildInfo = _G.GetGuildInfo
 local ipairs, math, string, table, tostring = _G.ipairs, _G.math, _G.string, _G.table, _G.tostring
@@ -176,7 +176,7 @@ function CharCard.Attach(parent, applyStyle)
         "SKILL_LINES_CHANGED", "UNIT_PORTRAIT_UPDATE", "PLAYER_ENTERING_WORLD" }) do
         events:RegisterEvent(event)
     end
-    events:SetScript("OnEvent", function(_, event, unit)
+    addonTable.SafeScript(events, "OnEvent", "charcard.lua:179", function(_, event, unit)
         if event == "UNIT_PORTRAIT_UPDATE" and unit ~= "player" then return end
         if pending or not card:IsVisible() then return end
         pending = true

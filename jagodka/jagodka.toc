@@ -2,7 +2,7 @@
 ## Title: Jagodki Nadina - Community
 ## Notes: Addon for the Jagódki Nadina guild community, connecting its guilds with a shared chat, a combined member list, and synced events with sign-ups and a calendar.
 ## Author: trybekk & Lasarr
-## Version: 0.15.0
+## Version: 0.15.1
 ## Category: Guild
 ## X-Curse-Project-ID: 1775157
 ## IconTexture: Interface\AddOns\jagodka\Media\blueberry_one
@@ -14,6 +14,7 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
+safe.lua
 sync.lua
 bridge.lua
 key.lua

@@ -30,7 +30,7 @@ local LOCALIZED_CLASS_NAMES_MALE = _G.LOCALIZED_CLASS_NAMES_MALE
 local IsInRaid = _G.IsInRaid
 local IsInGroup = _G.IsInGroup
 local IsInGuild = _G.IsInGuild
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 
 -- FORCED PREFIX REGISTRATION AT THE VERY START OF THE FILE
 -- The client limits registered prefixes; with many addons registration can fail
@@ -682,7 +682,7 @@ chatInput:SetScript("OnEnterPressed", OriginalSubmitMessage)
 do
 local blurWatcher = CreateFrame("Frame")
 pcall(blurWatcher.RegisterEvent, blurWatcher, "GLOBAL_MOUSE_DOWN")
-blurWatcher:SetScript("OnEvent", function()
+addonTable.SafeScript(blurWatcher, "OnEvent", "core.lua:685", function()
 if chatInput:HasFocus() and not chatInput:IsMouseOver() and not sendButton:IsMouseOver() and not IsShiftKeyDown() then chatInput:ClearFocus() end
 end)
 end
@@ -1977,7 +1977,7 @@ if left > 0 then self:SetText("Sync (" .. left .. ")") self:Disable()
 elseif addonTable.Sync.Running() then self:SetText("Sync") self:Disable()
 else self:SetText("Sync") self:Enable() end
 end
-SyncEventsBtn:SetScript("OnUpdate", function(self, elapsed)
+addonTable.SafeScript(SyncEventsBtn, "OnUpdate", "core.lua:1980", function(self, elapsed)
 sinceCheck = sinceCheck + elapsed
 if sinceCheck < 0.25 then return end
 sinceCheck = 0
@@ -2480,7 +2480,7 @@ close:SetPoint("TOPRIGHT", DayPopup, "TOPRIGHT", 0, 0)
 -- A click outside closes it; its own "+N more" line handles the click itself
 local watcher = CreateFrame("Frame")
 pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
-watcher:SetScript("OnEvent", function()
+addonTable.SafeScript(watcher, "OnEvent", "core.lua:2483", function()
 if DayPopup:IsShown() and not DayPopup:IsMouseOver() and not (DayPopup.anchor and DayPopup.anchor:IsMouseOver()) then DayPopup:Hide() end
 end)
 end
@@ -2593,7 +2593,7 @@ if ev and EventSync.CanInvite(ev) then InviteSignedUp(ev) end
 end
 local GroupWatcher = CreateFrame("Frame")
 GroupWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
-GroupWatcher:SetScript("OnEvent", function()
+addonTable.SafeScript(GroupWatcher, "OnEvent", "core.lua:2596", function()
 if not pendingInvites then return end
 if GetTime() > pendingInvites.expires then pendingInvites = nil return end
 if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
@@ -3238,6 +3238,22 @@ C_Timer.After(10, addonTable.Officers.Request)
 C_Timer.After(12, function() addonTable.LFG.Request(true) end)
 return true
 end
+-- Leaving a dungeon or a battleground: inside, the game blocks addon messages and hides chat text from addons
+-- (send result 11, secret values), so whatever came meanwhile was missed. The same sync as "/jagodka sync"
+-- (at most once a minute), after a short wait for the world to load, and the channels are checked.
+EventSync.instanceWatch = CreateFrame("Frame")
+EventSync.instanceWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+addonTable.SafeScript(EventSync.instanceWatch, "OnEvent", "core.lua:3246", function()
+local inside = IsInInstance() and true or false
+local wasInside = EventSync.wasInInstance
+EventSync.wasInInstance = inside
+if not wasInside or inside or not EventSync.loginSynced then return end
+C_Timer.After(5, function()
+if not Most.GetChannelId() or (addonTable.Key.HasKey() and not addonTable.Key.ChannelId()) then Most.JoinChannel() end
+local ok = EventSync.ManualSync()
+addonTable.Monitor.Note("Left an instance: " .. (ok and "sync started (as /jagodka sync)" or "sync skipped (one ran less than a minute ago)"))
+end)
+end)
 -- The "Sync now" button in Monitoring (monitor.lua) does the same
 addonTable.ManualSync = EventSync.ManualSync
 -- "Remind outdated" in Monitoring (officers): one UPD packet with my version to all guilds (GUILD, and the
@@ -3323,7 +3339,7 @@ end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
 end
 -- CHAT_MSG_ADDON: prefix, text, channel, sender
-NetworkListener:SetScript("OnEvent", function(self, event, prefix, text, channel, sender)
+addonTable.SafeScript(NetworkListener, "OnEvent", "core.lua:3342", function(self, event, prefix, text, channel, sender)
 if event == "ADDON_LOADED" and prefix == addonName then
 -- Events from events.lua (old ones from before 0.14.0 are dropped there)
 eventsList = addonTable.Events.Load()
@@ -3367,7 +3383,7 @@ RefreshMyGuildRoster()
 EventSync.UpdateMonitoringTab()
 TryAnnounce()
 PruneOfflinePlayers()
-elseif event == "CHAT_MSG_ADDON" and prefix == "JagodkaComm" then
+elseif event == "CHAT_MSG_ADDON" and not Most.IsSecret(prefix, text, sender) and prefix == "JagodkaComm" then
 -- The bridge forwards the packet to other guilds and extracts the real sender from a forwarded one
 local senderName = Most.PlayerKey(sender)
 text, channel, senderName = Most.Route(text, channel, senderName)
@@ -3533,7 +3549,7 @@ local icon = LibStub("LibDBIcon-1.0")
 -- Registered only after ADDON_LOADED, because SavedVariables are not loaded before that
 local MinimapLoader = CreateFrame("Frame")
 MinimapLoader:RegisterEvent("ADDON_LOADED")
-MinimapLoader:SetScript("OnEvent", function(self, event, loadedName)
+addonTable.SafeScript(MinimapLoader, "OnEvent", "core.lua:3552", function(self, event, loadedName)
 if loadedName ~= addonName then return end
 _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
 _G.JagodkiMinimapDB.minimap = _G.JagodkiMinimapDB.minimap or { hide = false }

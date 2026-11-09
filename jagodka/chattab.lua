@@ -14,7 +14,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local ipairs, tonumber = _G.ipairs, _G.tonumber
 local table, math = _G.table, _G.math
@@ -436,7 +436,7 @@ end
 
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:SetScript("OnEvent", function()
+addonTable.SafeScript(Listener, "OnEvent", "chattab.lua:439", function()
     -- Chat windows are ready a moment after login
     C_Timer.After(3, Setup)
     C_Timer.After(REPLAY_DELAY, ReplayAll)

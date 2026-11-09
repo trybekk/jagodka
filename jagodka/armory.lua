@@ -13,7 +13,7 @@ local addonName, addonTable = ...
 
 local _G = _G
 local CreateFrame = _G.CreateFrame
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local string, table, type = _G.string, _G.table, _G.type
 
 local Armory = {}

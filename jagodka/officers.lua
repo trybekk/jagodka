@@ -19,7 +19,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetChannelName = _G.GetChannelName
 local GetServerTime = _G.GetServerTime
@@ -400,7 +400,7 @@ local function RallyFrame()
     rally.text:SetAllPoints()
     rally.text:SetJustifyH("CENTER")
     rally:Hide()
-    rally:SetScript("OnUpdate", function(self, elapsed)
+    addonTable.SafeScript(rally, "OnUpdate", "officers.lua:403", function(self, elapsed)
         self.age = self.age + elapsed
         local showFor = self.showFor or RALLY_FOR
         if self.age > showFor + RALLY_FADE then self:Hide() return end
@@ -491,7 +491,7 @@ end
 local Listener = CreateFrame("Frame")
 Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:SetScript("OnEvent", function(self, event, arg1)
+addonTable.SafeScript(Listener, "OnEvent", "officers.lua:494", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
         _G.JagodkiChatDB = _G.JagodkiChatDB or {}

@@ -18,7 +18,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetTime = _G.GetTime
 local UnitName = _G.UnitName
@@ -248,7 +248,7 @@ function Monitor.RX(text, channel, sender, deliverer, delivery)
     local route = tostring(channel) .. " <- " .. tostring(sender)
     if deliverer then
         peer.fwRx = peer.fwRx + 1
-        if delivery == "WHISPER" and deliverer == sender then route = "greeting <- " .. tostring(sender)
+        if delivery == "WHISPER" and deliverer == sender then route = "direct to repost <- " .. tostring(sender)
         elseif delivery == "WHISPER" then route = "relay " .. deliverer .. " -> me |cff808080(from " .. tostring(sender) .. ")|r"
         else route = "repost by " .. deliverer .. " |cff808080(from " .. tostring(sender) .. ")|r" end
     end
@@ -613,7 +613,7 @@ end
 
 local SavedLogLoader = CreateFrame("Frame")
 SavedLogLoader:RegisterEvent("ADDON_LOADED")
-SavedLogLoader:SetScript("OnEvent", function(self, _, name)
+addonTable.SafeScript(SavedLogLoader, "OnEvent", "monitor.lua:616", function(self, _, name)
     if name ~= addonName then return end
     self:UnregisterEvent("ADDON_LOADED")
     local db = _G.JagodkiMonitorDB or {}

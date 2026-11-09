@@ -17,7 +17,7 @@ local addonName, addonTable = ...
 
 local _G = _G
 local C_ChatInfo = _G.C_ChatInfo
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetChannelName = _G.GetChannelName
 local GetGuildInfo = _G.GetGuildInfo
@@ -84,6 +84,22 @@ end
 Most.MyGuild = MyGuild
 -- Guild change (leaving / new guild): the remembered name must not carry over to the new guild
 function Most.ResetGuild() lastGuildName = nil end
+
+-- ============================================================================
+-- SECRET VALUES
+-- ============================================================================
+-- In dungeons (and encounters) the game can hand addons chat text as "secret values": they may be passed on,
+-- but reading them (match, find, sub, comparing) is an error ("attempt to index local 'message' (a secret
+-- string value ...)", seen in a dungeon on 0.15.0). Every chat event handler checks its strings first and
+-- skips the event when one is secret; the game's own chat still shows the line.
+local issecretvalue = _G.issecretvalue
+function Most.IsSecret(...)
+    if not issecretvalue then return false end
+    for i = 1, select("#", ...) do
+        if issecretvalue((select(i, ...))) then return true end
+    end
+    return false
+end
 
 -- ============================================================================
 -- FIELD ENCODING (":" is the packet separator)
@@ -270,8 +286,10 @@ function Most.GetLowQueueSize() return #lowQueue end
 -- Older API returns a bool, newer a code from Enum.SendAddonMessageResult (0 = success)
 local function IsOk(result) return result == nil or result == true or result == 0 end
 -- Temporary limit (3 = AddonMessageThrottle, 8 = ChannelThrottle; false = older API): worth retrying.
+-- 9 (GeneralError) and 11 (AddOnMessageLockdown) are temporary too: in the 0.15.0 log single GUILD packets got
+-- 11 for a moment (7 times in 2 h; the next packet a second later went fine), and were lost.
 -- Other codes (e.g. 4 = InvalidChatType) are permanent: retrying would only block the queue.
-local function IsThrottle(result) return result == false or result == 3 or result == 8 end
+local function IsThrottle(result) return result == false or result == 3 or result == 8 or result == 9 or result == 11 end
 
 -- Returns the API result and the channel kind (for diagnostics)
 local function SendRaw(item)
@@ -746,11 +764,25 @@ function Most.ClaimSeen(tbl, key, claimer)
 end
 -- The relay never answers when anyone else of the guild can: its queue also carries every packet between
 -- guilds, and a long answer there delayed rosters and changes for the other guilds.
-function Most.ShouldAnswer()
+-- "0.15.0" >= "0.14.1"; a missing or odd version counts as old
+local function AtLeast(version, min)
+    local a = { tostring(version or ""):match("^(%d+)%.(%d+)%.(%d+)") }
+    local b = { min:match("^(%d+)%.(%d+)%.(%d+)") }
+    if not a[1] then return false end
+    for i = 1, 3 do
+        local x, y = tonumber(a[i]), tonumber(b[i])
+        if x ~= y then return x > y end
+    end
+    return true
+end
+
+-- minVersion: only guildmates with at least this version can answer (a new kind of request): counting the
+-- older ones too made nobody answer about a third of the time while few had updated (0.15.0 log, LFG)
+function Most.ShouldAnswer(minVersion)
     if not ctx then return false end
     local n, myGuild = 0, MyGuild()
     for _, p in ipairs(ctx.activePlayers) do
-        if p.guild == myGuild then n = n + 1 end
+        if p.guild == myGuild and (not minVersion or p.name == MyName() or AtLeast(p.version, minVersion)) then n = n + 1 end
     end
     if n > 1 and Most.IsRelay() then return false end
     return n <= ANSWERERS or math.random() < ANSWERERS / n
@@ -873,6 +905,8 @@ local function OtherGuildRelays()
     end
     return relays
 end
+-- For roster.lua: full rosters go straight to the other guilds' relays (guild -> relay name)
+Most.OtherGuildRelays = OtherGuildRelays
 
 local function ForwardToOtherGuilds(origin, text)
     local payload = origin .. ":" .. text
@@ -1053,10 +1087,12 @@ end
 if _G.ChatFrame_AddMessageEventFilter then
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
         local name = select(9, ...)
+        if Most.IsSecret(name) then return false end
         local officers = addonTable.Officers and addonTable.Officers.ChannelName()
         if (name == ChannelName() or (name ~= nil and (name == KeyChannelName() or name == officers))) and GetTime() - listAskedAt < 2 then return true end
     end)
     _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
+        if Most.IsSecret(message) then return false end
         if HandlePlayerNotFound(message) then return true end
     end)
 end
@@ -1099,11 +1135,13 @@ Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
 Listener:RegisterEvent("CHAT_MSG_CHANNEL")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
 Listener:RegisterEvent("PLAYER_LOGIN")
-Listener:SetScript("OnEvent", function(self, event, arg1, arg2, ...)
+addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, event, arg1, arg2, ...)
     if event == "PLAYER_LOGIN" then
         relayReadyAt = GetTime() + RELAY_READY_DELAY
         return
     end
+    -- Chat events with secret text (dungeons): skipped, see Most.IsSecret
+    if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, select(7, ...)) then return end
     if event == "CHAT_MSG_SYSTEM" then
         -- "X has gone offline": a logged-out player (e.g. switching characters) loses the relay role at once
         local name = NameFromSystemMessage(_G.ERR_FRIEND_OFFLINE_S, arg1 or "")

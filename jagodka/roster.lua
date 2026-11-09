@@ -15,7 +15,7 @@
 local addonName, addonTable = ...
 
 local _G = _G
-local C_Timer = _G.C_Timer
+local C_Timer = addonTable.SafeTimer -- protected callbacks (safe.lua)
 local CreateFrame = _G.CreateFrame
 local GetGuildInfo = _G.GetGuildInfo
 local GetServerTime = _G.GetServerTime
@@ -203,12 +203,26 @@ local function SendFull(target)
     -- RF:guild:snap:idx:total:full:ranks:entries  (ranks only in the first part)
     local header = #"RF:" + #Enc(guild) + 1 + #snap + 1 + 3 + 1 + 3 + 1 + 2 + 1
     local chunks = Chunk(entries, MAX_ADDON_BYTES - header - #ranks, MAX_ADDON_BYTES - header)
+    -- To everyone: straight to the other guilds' relays, as "FW:me:RF:..." whispers they repost to their guild
+    -- (the path of greetings, so older versions do it too). Before, the parts went to our GUILD and our relay
+    -- passed them on: two queues, the busiest of the network among them, and a relay change on the way lost
+    -- what waited in it (130 parts took 11-13 min, in the evening 50-70% arrived). Our guild needs no copy (it
+    -- has the roster from the game); only the first part goes there, so guildmates know a roster is on its way.
+    local relays = (not target) and Most.OtherGuildRelays() or {}
+    local me = Most.MyName()
     for i, chunk in ipairs(chunks) do
         local payload = table.concat({ Enc(guild), snap, i, #chunks, g.complete and "1" or "0", (i == 1) and ranks or "", chunk }, ":")
-        if target then Most.Whisper(target, "RF", payload, "low") else Most.Send("RF", payload, "low") end
+        if target then
+            Most.Whisper(target, "RF", payload, "low")
+        else
+            if i == 1 then Most.Send("RF", payload, "low") end
+            for _, relay in pairs(relays) do Most.Whisper(relay, "FW", me .. ":RF:" .. payload, "low") end
+        end
     end
     if addonTable.Monitor then
-        addonTable.Monitor.Note("Sent our full roster" .. (target and (" to " .. target) or "") .. ": " .. #entries .. " members in "
+        local n = 0
+        for _ in pairs(relays) do n = n + 1 end
+        addonTable.Monitor.Note("Sent our full roster" .. (target and (" to " .. target) or (" to " .. n .. " relays of other guilds")) .. ": " .. #entries .. " members in "
             .. #chunks .. " parts" .. (g.complete and "" or " (only online players: guild window open with show offline off)"))
     end
 end
@@ -516,7 +530,7 @@ local MyOther = Roster.IsMyOtherCharacter
 do
     local remember = CreateFrame("Frame")
     remember:RegisterEvent("PLAYER_ENTERING_WORLD")
-    remember:SetScript("OnEvent", function()
+    addonTable.SafeScript(remember, "OnEvent", "roster.lua:533", function()
         local name = Most.MyName()
         if name and name ~= "" then MyCharacters()[name] = _G.GetRealmName() end
     end)
@@ -703,7 +717,7 @@ local QUICK_DELTA_COOLDOWN = 5   -- at most one such extra reading per this many
 local quickDelta, lastQuickAt = false, -QUICK_DELTA_COOLDOWN
 
 local function OnGuildmateStatusMessage(message)
-    if not message or not baselined or not IsSender() then return end
+    if not message or Most.IsSecret(message) or not baselined or not IsSender() then return end
     local hit = (ONLINE_PATTERN and message:find(ONLINE_PATTERN)) or (OFFLINE_PATTERN and message:find(OFFLINE_PATTERN))
     if not hit then return end
     quickDelta = true
@@ -718,7 +732,7 @@ Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:RegisterEvent("GUILD_ROSTER_UPDATE")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
-Listener:SetScript("OnEvent", function(self, event, arg1)
+addonTable.SafeScript(Listener, "OnEvent", "roster.lua:735", function(self, event, arg1)
     if event == "CHAT_MSG_SYSTEM" then OnGuildmateStatusMessage(arg1) return end
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end

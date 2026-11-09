@@ -14,7 +14,7 @@
 --  * Cleanup: a listing goes after LISTING_FOR (3 h), at once when its player is offline by the guild rosters
 --    (or is one of my own other characters), or when not heard of for STALE_AFTER: every listed player sends
 --    theirs again every HEARTBEAT (one small packet), so a player who left without anyone reporting it goes
---    within 25 minutes. Offline by the rosters: the listing stays, grayed, for OFFLINE_GRACE (10 min: a relog or
+--    within 40 minutes. Offline by the rosters: the listing stays, grayed, for OFFLINE_GRACE (10 min: a relog or
 --    a reload), and goes only when they are not back by then. My listing is kept per character over /reload.
 -- ============================================================================
 local addonName, addonTable = ...
@@ -30,7 +30,9 @@ addonTable.LFG = LFG
 
 local LISTING_FOR = 3 * 3600     -- a listing lasts this long unless renewed (s)
 local HEARTBEAT = 600            -- my listing is sent again this often while it is on (s)
-local STALE_AFTER = 1500         -- a listing not heard of for this long goes (its player is gone) (s)
+local STALE_AFTER = 2400         -- a listing not heard of for this long goes (its player is gone) (s); 40 min, as
+                                 -- relays on older versions held the 10-minute signals of other guilds back (0.15.0 log)
+local removedAt = {}             -- name -> time of their listing they removed (LX): an older copy never comes back
 local OFFLINE_GRACE = 600        -- a player offline by the rosters keeps the listing this long (a relog, a reload) (s)
 local MAX_ACTIVITIES = 4
 local NOTE_MAX = 60
@@ -85,7 +87,7 @@ local function Prune()
             table.remove(listings, i)
             if addonTable.Monitor then
                 local why = (now - (l.ts or 0) > LISTING_FOR) and "3 h passed" or (l.offlineSince and "offline 10 min")
-                    or (GetTime() - (l.seen or 0) > STALE_AFTER and "not heard of for 25 min") or "my other character"
+                    or (GetTime() - (l.seen or 0) > STALE_AFTER and "not heard of for 40 min") or "my other character"
                 addonTable.Monitor.Note("LFG: " .. tostring(l.name) .. " removed (" .. why .. ")")
             end
         end
@@ -206,6 +208,11 @@ local function Answer(asker)
     for _, l in ipairs(listings) do
         if l.name ~= asker then Most().Whisper(asker, "LF", Encode(l), "low") sent = sent + 1 end
     end
+    -- Recent removals too, so an asker who got an older copy elsewhere drops it
+    local now = GetServerTime()
+    for name, ts in pairs(removedAt) do
+        if now - ts < LISTING_FOR and name ~= asker then Most().Whisper(asker, "LX", Most().EncodeField(name) .. ":" .. ts, "low") sent = sent + 1 end
+    end
     if addonTable.Monitor then addonTable.Monitor.Note("LFG: answered " .. asker .. " with " .. sent .. " listings") end
 end
 
@@ -216,7 +223,7 @@ function LFG.HandlePacket(pType, payload, senderName, channel)
     local me = M.MyName()
     if pType == "LQ" then
         if senderName == me or pendingAnswer[senderName] or #listings == 0 then return true end
-        if GetTime() - (answeredAt[senderName] or -ANSWER_COOLDOWN) < ANSWER_COOLDOWN or not M.ShouldAnswer() then return true end
+        if GetTime() - (answeredAt[senderName] or -ANSWER_COOLDOWN) < ANSWER_COOLDOWN or not M.ShouldAnswer("0.15.0") then return true end
         M.ClaimAndAnswer(pendingAnswer, senderName, 0.5 + math.random() * 2, function() M.Send("LC", M.EncodeField(senderName), "high") end,
             function() Answer(senderName) end)
         return true
@@ -233,6 +240,8 @@ function LFG.HandlePacket(pType, payload, senderName, channel)
         local name, ts = _G.strsplit(":", payload, 2)
         name, ts = M.Plain(M.DecodeField(name) or ""), tonumber(ts) or 0
         if live and senderName ~= name then return true end
+        -- Remembered, so a guildmate's older copy (a sync answer) does not bring it back (0.15.0 log)
+        if ts > (removedAt[name] or 0) then removedAt[name] = ts end
         for i, l in ipairs(listings) do
             if l.name == name and l ~= mine and (l.ts or 0) <= ts then table.remove(listings, i) break end
         end
@@ -245,9 +254,14 @@ function LFG.HandlePacket(pType, payload, senderName, channel)
     if live and senderName ~= l.name then return true end
     local now = GetServerTime()
     if now - l.ts > LISTING_FOR or l.ts > now + 300 then return true end
+    -- Removed by its player after this copy was made
+    if l.ts <= (removedAt[l.name] or 0) then return true end
     -- Only players of the listed guilds; the guild from the rosters or their status, never from the packet
     local p = M.FindKnownPlayer(l.name)
-    if not p then return true end
+    if not p then
+        if addonTable.Monitor then addonTable.Monitor.Note("LFG: listing of " .. l.name .. " ignored (not known from the rosters yet)") end
+        return true
+    end
     l.guild = p.guild
     l.seen = GetTime()
     if (not l.class or l.class == "") and p.class then l.class = p.class end
@@ -1075,7 +1089,7 @@ function LFG.Attach(p, c)
     -- Event invitation whispers (both received and sent): the marker becomes the [Open event] link
     if _G.ChatFrame_AddMessageEventFilter then
         local function EventLinks(_, _, msg, ...)
-            if type(msg) ~= "string" or not msg:find("<jn%-event:", 1) then return false end
+            if addonTable.Most.IsSecret(msg) or type(msg) ~= "string" or not msg:find("<jn%-event:", 1) then return false end
             local text = msg:gsub("<jn%-event:([%w]+)>", function(id) return "|cff6cc4e6|Hgarrmission:jagodkaev:" .. id .. "|h[Open event]|h|r" end)
             return false, text, ...
         end
@@ -1093,7 +1107,7 @@ function LFG.Attach(p, c)
         LFG.Request(true)
         syncReadyAt = GetTime() + REQUEST_COOLDOWN
     end)
-    syncBtn:SetScript("OnUpdate", function(self)
+    addonTable.SafeScript(syncBtn, "OnUpdate", "lfg.lua:1110", function(self)
         local left = math.ceil(syncReadyAt - GetTime())
         if left > 0 then self:SetText("Sync (" .. left .. ")") self:Disable() else self:SetText("Sync") self:Enable() end
     end)
@@ -1107,18 +1121,18 @@ function LFG.Attach(p, c)
     -- After login: the request (core.lua's login sync calls LFG.Request) and my listing from before
     local loginWatch = CreateFrame("Frame")
     loginWatch:RegisterEvent("PLAYER_LOGIN")
-    loginWatch:SetScript("OnEvent", function()
+    addonTable.SafeScript(loginWatch, "OnEvent", "lfg.lua:1124", function()
         -- The guild is known a moment after login; without it the listing cannot go out yet, so it waits
         local tries = 0
         local function Try()
             tries = tries + 1
-            if InGuild() or tries >= 6 then RestoreMine() else _G.C_Timer.After(10, Try) end
+            if InGuild() or tries >= 6 then RestoreMine() else addonTable.SafeTimer.After(10, Try) end
         end
-        _G.C_Timer.After(20, Try)
+        addonTable.SafeTimer.After(20, Try)
     end)
-    _G.C_Timer.NewTicker(60, function() Prune() end)
+    addonTable.SafeTimer.NewTicker(60, function() Prune() end)
     -- Heartbeat: my listing again every HEARTBEAT, the same one (same time), so the others keep it
-    _G.C_Timer.NewTicker(HEARTBEAT, function() if mine then SendMine() end end)
+    addonTable.SafeTimer.NewTicker(HEARTBEAT, function() if mine then SendMine() end end)
     -- "Listed N min" keeps counting while the tab is open
-    _G.C_Timer.NewTicker(30, function() if panel:IsVisible() then RenderList() end end)
+    addonTable.SafeTimer.NewTicker(30, function() if panel:IsVisible() then RenderList() end end)
 end
