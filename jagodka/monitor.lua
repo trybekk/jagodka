@@ -53,7 +53,7 @@ local TYPES = {
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
-    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" },
+    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" },
     DI = { "presence", "Discord name" }, DQ = { "presence", "Discord names request" }, DC = { "presence", "Discord names request taken" }, DL = { "presence", "Discord names" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
@@ -892,6 +892,99 @@ function Monitor.Attach(panel, c)
         _G.GameTooltip:Show()
     end)
     chatTestBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- Announcement (0.15.2): the officer writes a text, everyone with the addon gets it as the big message
+    -- (core.lua SendAnnouncement / CANN, officers.lua ShowAnnouncement). A small window with the text field.
+    local announceBtn = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    announceBtn:SetHeight(20)
+    announceBtn:SetPoint("RIGHT", chatTestBtn, "LEFT", -4, 0)
+    announceBtn:SetText("Announcement")
+    FitButton(announceBtn)
+    local dialog = nil
+    local function AnnounceDialog()
+        if dialog then return dialog end
+        dialog = CreateFrame("Frame", "JagodkaAnnounceDialog", _G.UIParent, "BackdropTemplate")
+        dialog:SetSize(440, 230)
+        dialog:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 80)
+        dialog:SetFrameStrata("DIALOG")
+        dialog:SetToplevel(true)
+        dialog:EnableMouse(true)
+        dialog:SetMovable(true)
+        dialog:RegisterForDrag("LeftButton")
+        dialog:SetScript("OnDragStart", dialog.StartMoving)
+        dialog:SetScript("OnDragStop", dialog.StopMovingOrSizing)
+        c.applyStyle(dialog)
+        table.insert(_G.UISpecialFrames, "JagodkaAnnounceDialog")
+        dialog.title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        dialog.title:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -14)
+        dialog.title:SetText("Announcement to everyone with the addon")
+        dialog.hint = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        dialog.hint:SetPoint("TOPLEFT", dialog.title, "BOTTOMLEFT", 0, -6)
+        dialog.hint:SetPoint("RIGHT", dialog, "RIGHT", -16, 0)
+        dialog.hint:SetJustifyH("LEFT")
+        dialog.hint:SetText("All our guilds see it as a big message in the middle of the screen, with your name and a sound. At most every 5 minutes.")
+        -- The text field: a few lines, Enter = a new line
+        local box = CreateFrame("Frame", nil, dialog, "BackdropTemplate")
+        box:SetPoint("TOPLEFT", dialog.hint, "BOTTOMLEFT", 0, -8)
+        box:SetPoint("RIGHT", dialog, "RIGHT", -16, 0)
+        box:SetHeight(90)
+        box:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+        box:SetBackdropColor(0, 0, 0, 0.5)
+        box:SetBackdropBorderColor(0.75, 0.25, 1, 0.6)
+        dialog.edit = CreateFrame("EditBox", nil, box)
+        dialog.edit:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -6)
+        dialog.edit:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -6, 6)
+        dialog.edit:SetMultiLine(true)
+        dialog.edit:SetAutoFocus(false)
+        dialog.edit:SetFontObject(_G.ChatFontNormal)
+        dialog.edit:SetMaxBytes(181)   -- 180 bytes and the end byte
+        dialog.edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        box:EnableMouse(true)
+        box:SetScript("OnMouseDown", function() dialog.edit:SetFocus() end)
+        dialog.count = dialog:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        dialog.count:SetPoint("TOPRIGHT", box, "BOTTOMRIGHT", 0, -4)
+        dialog.status = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        dialog.status:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -4)
+        dialog.status:SetPoint("RIGHT", dialog.count, "LEFT", -8, 0)
+        dialog.status:SetJustifyH("LEFT")
+        dialog.edit:SetScript("OnTextChanged", function(self) dialog.count:SetText(#(self:GetText() or "") .. " / 180") end)
+        dialog.send = CreateFrame("Button", nil, dialog, "GameMenuButtonTemplate")
+        dialog.send:SetSize(110, 26)
+        dialog.send:SetPoint("BOTTOMRIGHT", dialog, "BOTTOMRIGHT", -16, 14)
+        dialog.send:SetText("Send")
+        dialog.send:SetScript("OnClick", function()
+            local ok, wait, why = addonTable.SendAnnouncement(dialog.edit:GetText())
+            if ok then
+                Monitor.Note("Announcement sent to all guilds")
+                dialog.edit:SetText("")
+                dialog:Hide()
+            elseif wait then
+                dialog.status:SetText("|cffff5555An announcement was just sent - try again in " .. wait .. " s.|r")
+            else
+                dialog.status:SetText("|cffff5555" .. tostring(why or "not sent") .. "|r")
+            end
+        end)
+        dialog.cancel = CreateFrame("Button", nil, dialog, "GameMenuButtonTemplate")
+        dialog.cancel:SetSize(110, 26)
+        dialog.cancel:SetPoint("RIGHT", dialog.send, "LEFT", -8, 0)
+        dialog.cancel:SetText("Cancel")
+        dialog.cancel:SetScript("OnClick", function() dialog:Hide() end)
+        dialog:Hide()
+        return dialog
+    end
+    announceBtn:SetScript("OnClick", function()
+        local d = AnnounceDialog()
+        if d:IsShown() then d:Hide() return end
+        d.status:SetText("")
+        d.count:SetText(#(d.edit:GetText() or "") .. " / 180")
+        d:Show()
+        d.edit:SetFocus()
+    end)
+    announceBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Write a message for everyone with the addon (all guilds, 0.15.2 or newer): they see it as a big message in the middle of the screen, with your name and a sound, and once more in the chat.\nUp to 180 characters, at most every 5 minutes.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    announceBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local logBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     logBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -52)

@@ -909,6 +909,7 @@ row.versionText:SetPoint("LEFT", row, "LEFT", 480, 0)
 addonTable.Notes.AttachRow(row)
 addonTable.Professions.AttachRow(row)
 addonTable.Armory.AttachRow(row)
+addonTable.Discord.AttachRow(row)
 tableRows[i] = row
 end
 -- Row click: right = menu (Whisper), Shift + left = whisper at once. Whisper only to online players.
@@ -3121,6 +3122,7 @@ scrollFrame:SetPoint("BOTTOMRIGHT", RightPanel, "BOTTOMRIGHT", -26, 5)
 local ROW_HEIGHT, MAX_ROWS, rows = 26, 38, {}
 for i = 1, MAX_ROWS do
 local row = CreateFrame("Button", nil, RightPanel)
+addonTable.Discord.AttachRow(row)
 -- Player bar across the panel's full width (right edge set in RenderScrollList: with / without slider)
 row:SetHeight(ROW_HEIGHT) row:SetPoint("TOPLEFT", RightPanel, "TOPLEFT", 4, -5 - ((i-1) * ROW_HEIGHT))
 local rowTex = row:CreateTexture(nil, "BACKGROUND") rowTex:SetAllPoints() rowTex:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.03 or 0.06)
@@ -3279,6 +3281,22 @@ if wait > 0 then return false, math.ceil(wait) end
 EventSync.lastChatTest = GetTime()
 SendJagodkaNetworkPacket("CTEST", "1", "high")
 addonTable.Officers.ShowChatTest()
+return true
+end
+-- Announcement (Monitoring, officers; 0.15.2): the officer's own text to everyone with the addon (CANN to GUILD
+-- and through the relays, like CTEST), shown as the big message (officers.lua). At most 180 bytes (one packet
+-- through the relays), no formatting codes, at most every 5 minutes. Returns ok, wait or error text.
+EventSync.ANNOUNCE_MAX, EventSync.lastAnnounce = 180, -300
+function addonTable.SendAnnouncement(text)
+if not IsPlayerOfficer() then return false, nil, "officers only" end
+text = Most.Plain(tostring(text or "")):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\n\n+", "\n")
+if text == "" then return false, nil, "write something first" end
+if #text > EventSync.ANNOUNCE_MAX then return false, nil, "too long (" .. #text .. " / " .. EventSync.ANNOUNCE_MAX .. " bytes)" end
+local wait = 300 - (GetTime() - EventSync.lastAnnounce)
+if wait > 0 then return false, math.ceil(wait) end
+EventSync.lastAnnounce = GetTime()
+SendJagodkaNetworkPacket("CANN", Most.EncodeField(text), "high")
+addonTable.Officers.ShowAnnouncement(text, Most.MyName())
 return true
 end
 function addonTable.SendUpdateReminder()
@@ -3471,7 +3489,10 @@ if not senderInfo and senderName ~= myName then addonTable.Monitor.Note("Ignored
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer
 if senderName == myName then senderIsOfficer = IsPlayerOfficer() else senderIsOfficer = senderInfo ~= nil and IsKnownOfficer(senderName, senderInfo.guild) end
-if pType == "CTEST" then
+if pType == "CANN" then
+-- An officer's announcement (0.15.2): the big message for everyone, from an officer by the rosters
+if senderName ~= myName and senderIsOfficer then addonTable.Officers.ShowAnnouncement(Most.Plain(Most.DecodeField(payload) or ""), senderName) end
+elseif pType == "CTEST" then
 -- An officer's chat test request: the big message for everyone (officers.lua); mine was shown when sent
 if senderName ~= myName and senderIsOfficer then addonTable.Officers.ShowChatTest() end
 elseif pType == "UPD" then

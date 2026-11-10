@@ -943,6 +943,8 @@ local LIVE_PACKETS = {
     EH = true, ED = true, ES = true, EK = true, EX = true,
     -- LFG listings (lfg.lua)
     LF = true, LX = true,
+    -- Officers' big messages for everyone (core.lua): announcements and chat test requests
+    CANN = true, CTEST = true,
     -- A delayed status packet would make the player look offline, and their packets would be ignored
     PING = true, PONG = true,
     -- Roster changes (who logged in or out): small and rare, but behind a big guild's full roster they

@@ -421,7 +421,7 @@ local rally = nil
 local function RallyFrame()
     if rally then return rally end
     rally = CreateFrame("Frame", nil, _G.UIParent)
-    rally:SetSize(900, 160)
+    rally:SetSize(900, 220)   -- room for an announcement of a few lines (0.15.2)
     rally:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 180)
     rally:SetFrameStrata("FULLSCREEN_DIALOG")
     rally.text = rally:CreateFontString(nil, "OVERLAY")
@@ -462,6 +462,28 @@ function Officers.ShowChatTest()
     lastChatTestShown = GetTime()
     Officers.ShowBanner(CHAT_TEST_TEXT, 6, true)
     Note("global chat test request shown")
+end
+
+-- ANNOUNCEMENT (0.15.2): an officer's own text for everyone with the addon (core.lua sends CANN). The big message
+-- with the officer's name and a sound, longer for a longer text, and one line in the chat to read it again.
+-- At most one a minute is shown (several officers sending at once cannot flood the screen).
+local ANNOUNCE_SHOW_AGAIN = 60
+local lastAnnouncementShown = -ANNOUNCE_SHOW_AGAIN
+function Officers.ShowAnnouncement(text, author)
+    if not text or text == "" then return end
+    if GetTime() - lastAnnouncementShown < ANNOUNCE_SHOW_AGAIN then
+        Note("announcement from " .. tostring(author) .. " not shown (another one less than a minute ago)")
+        return
+    end
+    lastAnnouncementShown = GetTime()
+    local f = RallyFrame()
+    f.text:SetWordWrap(true)
+    Officers.ShowBanner("|cffffd100" .. tostring(author) .. ":|r\n" .. text, math.min(12, math.max(6, 4 + math.floor(#text / 20))), true)
+    local line = "|cffbf40ff[Jagodka]|r |cffff5555Announcement from " .. tostring(author) .. ":|r " .. text:gsub("\n", " ")
+    local frame = (addonTable.Zakladka and addonTable.Zakladka.Frame and addonTable.Zakladka.Frame()) or _G.DEFAULT_CHAT_FRAME
+    if frame then frame:AddMessage(line) end
+    if frame ~= _G.DEFAULT_CHAT_FRAME and _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage(line) end
+    Note("announcement from " .. tostring(author) .. " shown")
 end
 
 function Officers.ShowRally()

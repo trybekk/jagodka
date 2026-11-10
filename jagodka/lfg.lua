@@ -374,7 +374,7 @@ end
 local HINT_AGAIN = 300
 local hintedAt = {}
 local SEEK_WORDS = { "lfg", "lfm", "lf", "lf1m", "lf2m", "lf3m", "lf4m", "szukam", "szuka", "szukamy", "szukacie", "kto na", "ktos na",
-    "ktos idzie", "kto idzie", "chetni", "chetny", "need", "potrzebny", "potrzebna", "potrzebuje", "brakuje", "wbijam", "ide na" }
+    "ktos idzie", "kto idzie", "chetni", "chetny", "kto do", "ktos do", "zbieram", "zbieramy", "lecimy na", "idziemy na", "wbije ktos", "need", "potrzebny", "potrzebna", "potrzebuje", "brakuje", "wbijam", "ide na" }
 -- Short names players use; one may mean several (DM: the Deadmines at low level, Dire Maul at 60)
 local ALIASES = {
     rfc = { "Ragefire Chasm" }, wc = { "Wailing Caverns" }, dm = { "The Deadmines", "Dire Maul" }, vc = { "The Deadmines" },
@@ -403,6 +403,12 @@ local function NamedActivities(text)
     local msg = Norm(text)
     local seeking = false
     for _, w in ipairs(SEEK_WORDS) do if msg:find(" " .. w .. " ", 1, true) then seeking = true break end end
+    -- Also any "LF<n>M" (lf5m, lf10m...) and a role right after LF / LFM ("lftank", "lfmheal", "lfdps")
+    if not seeking then
+        for word in msg:gmatch("%S+") do
+            if word:match("^lf%d+m$") or word:match("^lfm?tanka?$") or word:match("^lfm?heal") or word:match("^lfm?dps$") then seeking = true break end
+        end
+    end
     if not seeking then return nil end
     local names = {}
     for word in msg:gmatch("%S+") do

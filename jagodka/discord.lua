@@ -200,6 +200,26 @@ function Discord.Copy(name)
     if d then _G.StaticPopup_Show("JAGODKA_COPY_DISCORD", name, nil, d) end
 end
 
+-- A row of the addon's player tables (Roster, Officers online; row.member = { name, ... }): on hover, a small
+-- tooltip with the name and the Discord name, only for a player who shared one (other rows show nothing new)
+function Discord.AttachRow(row)
+    if not row or not row.HookScript then return end
+    row:HookScript("OnEnter", function(self)
+        local name = self.member and self.member.name
+        local d = name and Discord.Get(name)
+        if not d then return end
+        local tip = _G.GameTooltip
+        tip:SetOwner(self, "ANCHOR_RIGHT")
+        tip:SetText(name, 1, 1, 1)
+        tip:AddLine(ICON .. " |c" .. COLOR .. d .. "|r")
+        tip:Show()
+        self.discordTip = true
+    end)
+    row:HookScript("OnLeave", function(self)
+        if self.discordTip then self.discordTip = nil _G.GameTooltip:Hide() end
+    end)
+end
+
 -- The game's tooltip of a player (the world, unit frames)
 local function OnUnitTooltip(tip)
     if not tip or not tip.GetUnit then return end
