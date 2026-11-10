@@ -53,7 +53,7 @@ local TYPES = {
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
-    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" },
+    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" }, CREF = { "channel", "chat channel refused / back" },
     DI = { "presence", "Discord name" }, DQ = { "presence", "Discord names request" }, DC = { "presence", "Discord names request taken" }, DL = { "presence", "Discord names" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
@@ -502,6 +502,12 @@ local function BuildNetwork()
     end
 
     -- LFG listings: who, when listed, when last heard of, offline grace
+    -- Who cannot get onto the chat channel now (CREF reports, bridge.lua; 0.15.4)
+    local refused = Most.RefusalLines and Most.RefusalLines() or {}
+    Heading(lines, "Chat channel refused (" .. #refused .. ")")
+    if #refused == 0 then table.insert(lines, "-") end
+    for _, r in ipairs(refused) do table.insert(lines, r) end
+
     local lfgInfo = addonTable.LFG and addonTable.LFG.GetMonitorInfo and addonTable.LFG.GetMonitorInfo()
     if lfgInfo then
         Heading(lines, "LFG listings (" .. lfgInfo.total .. ")")

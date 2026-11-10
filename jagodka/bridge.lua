@@ -1194,6 +1194,72 @@ if _G.ChatFrame_AddMessageEventFilter then
 end
 
 -- ============================================================================
+-- CHAT CHANNEL REFUSALS SEEN BY EVERYONE (0.15.4): when the server refuses me the chat channel (Forever's
+-- sub-realms: NOT_ALLOWED_IN_CHANNEL, INVALID_NAME; or a wrong password, a ban), my addon tells the community
+-- in one small CREF packet (low priority, to GUILD and through the relays, at most every REFUSAL_REPORT_EVERY
+-- while it lasts) with my sub-realm, and once more when I am back on the channel. Officers see in Monitoring who
+-- cannot get onto the chat channel and on which sub-realm. Nothing is sent while all is well.
+--   CREF:1:<reason>:<tries>:<sub-realm>   refused        CREF:0:ok:<tries>:<sub-realm>   back on the channel
+-- ============================================================================
+local REFUSAL_REPORT_EVERY = 600
+local myRefusal = nil        -- { reason, tries, since, reportedAt }
+local refusals = {}          -- other players: name -> { guild, reason, tries, realm, at }
+
+local function SendRefusal(refused, reason, tries)
+    local guild = MyGuild()
+    if not guild or not Most.IsGuildAllowed(guild) then return end
+    local realm = _G.GetNormalizedRealmName and _G.GetNormalizedRealmName() or "?"
+    Most.Send("CREF", table.concat({ refused and "1" or "0", Enc(reason or "?"), tostring(tries or 0), Enc(realm) }, ":"), "low")
+end
+
+-- From the channel notices below: a refusal of the chat channel (reason) or being on it (reason = nil)
+local function NoteChatChannel(reason)
+    if reason then
+        myRefusal = myRefusal or { tries = 0, since = GetTime(), reportedAt = -REFUSAL_REPORT_EVERY }
+        myRefusal.tries, myRefusal.reason = myRefusal.tries + 1, reason
+        if GetTime() - myRefusal.reportedAt >= REFUSAL_REPORT_EVERY then
+            myRefusal.reportedAt = GetTime()
+            SendRefusal(true, reason, myRefusal.tries)
+        end
+    elseif myRefusal then
+        SendRefusal(false, "ok", myRefusal.tries)
+        myRefusal = nil
+    end
+end
+
+-- core.lua: CREF from a known player of a listed guild; true when it was one
+function Most.HandleRefusal(pType, payload, senderName)
+    if pType ~= "CREF" then return false end
+    if senderName == MyName() then return true end
+    local flag, reason, tries, realm = strsplit(":", payload, 4)
+    reason, realm, tries = Most.Plain(Dec(reason) or "?"), Most.Plain(Dec(realm) or "?"), tonumber(tries) or 0
+    local p = Most.FindKnownPlayer(senderName)
+    local guild = p and p.guild or "?"
+    if flag == "1" then
+        refusals[senderName] = { guild = guild, reason = reason, tries = tries, realm = realm, at = GetTime() }
+        if addonTable.Monitor then addonTable.Monitor.Channel("Chat channel refused for " .. senderName .. " (" .. Most.GuildTag(guild) .. ", " .. realm .. "): " .. reason .. ", " .. tries .. " tries", true) end
+    else
+        refusals[senderName] = nil
+        if addonTable.Monitor then addonTable.Monitor.Channel(senderName .. " (" .. Most.GuildTag(guild) .. ", " .. realm .. ") is back on the chat channel after " .. tries .. " refused tries") end
+    end
+    return true
+end
+
+-- Monitoring: who cannot get onto the chat channel now (reported in the last 30 minutes), mine included
+function Most.RefusalLines()
+    local lines, now = {}, GetTime()
+    if myRefusal then
+        table.insert(lines, MyName() .. " (me, " .. tostring(_G.GetNormalizedRealmName and _G.GetNormalizedRealmName()) .. "): " .. tostring(myRefusal.reason) .. ", " .. myRefusal.tries .. " tries, " .. math.floor((now - myRefusal.since) / 60) .. " min")
+    end
+    for name, r in pairs(refusals) do
+        if now - r.at > 1800 then refusals[name] = nil
+        else table.insert(lines, name .. " (" .. Most.GuildTag(r.guild) .. ", " .. r.realm .. "): " .. r.reason .. ", " .. r.tries .. " tries, reported " .. math.floor((now - r.at) / 60) .. " min ago") end
+    end
+    table.sort(lines)
+    return lines
+end
+
+-- ============================================================================
 -- STATUS (Monitoring tab, monitor.lua)
 -- ============================================================================
 function Most.GetMonitorInfo()
@@ -1282,6 +1348,7 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
             -- 0.15.3: the game passes ownership and the moderator mark on by itself when the owner logs out, so
             -- those are information; mutes, kicks, bans and the moderated mode are errors
             local routine = arg1 == "OWNER_CHANGED" or arg1 == "SET_MODERATOR" or arg1 == "UNSET_MODERATOR" or arg1 == "CHANNEL_OWNER"
+            if which == "chat" and arg1 == "INVALID_NAME" then NoteChatChannel("INVALID_NAME") end
             if which then addonTable.Monitor.Channel("Channel event (" .. which .. "): " .. tostring(arg1) .. " " .. tostring(arg2 or "")
                 .. ((actor and actor ~= "") and (" by " .. tostring(actor)) or ""), not routine) end
         end
@@ -1297,7 +1364,13 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
                 or (offName and low == offName:lower() and "officers") or nil
             if which then addonTable.Monitor.Channel("Channel notice (" .. which .. "): " .. tostring(arg1)) end
         end
-        if channelBaseName ~= nil and channelBaseName == KeyChannelName() then addonTable.Key.OnNotice(arg1) return end
+        if channelBaseName ~= nil and channelBaseName == KeyChannelName() then
+            -- Refused or back on it (CREF reports, above)
+            if arg1 == "NOT_ALLOWED_IN_CHANNEL" or arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then NoteChatChannel(arg1)
+            elseif arg1 == "YOU_JOINED" or arg1 == "YOU_CHANGED" then NoteChatChannel(nil) end
+            addonTable.Key.OnNotice(arg1)
+            return
+        end
         if channelBaseName ~= nil and addonTable.Officers and channelBaseName == addonTable.Officers.ChannelName() then addonTable.Officers.OnNotice(arg1) return end
         if channelBaseName ~= ChannelName() then return end
         if arg1 == "WRONG_PASSWORD" or arg1 == "BANNED" then

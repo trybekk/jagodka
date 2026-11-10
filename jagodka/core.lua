@@ -3516,7 +3516,8 @@ if senderName ~= myName and senderIsOfficer and CompareVersions(ADDON_VERSION, p
 else
 -- Events (EH/ED/ES/EK/EX, sync EQ/EC): events.lua. Old EV_* packets (before 0.14.0) are ignored.
 if not addonTable.LFG.HandlePacket(pType, payload, senderName, channel)
-and not addonTable.Discord.HandlePacket(pType, payload, senderName, channel) then
+and not addonTable.Discord.HandlePacket(pType, payload, senderName, channel)
+and not Most.HandleRefusal(pType, payload, senderName) then
 addonTable.Events.HandlePacket(pType, payload, senderName, channel)
 end
 end
