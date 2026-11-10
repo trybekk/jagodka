@@ -53,7 +53,7 @@ local TYPES = {
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
     PING = { "presence", "hello" }, PONG = { "presence", "online signal" }, PROF = { "presence", "professions" },
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
-    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" }, CREF = { "channel", "chat channel refused / back" },
+    UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" }, CREF = { "channel", "chat channel refused / back" }, VLIST = { "presence", "addon versions of a guild" },
     DI = { "presence", "Discord name" }, DQ = { "presence", "Discord names request" }, DC = { "presence", "Discord names request taken" }, DL = { "presence", "Discord names" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
@@ -502,6 +502,29 @@ local function BuildNetwork()
     end
 
     -- LFG listings: who, when listed, when last heard of, offline grace
+    -- 0.15.5: players with an older addon version than the newest in the community, by guild, so officers can
+    -- ask them by name to update (roster.lua: status packets and the relays' version lists)
+    local R = addonTable.Roster
+    local latest = R and R.LatestVersion and R.LatestVersion()
+    if latest then
+        local byGuild, count = {}, 0
+        for guild in pairs(R.AllowedGuilds and R.AllowedGuilds() or {}) do
+            for name, v in pairs(R.AddonVersions(guild)) do
+                if not Most.AtLeast(v, latest) then
+                    byGuild[guild] = byGuild[guild] or {}
+                    table.insert(byGuild[guild], name .. " " .. v)
+                    count = count + 1
+                end
+            end
+        end
+        Heading(lines, "Outdated addon (" .. count .. ", newest " .. latest .. ")")
+        if count == 0 then table.insert(lines, "-") end
+        for guild, names in pairs(byGuild) do
+            table.sort(names)
+            table.insert(lines, Most.GuildTag(guild) .. " (" .. #names .. "): " .. table.concat(names, ", "))
+        end
+    end
+
     -- Who cannot get onto the chat channel now (CREF reports, bridge.lua; 0.15.4)
     local refused = Most.RefusalLines and Most.RefusalLines() or {}
     Heading(lines, "Chat channel refused (" .. #refused .. ")")
@@ -808,7 +831,7 @@ function Monitor.Attach(panel, c)
     statsText = statsBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statsText:SetPoint("TOPLEFT", statsBox, "TOPLEFT", 8, -6)
     -- The text ends above the two rows of buttons at the bottom
-    statsText:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -8, 52)
+    statsText:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -8, 30)   -- one row of buttons (0.15.5: the officer actions menu)
     statsText:SetJustifyH("LEFT")
     statsText:SetJustifyV("TOP")
     -- The same as "/jagodka key" (officers, key.lua): a new chat channel key, after a confirmation, because
@@ -991,6 +1014,55 @@ function Monitor.Attach(panel, c)
         _G.GameTooltip:Show()
     end)
     announceBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+
+    -- 0.15.5: the six officer buttons in two rows became one "Officer actions" menu, grouped; each item does exactly
+    -- what its button did (the buttons stay, hidden, so their checks and messages are unchanged)
+    local actions = {
+        { header = "Messages to everyone" },
+        { btn = announceBtn, text = "Announcement...", tip = "Your own message as a big text on everyone's screen, with a sound (0.15.2+). At most every 5 minutes." },
+        { btn = chatTestBtn, text = "Global chat test request", tip = "Asks everyone (0.14.2+) to write a test message on General, Trade and LFG. At most every 5 minutes." },
+        { btn = rallyBtn, text = "Officers: promote the addon", tip = "A big message for the officers online: get everyone to install the addon. At most every 5 minutes." },
+        { header = "Updates" },
+        { btn = remind, text = "Remind outdated", tip = "A note by the minimap for everyone with an older addon than yours, in all guilds." },
+        { header = "Chat keys" },
+        { btn = newKey, text = "New chat key", tip = "Everyone moves to a new chat channel within moments (the same as /jagodka key)." },
+        { btn = officersKey, text = "New officers key", tip = "All officers move to a new officers channel within moments." },
+    }
+    for _, a in ipairs(actions) do if a.btn then a.btn:Hide() end end
+    local actionsMenu = CreateFrame("Frame", "JagodkaOfficerActionsMenu", _G.UIParent, "UIDropDownMenuTemplate")
+    _G.UIDropDownMenu_Initialize(actionsMenu, function(_, level)
+        for _, a in ipairs(actions) do
+            local info = _G.UIDropDownMenu_CreateInfo()
+            info.notCheckable = true
+            if a.header then
+                info.text, info.isTitle = a.header, true
+            else
+                local b = a.btn
+                info.text = a.text
+                info.tooltipTitle, info.tooltipText, info.tooltipOnButton = a.text, a.tip, true
+                info.func = function()
+                    local fn = b:GetScript("OnClick")
+                    if fn then fn(b, "LeftButton") end
+                end
+            end
+            _G.UIDropDownMenu_AddButton(info, level)
+        end
+        local info = _G.UIDropDownMenu_CreateInfo()
+        info.text, info.notCheckable, info.func = "Cancel", true, function() _G.CloseDropDownMenus() end
+        _G.UIDropDownMenu_AddButton(info, level)
+    end, "MENU")
+    local actionsBtn = CreateFrame("Button", nil, statsBox, "UIPanelButtonTemplate")
+    actionsBtn:SetHeight(20)
+    actionsBtn:SetPoint("BOTTOMRIGHT", statsBox, "BOTTOMRIGHT", -6, 5)
+    actionsBtn:SetText("Officer actions...")
+    FitButton(actionsBtn)
+    actionsBtn:SetScript("OnClick", function(self) _G.ToggleDropDownMenu(1, nil, actionsMenu, self, 0, 0) end)
+    actionsBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Announcement, chat test request, promoting the addon to officers, reminding outdated players, new chat keys.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    actionsBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 
     local logBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     logBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -52)

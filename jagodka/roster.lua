@@ -483,6 +483,9 @@ function Roster.HandlePacket(pType, payload, senderName)
         g.updated = GetServerTime()
         Changed()
         return true
+    elseif pType == "VLIST" then
+        Roster.HandleVersionList(payload, senderName)
+        return true
     elseif pType == "RQ" then
         if senderName ~= Most.MyName() and GetTime() >= readyAt and IsSender() then
             for gEnc in payload:gmatch("[^,]+") do
@@ -675,6 +678,100 @@ end
 -- ============================================================================
 -- Players with the addon (activePlayers) + rosters of all listed guilds. The online status of a guild
 -- with nobody with the addon online now is out of date -> we show them as offline.
+-- ============================================================================
+-- ADDON VERSIONS OF OTHER GUILDS (0.15.5; faster while the addon is in beta, VERSION_LIST_EVERY loosened later)
+-- ============================================================================
+-- Status packets stay in their guild, so the Roster knew the addon version of another guild's players only for
+-- its relay. Now each guild's relay sends, every VERSION_LIST_EVERY, its guild's online addon players with their
+-- versions (VLIST, low priority, to GUILD and through the relays to the other guilds):
+--   VLIST:<guild>:<part>:<total>:<version>,<version>,...:<name>~<index>;<name>~<index>;...
+-- Readers keep each version for VERSION_KEEP and show it in the Roster's version column for players of other
+-- guilds; a newer version than mine shows the usual update note at once.
+local VERSION_LIST_EVERY = 180      -- s; beta: often, so new versions show across guilds soon
+local VERSION_KEEP = 2 * VERSION_LIST_EVERY + 60
+local otherVersions = {}            -- name -> { v = "0.15.4", at = GetTime() }
+
+local function SendVersionList()
+    local guild = MyGuild()
+    if not ctx or not guild or not ctx.isGuildAllowed(guild) or not Most.IsRelay() then return end
+    local versions, index, entries = {}, {}, {}
+    for _, p in ipairs(ctx.activePlayers) do
+        local v = tostring(p.version or "")
+        if p.guild == guild and v:match("^%d+%.%d+%.%d+$") then
+            if not index[v] then table.insert(versions, v) index[v] = #versions end
+            table.insert(entries, (tostring(p.name):gsub("[~;:]", "")) .. "~" .. index[v])
+        end
+    end
+    if #entries == 0 then return end
+    local head = table.concat(versions, ",")
+    local fixed = #"VLIST:" + #Enc(guild) + 1 + 3 + 1 + 3 + 1 + #head + 1
+    local chunks = Chunk(entries, MAX_ADDON_BYTES - fixed, MAX_ADDON_BYTES - fixed)
+    for i, chunk in ipairs(chunks) do
+        Most.Send("VLIST", table.concat({ Enc(guild), i, #chunks, head, chunk }, ":"), "low")
+    end
+end
+
+function Roster.HandleVersionList(payload, senderName)
+    local gEnc, _, _, head, list = strsplit(":", payload, 5)
+    local guild = Dec(gEnc)
+    if not guild or guild == MyGuild() or not list or not AcceptFrom(senderName, guild) then return end
+    local versions, newest = {}, nil
+    for v in tostring(head or ""):gmatch("[^,]+") do
+        if v:match("^%d+%.%d+%.%d+$") then
+            table.insert(versions, v)
+            if not newest or Most.AtLeast(v, newest) then newest = v end
+        else
+            table.insert(versions, false)
+        end
+    end
+    local now = GetTime()
+    for e in list:gmatch("[^;]+") do
+        local name, i = e:match("^(.-)~(%d+)$")
+        local v = name and versions[tonumber(i)]
+        if v then otherVersions[Most.PlayerKey(Most.Plain(name))] = { v = v, at = now, guild = guild } end
+    end
+    -- Someone in the community has a newer version: the update note (core.lua), as for a guildmate's signal
+    if newest and Roster.OnNewerVersion then Roster.OnNewerVersion(senderName, newest) end
+end
+
+-- The addon version of another guild's player from those lists, or nil
+function Roster.OtherVersion(name)
+    local e = otherVersions[name]
+    if e and GetTime() - e.at <= VERSION_KEEP then return e.v end
+    return nil
+end
+
+-- Addon players of a guild with their versions (0.15.5): mine from the status packets, others from their relay's
+-- version list (and the players of that guild we hear directly, e.g. its relay). Returns { name = version }.
+function Roster.AddonVersions(guild)
+    local out, now = {}, GetTime()
+    if not ctx or not guild then return out end
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild == guild and p.version then out[p.name] = tostring(p.version) end
+    end
+    if guild ~= MyGuild() then
+        for name, e in pairs(otherVersions) do
+            if e.guild == guild and now - e.at <= VERSION_KEEP and not out[name] then out[name] = e.v end
+        end
+    end
+    return out
+end
+
+-- The listed guilds (core.lua's whitelist)
+function Roster.AllowedGuilds() return ctx and ctx.allowedGuilds or {} end
+
+-- The newest addon version seen in the community (mine included)
+function Roster.LatestVersion()
+    local latest = (_G.GetAddOnMetadata and _G.GetAddOnMetadata(addonName, "Version")) or nil
+    if not ctx then return latest end
+    for guild in pairs(ctx.allowedGuilds) do
+        for _, v in pairs(Roster.AddonVersions(guild)) do
+            if v:match("^%d+%.%d+%.%d+$") and (not latest or Most.AtLeast(v, latest)) then latest = v end
+        end
+    end
+    return latest
+end
+
 function Roster.BuildList(showOffline)
     local list, seen = {}, {}
     if not ctx then return list end
@@ -697,7 +794,9 @@ function Roster.BuildList(showOffline)
                 local online = m.o and live and not MyOther(name)
                 if not seen[name] and (online or showOffline) then
                     seen[name] = true
-                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = (online and guild == myGuild and m.z ~= "") and m.z or nil, online = online })
+                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = (online and guild == myGuild and m.z ~= "") and m.z or nil, online = online,
+                        -- Another guild's player with the addon (their relay's version list, 0.15.5)
+                        version = (online and guild ~= myGuild) and Roster.OtherVersion(name) or nil })
                 end
             end
         end
@@ -761,6 +860,8 @@ addonTable.SafeScript(Listener, "OnEvent", "roster.lua:735", function(self, even
         -- core.lua sends the roster request after login (EventSync.LoginSync); the relay also asks every
         -- minute for linked guilds whose roster is missing or old (RequestStale keeps its own cooldown)
         C_Timer.NewTicker(20, Tick)
+    -- Version lists for the other guilds (only the relay sends; 0.15.5)
+    C_Timer.NewTicker(VERSION_LIST_EVERY, SendVersionList)
         C_Timer.NewTicker(60, RequestStale)
     elseif event == "GUILD_ROSTER_UPDATE" then
         -- Blizzard can fire this event many times in a row, so we recompute once per 2 s.

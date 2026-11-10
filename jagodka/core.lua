@@ -689,8 +689,8 @@ end)
 end
 for i, name in ipairs(chatTabs) do
 local tBtn = CreateFrame("Button", nil, ChatPanel, "BackdropTemplate")
-tBtn:SetSize(100, 22)
-tBtn.customXOffset = 10 + ((i-1) * 104)
+tBtn:SetSize(112, 22)   -- room for the number of readers (0.15.5)
+tBtn.customXOffset = 10 + ((i-1) * 116)
 tBtn:SetPoint("BOTTOMLEFT", ChatPanel, "TOPLEFT", tBtn.customXOffset, 0)
 tBtn:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 tBtn:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
@@ -717,8 +717,53 @@ tBtn.text:SetPoint("CENTER", tBtn, "CENTER", 9, 0)
 tBtn.icon:SetPoint("RIGHT", tBtn.text, "LEFT", -4, 0)
 end
 tBtn:SetScript("OnClick", function() currentChatTab = name UpdateChatTabVisuals() end)
+-- 0.15.5: who is on this chat, on hover (the count is in the label, EventSync.UpdateChatCounts)
+tBtn:SetScript("OnEnter", function(self) EventSync.ChatCountTooltip(self, name) end)
+tBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+tBtn.label = tBtn.text:GetText()
 chatTabButtons[name] = tBtn
 end
+-- 0.15.5: the number of readers next to each chat tab's name: players with the addon online (they get the chat,
+-- on the channel or through the guilds), for Officers the officers among them. The tooltip adds how many are on
+-- the chat channel on my part of the server (its member list, read at most once a minute while this chat shows).
+function EventSync.ChatCounts()
+local all, officers = 0, 0
+for _, p in ipairs(activePlayers) do
+all = all + 1
+if IsKnownOfficer(p.name, p.guild) or (p.name == Most.MyName() and IsPlayerOfficer()) then officers = officers + 1 end
+end
+return all, officers
+end
+function EventSync.UpdateChatCounts()
+local all, officers = EventSync.ChatCounts()
+for tab, btn in pairs(chatTabButtons) do
+btn.text:SetText(btn.label .. " |cff808080(" .. ((tab == "Oficerowie") and officers or all) .. ")|r")
+end
+end
+function EventSync.ChatCountTooltip(owner, tab)
+local all, officers = EventSync.ChatCounts()
+local tip = _G.GameTooltip
+tip:SetOwner(owner, "ANCHOR_TOP")
+if tab == "Oficerowie" then
+tip:SetText(officers .. " officers with the addon online", 1, 1, 1)
+else
+tip:SetText(all .. " players with the addon online", 1, 1, 1)
+tip:AddLine("They all get this chat: on the channel or through the guilds.", 0.8, 0.8, 0.8, true)
+local onChannel, age = Most.KeyChannelCount()
+if onChannel then tip:AddLine(onChannel .. " on the chat channel on your part of the server (" .. math.floor(age / 60) .. " min ago)", 0.6, 0.6, 0.6, true) end
+end
+tip:Show()
+end
+ChatPanel:HookScript("OnShow", function() EventSync.UpdateChatCounts() end)
+C_Timer.NewTicker(30, function()
+if not ChatPanel:IsVisible() then return end
+EventSync.UpdateChatCounts()
+-- The channel's member list for the tooltip, at most once a minute and only while the chat shows
+if currentChatTab ~= "Oficerowie" and addonTable.Key.ChannelId() and GetTime() - (EventSync.chatListAt or -60) >= 60 then
+EventSync.chatListAt = GetTime()
+Most.ListChannel(addonTable.Key.ChannelName())
+end
+end)
 -- "?" over the chat (help.lua): the chat topic, or the officers chat on the Officers tab
 do
 local help = addonTable.Help.Button(ChatPanel, "chat", nil, "Community Chat")
@@ -3056,6 +3101,29 @@ row.barBg:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, 1) row.barBg:SetPoi
 row.bar = row:CreateTexture(nil, "OVERLAY") row.bar:SetHeight(4) row.bar:SetColorTexture(0.25, 0.85, 0.25, 0.9)
 row.bar:SetPoint("LEFT", row.barBg, "LEFT", 0, 0)
 row:Hide()
+-- 0.15.5: who in this guild has the addon, by version (roster.lua: status packets and the relays' version lists)
+row:SetScript("OnEnter", function(self)
+if not self.guildName then return end
+local counts, total = {}, 0
+for _, v in pairs(Roster.AddonVersions(self.guildName)) do counts[v] = (counts[v] or 0) + 1 total = total + 1 end
+local list = {}
+for v, n in pairs(counts) do table.insert(list, { v = v, n = n }) end
+table.sort(list, function(a, b) return Most.AtLeast(a.v, b.v) and a.v ~= b.v end)
+local tip = _G.GameTooltip
+tip:SetOwner(self, "ANCHOR_LEFT")
+tip:SetText(self.guildName, 1, 1, 1)
+local s = Roster.GetGuildSummary(self.guildName)
+tip:AddLine(s.online .. " online of " .. s.total .. " members", 0.8, 0.8, 0.8)
+tip:AddLine(total .. " with the addon online", 0.25, 0.85, 0.25)
+local latest = Roster.LatestVersion()
+for _, e in ipairs(list) do
+local old = latest and not Most.AtLeast(e.v, latest)
+tip:AddDoubleLine("  " .. e.v, e.n, old and 1 or 0.8, old and 0.5 or 0.8, old and 0.3 or 0.8, 1, 1, 1)
+end
+if total == 0 then tip:AddLine("Nobody with the addon online there now", 0.6, 0.6, 0.6) end
+tip:Show()
+end)
+row:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 SideGuilds.rows[i] = row
 end
 function SideGuilds.Render()
@@ -3083,6 +3151,7 @@ SideGuilds.track:Show() SideGuilds.thumb:Show()
 else SideGuilds.track:Hide() SideGuilds.thumb:Hide() end
 for i, row in ipairs(SideGuilds.rows) do
 local gName = order[i + SideGuilds.offset]
+row.guildName = gName
 if gName then
 local s = data[gName]
 if s.live then
@@ -3250,6 +3319,15 @@ C_Timer.After(10, addonTable.Officers.Request)
 C_Timer.After(12, function() addonTable.LFG.Request(true) end)
 return true
 end
+-- 0.15.5: once per new version (per account), one line in the chat about what is new, so new features get used
+EventSync.WHATS_NEW = "New: share your Discord name (Settings > Profile), reader counts on the chat tabs, LFG hints when you write that you look for a group, and addon versions of all guilds in the Roster. More in Help."
+C_Timer.After(25, function()
+_G.JagodkiChatDB = _G.JagodkiChatDB or {}
+if _G.JagodkiChatDB.whatsNewSeen == ADDON_VERSION then return end
+_G.JagodkiChatDB.whatsNewSeen = ADDON_VERSION
+local frame = (addonTable.Zakladka and addonTable.Zakladka.Frame and addonTable.Zakladka.Frame()) or _G.DEFAULT_CHAT_FRAME
+if frame then frame:AddMessage("|cffbf40ff[Jagodka " .. ADDON_VERSION .. "]|r |cffffd100" .. EventSync.WHATS_NEW .. "|r") end
+end)
 -- Leaving a dungeon or a battleground: inside, the game blocks addon messages and hides chat text from addons
 -- (send result 11, secret values), so whatever came meanwhile was missed. The same sync as "/jagodka sync"
 -- (at most once a minute), after a short wait for the world to load, and the channels are checked.
@@ -3348,6 +3426,8 @@ addonTable.Update.Show(version)
 Most.AddSystem(text)
 if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
 end
+-- Another guild's version list (roster.lua, 0.15.5) with a newer version than mine: the same update note
+Roster.OnNewerVersion = function(name, version) CheckPlayerVersion(name, version) end
 -- Removes players who have not sent a signal for a long time (logged out), so the list = really online
 local function PruneOfflinePlayers()
 local now, myName = GetTime(), Most.MyName()
@@ -3397,9 +3477,11 @@ if announced then AddMyselfToActiveList() if Most.ShouldSendPong() then SendStat
 -- minute may keep that going. Back on both channels = the next problem starts from 1 minute again.
 local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
 if not Most.GetChannelId() or keyMissing then
-EventSync.joinTries = (EventSync.joinTries or 0) + 1
 if GetTime() >= (EventSync.nextJoinAt or 0) then
-EventSync.nextJoinAt = GetTime() + math.min(600, 60 * 2 ^ math.min(EventSync.joinTries - 1, 4)) - 5
+-- 0.15.5: a try after 1, 2, 4 and 8 minutes, then every 30 (the server refused most players for hours on
+-- 10.11, and their chat goes through the guilds anyway)
+EventSync.joinTries = (EventSync.joinTries or 0) + 1
+EventSync.nextJoinAt = GetTime() + ((EventSync.joinTries >= 5) and 1800 or (60 * 2 ^ (EventSync.joinTries - 1))) - 5
 addonTable.Monitor.Channel("Not on the " .. (keyMissing and "chat" or "public") .. " channel, joining again (try " .. EventSync.joinTries .. "; " .. Most.ChannelListText() .. ")")
 Most.JoinChannel()
 end

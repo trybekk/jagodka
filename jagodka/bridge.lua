@@ -1072,6 +1072,12 @@ end
 -- channelMembers: name -> when last seen on the list. A name expires by time instead of the list being
 -- cleared on each read, because the answer can come in parts and reads can overlap.
 local listAskedAt, helloAt, channelMembers = 0, {}, {}
+local keyListAt, keyListCount = -math.huge, 0   -- the chat channel's last member list: when read, how many names
+-- Players on the chat channel by its last member list, and how many seconds ago it was read (nil = never)
+function Most.KeyChannelCount()
+    if keyListAt == -math.huge then return nil end
+    return keyListCount, GetTime() - keyListAt
+end
 
 function Most.HasLinkedGuilds()
     return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
@@ -1126,6 +1132,11 @@ local function HandleChannelList(list, isKeyChannel)
         local name = Most.PlayerKey((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", ""))) or ""
         if name ~= "" then channelMembers[name] = now end
         if isKeyChannel and name ~= "" and raw:find("*", 1, true) then addonTable.Key.CheckOwner(name) end
+        -- 0.15.5: how many are on the chat channel (my sub-realm's players; the chat tab tooltips in core.lua)
+        if isKeyChannel and name ~= "" then
+            if now - keyListAt > 3 then keyListAt, keyListCount = now, 0 end
+            keyListCount = keyListCount + 1
+        end
         local isGuildmate = guildmateOnlineCheck ~= nil and guildmateOnlineCheck(name) == true
         if isRelay and greeted < maxGreetings and name ~= "" and name ~= MyName() and not isGuildmate and not IsActivePlayer(name)
             and now - (helloAt[name] or -HELLO_RETRY) >= HELLO_RETRY and ctx.sendHello and not IsLinked(name) then
@@ -1201,7 +1212,7 @@ end
 -- cannot get onto the chat channel and on which sub-realm. Nothing is sent while all is well.
 --   CREF:1:<reason>:<tries>:<sub-realm>   refused        CREF:0:ok:<tries>:<sub-realm>   back on the channel
 -- ============================================================================
-local REFUSAL_REPORT_EVERY = 600
+local REFUSAL_REPORT_EVERY = 1800   -- 0.15.5: every 30 min while it lasts (was 10; a refused player is still fine, the chat goes through the guilds)
 local myRefusal = nil        -- { reason, tries, since, reportedAt }
 local refusals = {}          -- other players: name -> { guild, reason, tries, realm, at }
 
@@ -1237,7 +1248,8 @@ function Most.HandleRefusal(pType, payload, senderName)
     local guild = p and p.guild or "?"
     if flag == "1" then
         refusals[senderName] = { guild = guild, reason = reason, tries = tries, realm = realm, at = GetTime() }
-        if addonTable.Monitor then addonTable.Monitor.Channel("Chat channel refused for " .. senderName .. " (" .. Most.GuildTag(guild) .. ", " .. realm .. "): " .. reason .. ", " .. tries .. " tries", true) end
+        -- Information, not an error (0.15.5): since 0.15.4 their chat goes through the guilds anyway
+        if addonTable.Monitor then addonTable.Monitor.Channel("Chat channel refused for " .. senderName .. " (" .. Most.GuildTag(guild) .. ", " .. realm .. "): " .. reason .. ", " .. tries .. " tries") end
     else
         refusals[senderName] = nil
         if addonTable.Monitor then addonTable.Monitor.Channel(senderName .. " (" .. Most.GuildTag(guild) .. ", " .. realm .. ") is back on the chat channel after " .. tries .. " refused tries") end
