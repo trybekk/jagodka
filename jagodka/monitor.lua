@@ -41,7 +41,7 @@ local MAX_NAMES_SHOWN = 15
 local TYPES = {
     GMSG = { "chat", "chat message" }, HIST = { "chat", "chat history" }, HREQ = { "chat", "history request" }, HCLAIM = { "chat", "history request taken" },
     KEY = { "channel", "chat channel key" }, KREQ = { "channel", "chat channel key request" },
-    OKEY = { "channel", "officers chat key" }, OKREQ = { "channel", "officers chat key request" }, OMSG = { "channel", "officers chat message (direct, another sub-realm)" },
+    OKEY = { "channel", "officers chat key" }, OKREQ = { "channel", "officers chat key request" },
     OHREQ = { "channel", "officers chat history request" }, OHIST = { "channel", "officers chat history" }, ORALLY = { "channel", "officers rally" },
     EV_ADD = { "events", "event" }, EV_DESC = { "events", "event description" }, EV_EDIT = { "events", "event edit" }, EV_REM = { "events", "event removed" },
     EV_RM = { "events", "event removal marker" }, EV_REQ = { "events", "events request" }, EV_CLAIM = { "events", "events request taken" }, EV_ROS = { "events", "sign-up list" },
