@@ -3353,6 +3353,9 @@ local function PruneOfflinePlayers()
 local now, myName = GetTime(), Most.MyName()
 local changed = false
 local myGuild = GetGuildInfo("player")
+-- Quiet signals (0.15.3): a guildmate who signals every 10 minutes is kept QUIET_KEEP, the guild roster still
+-- removes a logged-out one at once; other guilds' players as before
+local ownKeep = (myGuildRosterLoaded and Most.QuietAllowed()) and Most.QUIET_KEEP or Most.ONLINE_TIMEOUT
 for i = #activePlayers, 1, -1 do
 local p = activePlayers[i]
 -- A guildmate logged out according to the roster is removed at once, others after no signal
@@ -3362,7 +3365,7 @@ local offlineInRoster = p.guild == myGuild and myGuildRosterLoaded and myGuildRo
 or (p.guild ~= myGuild and Roster.IsOnline(p.name, p.guild) == false and now - (p.lastSeen or 0) > 30)
 -- My own other character (the account plays one at a time), e.g. still listed as its guild's relay
 or Roster.IsMyOtherCharacter(p.name)
-if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > Most.ONLINE_TIMEOUT) then table.remove(activePlayers, i) changed = true end
+if p.name ~= myName and (offlineInRoster or (now - (p.lastSeen or 0)) > (p.guild == myGuild and ownKeep or Most.ONLINE_TIMEOUT)) then table.remove(activePlayers, i) changed = true end
 end
 if changed then UpdateScrollList() if MainFrame:IsShown() then UpdateMainTable() UpdateGuildTable() end end
 end
@@ -3385,7 +3388,8 @@ C_Timer.After(2, Most.Discover)
 end)
 -- "I am online" signal every minute (no answer expected) + cleanup of logged-out players
 C_Timer.NewTicker(60, function()
-if announced then AddMyselfToActiveList() SendStatusPacket("PONG") end
+-- Quiet online signals (0.15.3, bridge.lua): most players say it every 10 minutes once nearly all have 0.15.3
+if announced then AddMyselfToActiveList() if Most.ShouldSendPong() then SendStatusPacket("PONG") end end
 -- Another addon (or a disconnect) may have removed us from the global channel or the chat channel, so we
 -- come back. The chat channel is checked on its own: before, it was retried only with the public one.
 local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()

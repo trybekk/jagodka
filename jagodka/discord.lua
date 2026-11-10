@@ -148,7 +148,9 @@ function Discord.HandlePacket(pType, payload, senderName, channel)
         Store(name, ts, d)
     elseif pType == "DQ" then
         local theirs = tonumber(payload) or 0
-        if pending[senderName] or Count() <= theirs + 5 then return true end
+        -- 0.15.3: answered whenever we know more names than the asker (was 6 more: with few names in the
+        -- community nobody answered); one guildmate answers (the claim), and the list is small
+        if pending[senderName] or Count() <= theirs then return true end
         if GetTime() - (answeredAt[senderName] or -ANSWER_COOLDOWN) < ANSWER_COOLDOWN or not M.ShouldAnswer("0.15.2") then return true end
         M.ClaimAndAnswer(pending, senderName, 1 + math.random() * 3, function() M.Send("DC", M.EncodeField(senderName), "high") end,
             function() Answer(senderName) end)

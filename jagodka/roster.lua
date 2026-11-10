@@ -165,9 +165,12 @@ local function IsSender()
     if not g or not ctx then return false end
     local myName, now = Most.MyName(), GetTime()
     local candidates = { myName }
+    -- 0.15.3: with quiet online signals a guildmate is heard every 10 minutes; everyone must still see the same
+    -- candidates, or several would think they are the sender
+    local keep = (Most.QuietAllowed and Most.QuietAllowed()) and Most.QUIET_KEEP or Most.ONLINE_TIMEOUT
     for _, p in ipairs(ctx.activePlayers) do
         local m = g.members[p.name]
-        if p.name ~= myName and p.guild == guild and m and m.o and (now - (p.lastSeen or 0)) < Most.ONLINE_TIMEOUT then
+        if p.name ~= myName and p.guild == guild and m and m.o and (now - (p.lastSeen or 0)) < keep then
             table.insert(candidates, p.name)
         end
     end

@@ -803,6 +803,56 @@ local function AtLeast(version, min)
     return true
 end
 
+Most.AtLeast = AtLeast
+
+-- ============================================================================
+-- QUIET ONLINE SIGNALS (0.15.3; the idea is Olympus's hello): the "I am online" signal (PONG) every minute from
+-- every player was about 70% of all traffic (logs of 07-10.11). Now only the first QUIET_FAST names of the guild's
+-- online addon players (those who can become the relay) say it every minute; the others every QUIET_EVERY, and
+-- newer clients keep a guildmate for QUIET_KEEP (the game's guild roster still says at once who logged out).
+-- Older versions drop a quiet guildmate after 150 s (only their counts of addon players are lower), so it is on
+-- only while at most QUIET_OLD_SHARE of the guild's online addon players run an older version.
+-- ============================================================================
+local QUIET_MIN_VERSION, QUIET_FAST, QUIET_EVERY, QUIET_OLD_SHARE = "0.15.3", 5, 600, 0.1
+Most.QUIET_KEEP = 720
+local lastPongAt, quietLogged = -math.huge, nil
+
+-- Whether quiet signals are on in my guild now
+function Most.QuietAllowed()
+    if not ctx then return false end
+    local myGuild, total, old = MyGuild(), 0, 0
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild == myGuild then
+            total = total + 1
+            if not AtLeast(p.version, QUIET_MIN_VERSION) and p.name ~= MyName() then old = old + 1 end
+        end
+    end
+    return total > 0 and old <= total * QUIET_OLD_SHARE
+end
+
+-- Called every minute (core.lua): true = send my PONG now
+function Most.ShouldSendPong()
+    local now, quiet = GetTime(), Most.QuietAllowed()
+    if quiet ~= quietLogged then
+        quietLogged = quiet
+        if addonTable.Monitor then addonTable.Monitor.Note(quiet and "Quiet online signals on: only the first " .. QUIET_FAST .. " names of the guild signal every minute, the rest every " .. (QUIET_EVERY / 60) .. " min"
+            or "Quiet online signals off (older versions online in the guild): everyone signals every minute") end
+    end
+    local send = true
+    if quiet and now - lastPongAt < QUIET_EVERY then
+        -- Am I among the first QUIET_FAST names of my guild's online addon players?
+        local names, myGuild, me = {}, MyGuild(), MyName()
+        for _, p in ipairs(ctx.activePlayers) do
+            if p.guild == myGuild and (p.name == me or now - (p.lastSeen or 0) < Most.QUIET_KEEP) then table.insert(names, p.name) end
+        end
+        table.sort(names)
+        send = false
+        for i = 1, math.min(QUIET_FAST, #names) do if names[i] == me then send = true break end end
+    end
+    if send then lastPongAt = now end
+    return send
+end
+
 -- minVersion: only guildmates with at least this version can answer (a new kind of request): counting the
 -- older ones too made nobody answer about a third of the time while few had updated (0.15.0 log, LFG)
 function Most.ShouldAnswer(minVersion)
@@ -1213,8 +1263,11 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
             local which = (low == ChannelName():lower() and "public") or (keyName and low == keyName:lower() and "chat")
                 or (offName and low == offName:lower() and "officers") or nil
             local actor = select(3, ...)
+            -- 0.15.3: the game passes ownership and the moderator mark on by itself when the owner logs out, so
+            -- those are information; mutes, kicks, bans and the moderated mode are errors
+            local routine = arg1 == "OWNER_CHANGED" or arg1 == "SET_MODERATOR" or arg1 == "UNSET_MODERATOR" or arg1 == "CHANNEL_OWNER"
             if which then addonTable.Monitor.Channel("Channel event (" .. which .. "): " .. tostring(arg1) .. " " .. tostring(arg2 or "")
-                .. ((actor and actor ~= "") and (" by " .. tostring(actor)) or ""), true) end
+                .. ((actor and actor ~= "") and (" by " .. tostring(actor)) or ""), not routine) end
         end
         return
     end
