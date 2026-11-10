@@ -29,7 +29,6 @@ local MAX_KNOWN = 5000        -- names kept at most (the oldest go first)
 local ANSWER_COOLDOWN = 1800  -- the same asker gets our list at most this often (s)
 local MAX_PAYLOAD = 200
 local COLOR = "ff7289da"      -- Discord's blurple
-local ICON = "|TInterface\\FriendsFrame\\UI-Toast-ChatInviteIcon:14:14:0:0|t"
 
 local function Most() return addonTable.Most end
 local function DB()
@@ -174,10 +173,13 @@ end
 -- TOOLTIPS AND COPYING
 -- ----------------------------------------------------------------------------
 -- One line at the bottom of a tooltip for that player (nothing when they shared none)
+-- The line everywhere: "Discord: name" (the label in gray, the name in Discord's blurple)
+local function LineText(d) return "|cffa0a0a0Discord:|r |c" .. COLOR .. d .. "|r" end
+
 function Discord.AddLine(tip, name)
     local d = Discord.Get(name)
     if not d or not tip then return end
-    tip:AddLine(ICON .. " |c" .. COLOR .. d .. "|r")
+    tip:AddLine(LineText(d))
     tip:Show()
 end
 
@@ -205,17 +207,41 @@ end
 function Discord.AttachRow(row)
     if not row or not row.HookScript then return end
     row:HookScript("OnEnter", function(self)
-        local name = self.member and self.member.name
+        local name = (self.member and self.member.name) or self.playerName
         local d = name and Discord.Get(name)
         if not d then return end
         local tip = _G.GameTooltip
         tip:SetOwner(self, "ANCHOR_RIGHT")
         tip:SetText(name, 1, 1, 1)
-        tip:AddLine(ICON .. " |c" .. COLOR .. d .. "|r")
+        tip:AddLine(LineText(d))
         tip:Show()
         self.discordTip = true
     end)
     row:HookScript("OnLeave", function(self)
+        if self.discordTip then self.discordTip = nil _G.GameTooltip:Hide() end
+    end)
+end
+
+-- A chat window (the game's chat windows and the addon window's chat): hovering a player's name, which is a
+-- player link, shows "Discord: name" for a player who shared one; nothing for the others (discreet)
+function Discord.AttachChatFrame(frame)
+    if not frame or frame.jagodkaDiscord or not frame.HookScript then return end
+    frame.jagodkaDiscord = true
+    frame:HookScript("OnHyperlinkEnter", function(self, link)
+        if type(link) ~= "string" or Most().IsSecret(link) then return end
+        local who = link:match("^player:([^:]+)")
+        if not who then return end
+        local name = Most().PlayerKey(who)
+        local d = Discord.Get(name)
+        if not d then return end
+        local tip = _G.GameTooltip
+        tip:SetOwner(self, "ANCHOR_CURSOR")
+        tip:SetText(name, 1, 1, 1)
+        tip:AddLine(LineText(d))
+        tip:Show()
+        self.discordTip = true
+    end)
+    frame:HookScript("OnHyperlinkLeave", function(self)
         if self.discordTip then self.discordTip = nil _G.GameTooltip:Hide() end
     end)
 end
@@ -243,6 +269,8 @@ addonTable.SafeScript(watch, "OnEvent", "discord.lua:login", function()
     elseif _G.GameTooltip and _G.GameTooltip.HookScript then
         _G.GameTooltip:HookScript("OnTooltipSetUnit", function(tip) addonTable.Safe("discord.lua:tooltip", OnUnitTooltip, tip) end)
     end
+    -- Every game chat window (the community tab included): names hovered there show the Discord name
+    for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do Discord.AttachChatFrame(_G["ChatFrame" .. i]) end
     -- What others know, after the rest of the login sync; mine a few minutes later (nobody waits for it)
     C_Timer.After(90, function() if InGuild() then Most().Send("DQ", tostring(Count()), "high") end end)
     C_Timer.After(120 + math.random() * 180, SendMine)

@@ -277,7 +277,7 @@ function Settings.Attach(p, c)
         profile.box:ClearFocus()
         if ok then
             local mine = addonTable.Discord.Mine()
-            profile.status:SetText(mine ~= "" and ("|cff00ff00Saved.|r Others see: |TInterface\\FriendsFrame\\UI-Toast-ChatInviteIcon:14:14:0:0|t |cff7289da" .. mine .. "|r")
+            profile.status:SetText(mine ~= "" and ("|cff00ff00Saved.|r Others see: |cffa0a0a0Discord:|r |cff7289da" .. mine .. "|r")
                 or "|cff00ff00Saved.|r You are not sharing a Discord name.")
         else
             profile.status:SetText("|cffff5555" .. why .. "|r")

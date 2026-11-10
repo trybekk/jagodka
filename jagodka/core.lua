@@ -774,6 +774,7 @@ isMeOfficer = IsPlayerOfficer,
 onChanged = function() RefreshChatDisplay() UpdateMainTable() end,
 })
 Mute.AttachChat(chatDisplay)
+addonTable.Discord.AttachChatFrame(chatDisplay)
 addonTable.Notes.Init({ activePlayers = activePlayers, isGuildAllowed = IsPlayerGuildAllowed, parent = Panels[2], onChanged = function() UpdateMainTable() end })
 addonTable.Key.Init({ isKnownOfficer = IsKnownOfficer, isMeOfficer = IsPlayerOfficer })
 addonTable.Professions.Init({ activePlayers = activePlayers, isGuildAllowed = IsPlayerGuildAllowed, onChanged = function() UpdateMainTable() end })
@@ -1425,6 +1426,7 @@ row:SetScript("OnMouseUp", function(self, button)
 local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if button == "RightButton" and ev and self.playerName then membersView.OpenForEvent(self.playerName, self.playerOnline, ev) end
 end)
+addonTable.Discord.AttachRow(row)
 rosterRows[i] = row
 end
 UpdateRosterList = function()

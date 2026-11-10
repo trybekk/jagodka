@@ -428,7 +428,7 @@ local TOPICS = {
             "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* + *Tab* switch the input to that chat; with text after them they send it there from any tab. Details: Community Chat > Chat commands.",
             "",
             "# Profile",
-            "- *Discord name*: share it if you like. Players of our guilds then see it in one small line when they hover any of your characters (in the world, unit frames, LFG, the Roster and Officers online), and can copy it with *Copy Discord name* in the Roster menu.",
+            "- *Discord name*: share it if you like. Players of our guilds then see *Discord: your name* in one small line wherever they hover your name: your character in the world and on unit frames, your name on any chat (also the game's chat windows), LFG, the Roster, Officers online and event sign-ups, and can copy it with *Copy Discord name* in the Roster menu.",
             "- Saved for your account, so all your characters share it. It reaches everyone within minutes and stays; empty + *Save* stops sharing it.",
         },
         pl = {
@@ -448,7 +448,7 @@ local TOPICS = {
             "- */jnglobal*, */jntrade*, */jnlfg*, */jnofficers* + *Tab* przełączają pole na ten czat; z tekstem po nich wysyłają go tam z dowolnej zakładki. Szczegóły: Czat społeczności > Komendy czatu.",
             "",
             "# Profil",
-            "- *Discord name*: udostępnij, jeśli chcesz. Gracze naszych gildii zobaczą go w jednej małej linii po najechaniu na dowolną twoją postać (w świecie, na ramkach postaci, w LFG, w Rosterze i Officers online) i skopiują go przez *Copy Discord name* w menu Rostera.",
+            "- *Discord name*: udostępnij, jeśli chcesz. Gracze naszych gildii zobaczą *Discord: twój nick* w jednej małej linii wszędzie, gdzie najadą na twoje imię: na twoją postać w świecie i na ramkach postaci, na twoje imię na każdym czacie (także w oknach czatu gry), w LFG, w Rosterze, w Officers online i na listach zapisów na wydarzenia i skopiują go przez *Copy Discord name* w menu Rostera.",
             "- Zapisany na całe konto, więc wszystkie twoje postacie go pokazują. Dociera do wszystkich w kilka minut i zostaje; puste pole + *Save* przestaje go udostępniać.",
         },
     },    {
