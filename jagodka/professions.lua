@@ -419,6 +419,22 @@ function Professions.List(name)
     return list
 end
 
+-- 0.15.6, the Members tab filter: the professions to pick (no Fishing), and whether a player has any of the
+-- picked ones (codes: { code = true }). Known for players with the addon (their own scan, synced and saved).
+function Professions.FilterChoices()
+    local list = {}
+    for _, def in ipairs(PROFESSIONS) do
+        if def.code ~= "X" then table.insert(list, { code = def.code, name = DisplayName(def) }) end
+    end
+    return list
+end
+
+function Professions.HasAny(name, codes)
+    local data = known[name]
+    if not data or not data.p then return false end
+    for code in pairs(codes) do if data.p[code] then return true end end
+    return false
+end
 function Professions.Init(c) ctx = c end
 
 -- ============================================================================

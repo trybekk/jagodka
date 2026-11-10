@@ -833,7 +833,7 @@ onChanged = function() UpdateMainTable() UpdateScrollList() if Panels[3]:IsVisib
 -- 4. TAB 2: MAIN PLAYER TABLE + SEARCH
 -- ============================================================================
 local TableContainer = CreateFrame("Frame", nil, Panels[2], "BackdropTemplate")
-TableContainer:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", 0, -45)
+TableContainer:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", 0, -75)   -- 0.15.6: room for the filter row
 TableContainer:SetPoint("BOTTOMRIGHT", Panels[2], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(TableContainer)
 local SearchEditBox = CreateFrame("EditBox", "JagodkiSearchEditBox", Panels[2], "InputBoxTemplate")
@@ -846,7 +846,7 @@ SearchLabel:SetPoint("RIGHT", SearchEditBox, "LEFT", -8, 0)
 SearchLabel:SetText("Search:")
 SearchEditBox.Instructions = SearchEditBox:CreateFontString(nil, "ARTWORK", "GameFontDisable")
 SearchEditBox.Instructions:SetPoint("LEFT", SearchEditBox, "LEFT", 5, 0)
-SearchEditBox.Instructions:SetText("Name, class, location, guild or rank...")
+SearchEditBox.Instructions:SetText("Player name...")
 -- Online only by default; checked = all members of listed guilds (also offline)
 local ShowOfflineCheck = CreateFrame("CheckButton", nil, Panels[2], "UICheckButtonTemplate")
 ShowOfflineCheck:SetSize(24, 24)
@@ -889,6 +889,172 @@ end)
 col.header = h
 end
 UpdateSortHeaders()
+-- 0.15.6: the search box finds names; one row of filters under it: guild, rank, class, professions (several
+-- can be ticked, no Fishing), location, addon; each shows its name until something is picked. They narrow the list together with the search and
+-- "Show offline"; Reset clears them.
+membersView.filters = {}
+do
+local CLASSES = _G.CLASS_SORT_ORDER or { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+local function ClassText(c)
+local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[c] or c
+return (RAID_CLASS_COLORS[c] and RAID_CLASS_COLORS[c].colorStr) and ("|c" .. RAID_CLASS_COLORS[c].colorStr .. name .. "|r") or name
+end
+-- The players the rank and location lists come from: the current list (Show offline), in the picked guild
+local function Shown()
+local out = {}
+for _, p in ipairs(Roster.BuildList(ShowOfflineCheck:GetChecked())) do
+if not membersView.filters.guild or membersView.filters.guild[p.guild] then table.insert(out, p) end
+end
+return out
+end
+local SOURCES = {
+guild = function()
+local list, names = { { text = "Guild" } }, {}
+for g in pairs(AllowedGuilds) do if not GuildsNotShown[g] then table.insert(names, g) end end
+-- In the order of the guild tags (JN, JN2, JN3 = Jagódki Nadina IIl, JN4...), shown and matched by the full name
+table.sort(names, function(a, b)
+local ta, tb = Most.GuildTag(a) or a, Most.GuildTag(b) or b
+if #ta ~= #tb then return #ta < #tb end
+if ta ~= tb then return ta < tb end
+return a < b
+end)
+for _, g in ipairs(names) do table.insert(list, { value = g, text = g }) end
+return list
+end,
+class = function()
+local list = { { text = "Class" } }
+for _, c in ipairs(CLASSES) do if c ~= "DEATHKNIGHT" and c ~= "MONK" and c ~= "DEMONHUNTER" and c ~= "EVOKER" then table.insert(list, { value = c, text = ClassText(c) }) end end
+return list
+end,
+-- Ranks differ by guild: the names on the list now, highest rank first
+rank = function()
+local best, names, list = {}, {}, { { text = "Rank" } }
+for _, p in ipairs(Shown()) do
+if p.rank and p.rank ~= "" then
+if best[p.rank] == nil then table.insert(names, p.rank) end
+best[p.rank] = math.min(best[p.rank] or 99, tonumber(p.rankIndex) or 99)
+end
+end
+table.sort(names, function(a, b) if best[a] ~= best[b] then return best[a] < best[b] end return a < b end)
+for _, r in ipairs(names) do table.insert(list, { value = r, text = r }) end
+return list
+end,
+-- Locations known now (my guild from the game, others from the addon), with how many are there
+location = function()
+local count, names, list = {}, {}, { { text = "Location" } }
+for _, p in ipairs(Shown()) do
+local loc = p.location
+if loc and loc ~= "" and loc:sub(1, 1) ~= "(" then
+if not count[loc] then table.insert(names, loc) end
+count[loc] = (count[loc] or 0) + 1
+end
+end
+table.sort(names)
+for _, l in ipairs(names) do table.insert(list, { value = l, text = l .. " |cff808080(" .. count[l] .. ")|r" }) end
+return list
+end,
+addon = function() return { { text = "Addon" }, { value = "yes", text = "With addon" }, { value = "no", text = "No addon" }, { value = "old", text = "Outdated" } } end,
+}
+-- Widths fit the narrowest window (the panel is 610 px wide at 1000 px); the default texts are short
+-- Filters where several can be ticked: filters[key] = { value = true }
+local MULTI = {
+guild = { label = "Guild", many = "Guilds: ", any = "All guilds", choices = function()
+local out = {}
+for i, it in ipairs(SOURCES.guild()) do if i > 1 then table.insert(out, it) end end
+return out
+end },
+profs = { label = "Professions", many = "Profs: ", any = "Any profession", choices = function()
+local out = {}
+for _, c in ipairs(addonTable.Professions.FilterChoices()) do table.insert(out, { value = c.code, text = c.name }) end
+return out
+end },
+}
+-- One row, from the widest choice to the narrowest: guild, its ranks, class, professions, location, addon
+local ORDER = { { "guild", 105 }, { "rank", 75 }, { "class", 70 }, { "profs", 75 }, { "location", 90 }, { "addon", 70 } }
+membersView.filterBoxes = {}
+local prev
+for _, o in ipairs(ORDER) do
+local key, width = o[1], o[2]
+local dd = CreateFrame("Frame", "JagodkiMembersFilter_" .. key, Panels[2], "UIDropDownMenuTemplate")
+if prev then dd:SetPoint("LEFT", prev, "RIGHT", -28, 0)
+else dd:SetPoint("TOPLEFT", Panels[2], "TOPLEFT", -14, -38) end   -- 5 px below the search row
+_G.UIDropDownMenu_SetWidth(dd, width)
+if MULTI[key] then
+-- Several can be ticked (guilds, professions): a player matching any of them passes; the menu stays open
+local m = MULTI[key]
+dd.Refresh = function()
+local picked, one, set = 0, nil, membersView.filters[key]
+for _, it in ipairs(m.choices()) do if set and set[it.value] then picked, one = picked + 1, it.text end end
+_G.UIDropDownMenu_SetText(dd, picked == 0 and m.label or (picked == 1 and one or (m.many .. picked)))
+end
+_G.UIDropDownMenu_Initialize(dd, function(_, level)
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = m.any, true
+info.func = function() membersView.filters[key] = nil dd.Refresh() UpdateMainTable() end
+_G.UIDropDownMenu_AddButton(info, level)
+for _, it in ipairs(m.choices()) do
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.isNotRadio, info.keepShownOnClick = it.text, true, true
+info.checked = membersView.filters[key] and membersView.filters[key][it.value] or false
+info.func = function()
+local set = membersView.filters[key] or {}
+set[it.value] = (not set[it.value]) or nil
+membersView.filters[key] = next(set) and set or nil
+dd.Refresh() UpdateMainTable()
+end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+else
+dd.Refresh = function()
+local value = membersView.filters[key]
+local text = SOURCES[key]()[1].text
+if value ~= nil then
+text = tostring(value)
+for _, it in ipairs(SOURCES[key]()) do if it.value == value then text = it.text end end
+end
+_G.UIDropDownMenu_SetText(dd, text)
+end
+_G.UIDropDownMenu_Initialize(dd, function(_, level)
+for _, it in ipairs(SOURCES[key]()) do
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.checked = it.text, membersView.filters[key] == it.value
+info.func = function() membersView.filters[key] = it.value dd.Refresh() UpdateMainTable() end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+end
+dd.Refresh()
+membersView.filterBoxes[key] = dd
+prev = dd
+end
+end
+-- Does a player pass the filters and the search? latest: the newest version (for "Outdated addon")
+function membersView.Matches(p, text, latest)
+local f = membersView.filters
+if f.guild and not f.guild[p.guild] then return false end
+if f.class and p.class ~= f.class then return false end
+if f.rank and p.rank ~= f.rank then return false end
+if f.location and p.location ~= f.location then return false end
+if f.profs and not addonTable.Professions.HasAny(p.name, f.profs) then return false end
+if f.addon == "yes" and not p.version then return false end
+if f.addon == "no" and p.version then return false end
+if f.addon == "old" and not (p.version and latest and CompareVersions(p.version, latest) < 0) then return false end
+if text == "" then return true end
+local function Has(v) return v ~= nil and tostring(v):lower():find(text, 1, true) ~= nil end
+-- The search box looks at the name only (the rest has its filters)
+return Has(p.name)
+end
+function membersView.FilterKey()
+local f = membersView.filters
+local profs = {}
+for code in pairs(f.profs or {}) do table.insert(profs, code) end
+table.sort(profs)
+local guilds = {}
+for g in pairs(f.guild or {}) do table.insert(guilds, g) end
+table.sort(guilds)
+return table.concat({ table.concat(guilds, ","), tostring(f.class), tostring(f.rank), tostring(f.location), table.concat(profs), tostring(f.addon) }, "|")
+end
 -- Reset: clears the search, turns off "Show offline" (default), restores the default sorting and page 1
 do
 local ResetViewBtn = CreateFrame("Button", nil, Panels[2], "UIPanelButtonTemplate")
@@ -901,6 +1067,8 @@ SearchEditBox:SetText("")
 SearchEditBox:ClearFocus()
 ShowOfflineCheck:SetChecked(false)
 membersView.sortKey, membersView.desc, membersView.page = nil, false, 1
+wipe(membersView.filters)
+for _, dd in pairs(membersView.filterBoxes) do dd.Refresh() end
 UpdateSortHeaders()
 UpdateMainTable()
 end)
@@ -1206,16 +1374,12 @@ mainTablePending = false
 if not Panels[2]:IsVisible() then return end
 wipe(filteredPlayers)
 local filterText = SearchEditBox:GetText():lower()
+local latest = (membersView.filters.addon == "old") and Roster.LatestVersion() or nil
 for _, player in ipairs(Roster.BuildList(ShowOfflineCheck:GetChecked())) do
-if filterText == "" then table.insert(filteredPlayers, player)
-else
-if player.name:lower():find(filterText, 1, true) or (player.class and player.class:lower():find(filterText, 1, true)) or (player.location and player.location:lower():find(filterText, 1, true)) or (player.guild and player.guild:lower():find(filterText, 1, true)) or (player.rank and player.rank:lower():find(filterText, 1, true)) then
-table.insert(filteredPlayers, player)
+if membersView.Matches(player, filterText, latest) then table.insert(filteredPlayers, player) end
 end
-end
-end
--- A new search / offline toggle = back to the first page (a regular refresh keeps the page)
-local filterKey = filterText .. (ShowOfflineCheck:GetChecked() and "|1" or "|0")
+-- A new search / filter / offline toggle = back to the first page (a regular refresh keeps the page)
+local filterKey = filterText .. (ShowOfflineCheck:GetChecked() and "|1" or "|0") .. "|" .. membersView.FilterKey()
 if filterKey ~= membersView.filterKey then membersView.filterKey, membersView.page = filterKey, 1 end
 local online = 0
 for _, p in ipairs(filteredPlayers) do if p.online then online = online + 1 end end
@@ -1350,7 +1514,7 @@ end)
 -- ============================================================================
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 -- List: a table across the whole tab. Details: a separate window opened by clicking a row.
-ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, -72)
+ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, -100)   -- 0.15.6: room for the filter row
 ListContainer:SetPoint("BOTTOMRIGHT", Panels[4], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(ListContainer)
 local DetailsContainer = CreateFrame("Frame", "JagodkiEventDetails", Panels[4], "BackdropTemplate")
@@ -1709,7 +1873,7 @@ EventSearch.label:SetPoint("RIGHT", EventSearch, "LEFT", -8, 0)
 EventSearch.label:SetText("Search:")
 EventSearch.Instructions = EventSearch:CreateFontString(nil, "ARTWORK", "GameFontDisable")
 EventSearch.Instructions:SetPoint("LEFT", EventSearch, "LEFT", 5, 0)
-EventSearch.Instructions:SetText("Event, instance, player...")
+EventSearch.Instructions:SetText("Event or player name...")
 EventSearch:SetScript("OnTextChanged", function(self)
 if self:GetText() == "" then self.Instructions:Show() else self.Instructions:Hide() end
 UpdateEventsList()
@@ -1822,13 +1986,140 @@ return false
 end
 -- The Calendar's search finds the same (BuildCalendar)
 EventSync.MatchesSearch = MatchesSearch
+-- 0.15.6: filters under the search, as in Members: guild (tick several), type, instance, when, and me. The
+-- search box of the list looks at the event's title, its author and the signed-up players' names.
+eventsView.filters = {}
+do
+local SOURCES = {
+type = function() return { { text = "Type" }, { value = "PVE", text = "PvE" }, { value = "PVP", text = "PvP" }, { value = "-", text = "Other" } } end,
+-- The instances of the events on the list now, with how many there are
+instance = function()
+local count, names, list = {}, {}, { { text = "Instance" } }
+for _, ev in ipairs(eventsList) do
+if ev.dungeon and ev.dungeon ~= "" then
+if not count[ev.dungeon] then table.insert(names, ev.dungeon) end
+count[ev.dungeon] = (count[ev.dungeon] or 0) + 1
+end
+end
+table.sort(names)
+for _, n in ipairs(names) do table.insert(list, { value = n, text = n .. " |cff808080(" .. count[n] .. ")|r" }) end
+return list
+end,
+when = function() return { { text = "When" }, { value = "today", text = "Today" }, { value = "tomorrow", text = "Tomorrow" }, { value = "week", text = "Next 7 days" } } end,
+me = function() return { { text = "Me" }, { value = "signed", text = "I signed up" }, { value = "notsigned", text = "Not signed up" }, { value = "mine", text = "Created by me" } } end,
+}
+-- Guilds: tick several, in the order of the guild tags, shown by the full name (as in Members)
+local function GuildChoices()
+local names, out = {}, {}
+for g in pairs(AllowedGuilds) do if not GuildsNotShown[g] then table.insert(names, g) end end
+table.sort(names, function(a, b)
+local ta, tb = Most.GuildTag(a) or a, Most.GuildTag(b) or b
+if #ta ~= #tb then return #ta < #tb end
+if ta ~= tb then return ta < tb end
+return a < b
+end)
+for _, g in ipairs(names) do table.insert(out, { value = g, text = g }) end
+return out
+end
+local ORDER = { { "guild", 105 }, { "type", 55 }, { "instance", 105 }, { "when", 80 }, { "me", 90 } }
+eventsView.filterBoxes = {}
+local prev
+for _, o in ipairs(ORDER) do
+local key, width = o[1], o[2]
+local dd = CreateFrame("Frame", "JagodkiEventsFilter_" .. key, Panels[4], "UIDropDownMenuTemplate")
+if prev then dd:SetPoint("LEFT", prev, "RIGHT", -28, 0)
+else dd:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", -14, -70) end
+_G.UIDropDownMenu_SetWidth(dd, width)
+if key == "guild" then
+dd.Refresh = function()
+local picked, one, set = 0, nil, eventsView.filters.guild
+for _, it in ipairs(GuildChoices()) do if set and set[it.value] then picked, one = picked + 1, it.text end end
+_G.UIDropDownMenu_SetText(dd, picked == 0 and "Guild" or (picked == 1 and one or ("Guilds: " .. picked)))
+end
+_G.UIDropDownMenu_Initialize(dd, function(_, level)
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "All guilds", true
+info.func = function() eventsView.filters.guild = nil dd.Refresh() UpdateEventsList() end
+_G.UIDropDownMenu_AddButton(info, level)
+for _, it in ipairs(GuildChoices()) do
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.isNotRadio, info.keepShownOnClick = it.text, true, true
+info.checked = eventsView.filters.guild and eventsView.filters.guild[it.value] or false
+info.func = function()
+local set = eventsView.filters.guild or {}
+set[it.value] = (not set[it.value]) or nil
+eventsView.filters.guild = next(set) and set or nil
+dd.Refresh() UpdateEventsList()
+end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+else
+dd.Refresh = function()
+local value = eventsView.filters[key]
+local text = SOURCES[key]()[1].text
+if value ~= nil then
+text = tostring(value)
+for _, it in ipairs(SOURCES[key]()) do if it.value == value then text = it.text end end
+end
+_G.UIDropDownMenu_SetText(dd, text)
+end
+_G.UIDropDownMenu_Initialize(dd, function(_, level)
+for _, it in ipairs(SOURCES[key]()) do
+local info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.checked = it.text, eventsView.filters[key] == it.value
+info.func = function() eventsView.filters[key] = it.value dd.Refresh() UpdateEventsList() end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+end
+dd.Refresh()
+eventsView.filterBoxes[key] = dd
+prev = dd
+end
+end
+-- Does an event pass the filters and the list's search?
+function eventsView.Matches(ev, text)
+local f, me = eventsView.filters, Most.MyName()
+if f.guild and not f.guild[ev.guild or ""] then return false end
+if f.type and addonTable.InstanceType(ev.dungeon) ~= f.type then return false end
+if f.instance and ev.dungeon ~= f.instance then return false end
+if f.when then
+local day = EventSync.DayTime(ev.date)
+local today = EventSync.DayTime(date("%d.%m.%Y"))
+if not day or not today then return false end
+local days = math.floor((day - today) / 86400 + 0.5)
+if f.when == "today" and days ~= 0 then return false end
+if f.when == "tomorrow" and days ~= 1 then return false end
+if f.when == "week" and (days < 0 or days > 6) then return false end
+end
+if f.me then
+local signed = (ev.roster and ev.roster[me]) or (ev.status and ev.status[me])
+if f.me == "signed" and not signed then return false end
+if f.me == "notsigned" and signed then return false end
+if f.me == "mine" and ev.creator ~= me then return false end
+end
+if text == "" then return true end
+if (ev.title and ev.title:lower():find(text, 1, true)) or (ev.creator and ev.creator:lower():find(text, 1, true)) then return true end
+for name in pairs(ev.roster or {}) do
+if name:lower():find(text, 1, true) then return true end
+end
+return false
+end
+function eventsView.FilterKey()
+local f, guilds = eventsView.filters, {}
+for g in pairs(f.guild or {}) do table.insert(guilds, g) end
+table.sort(guilds)
+return table.concat({ table.concat(guilds, ","), tostring(f.type), tostring(f.instance), tostring(f.when), tostring(f.me) }, "|")
+end
 local function SortedEvents()
 local list = {}
 local text = EventSearch:GetText():lower()
--- A new search = back to the first page (a regular refresh keeps the page)
-if text ~= eventsView.filterKey then eventsView.filterKey, eventsView.page = text, 1 end
+-- A new search or filter = back to the first page (a regular refresh keeps the page)
+local filterKey = text .. "|" .. eventsView.FilterKey()
+if filterKey ~= eventsView.filterKey then eventsView.filterKey, eventsView.page = filterKey, 1 end
 for idx, ev in ipairs(eventsList) do
-if MatchesSearch(ev, text) then table.insert(list, { ev = ev, idx = idx, moment = EventMoment(ev) }) end
+if eventsView.Matches(ev, text) then table.insert(list, { ev = ev, idx = idx, moment = EventMoment(ev) }) end
 end
 local key, desc = eventsView.sortKey, eventsView.desc
 table.sort(list, function(a, b)
@@ -1875,6 +2166,8 @@ EventReset:SetScript("OnClick", function()
 EventSearch:SetText("")
 EventSearch:ClearFocus()
 eventsView.sortKey, eventsView.desc, eventsView.page = nil, false, 1
+wipe(eventsView.filters)
+for _, dd in pairs(eventsView.filterBoxes) do dd.Refresh() end
 UpdateEventHeaders()
 UpdateEventsList()
 end)
@@ -3320,7 +3613,7 @@ C_Timer.After(12, function() addonTable.LFG.Request(true) end)
 return true
 end
 -- 0.15.5: once per new version (per account), one line in the chat about what is new, so new features get used
-EventSync.WHATS_NEW = "New: share your Discord name (Settings > Profile), reader counts on the chat tabs, LFG hints when you write that you look for a group, and addon versions of all guilds in the Roster. More in Help."
+EventSync.WHATS_NEW = "New: filters in Roster, Events and LFG (guild, class, rank, professions, role...), sign-ups shown on the LFG chat, and addon versions of all guilds in the Roster. More in Help."
 C_Timer.After(25, function()
 _G.JagodkiChatDB = _G.JagodkiChatDB or {}
 if _G.JagodkiChatDB.whatsNewSeen == ADDON_VERSION then return end

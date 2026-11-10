@@ -687,17 +687,41 @@ end
 --   VLIST:<guild>:<part>:<total>:<version>,<version>,...:<name>~<index>;<name>~<index>;...
 -- Readers keep each version for VERSION_KEEP and show it in the Roster's version column for players of other
 -- guilds; a newer version than mine shows the usual update note at once.
+-- 0.15.6: every VERSION_LIST_EVERY only the changes (new players, changed versions), the whole list every
+-- VERSION_FULL_EVERY. The whole JN list is ~37 packets; sent every 3 minutes ahead of everything it held the
+-- sender's chat up to 30 s (11.11 log), so it also goes as low priority now.
 local VERSION_LIST_EVERY = 180      -- s; beta: often, so new versions show across guilds soon
-local VERSION_KEEP = 2 * VERSION_LIST_EVERY + 60
+local VERSION_FULL_EVERY = 900      -- s; beta
+local VERSION_KEEP = 2 * VERSION_FULL_EVERY + 60
+local versionSent, versionFullAt = {}, nil   -- name -> version as last sent; when the whole list last went
 local otherVersions = {}            -- name -> { v = "0.15.4", at = GetTime() }
+
+-- 0.15.6: the sender is the first-named guildmate online with 0.15.6 or newer (me included), not the relay:
+-- in the 10.11 log two guilds' relays still had 0.15.4 (no list at all) and the lists of the 0.15.5 relays
+-- never arrived (low priority behind the relays' traffic). Now the list goes as a live packet.
+local VERSION_LIST_MIN = "0.15.6"
+local function IsVersionListSender(guild)
+    local me = Most.MyName()
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild == guild and p.name ~= me and p.name < me and Most.AtLeast(p.version, VERSION_LIST_MIN) then return false end
+    end
+    return true
+end
 
 local function SendVersionList()
     local guild = MyGuild()
-    if not ctx or not guild or not ctx.isGuildAllowed(guild) or not Most.IsRelay() then return end
+    if not ctx or not guild or not ctx.isGuildAllowed(guild) or not IsVersionListSender(guild) then
+        -- Someone else sends now: when it is my turn again, I start with the whole list
+        versionFullAt = nil
+        return
+    end
+    local full = not versionFullAt or GetTime() - versionFullAt >= VERSION_FULL_EVERY
+    if full then wipe(versionSent) versionFullAt = GetTime() end
     local versions, index, entries = {}, {}, {}
     for _, p in ipairs(ctx.activePlayers) do
         local v = tostring(p.version or "")
-        if p.guild == guild and v:match("^%d+%.%d+%.%d+$") then
+        if p.guild == guild and v:match("^%d+%.%d+%.%d+$") and versionSent[p.name] ~= v then
+            versionSent[p.name] = v
             if not index[v] then table.insert(versions, v) index[v] = #versions end
             table.insert(entries, (tostring(p.name):gsub("[~;:]", "")) .. "~" .. index[v])
         end
@@ -709,10 +733,14 @@ local function SendVersionList()
     for i, chunk in ipairs(chunks) do
         Most.Send("VLIST", table.concat({ Enc(guild), i, #chunks, head, chunk }, ":"), "low")
     end
+    if addonTable.Monitor and addonTable.Monitor.Note then
+        addonTable.Monitor.Note("Sent the version list of " .. Most.GuildTag(guild) .. (full and " (whole)" or " (changes)") .. ": "
+            .. #entries .. " players in " .. #chunks .. " parts (" .. head .. ")")
+    end
 end
 
 function Roster.HandleVersionList(payload, senderName)
-    local gEnc, _, _, head, list = strsplit(":", payload, 5)
+    local gEnc, part, parts, head, list = strsplit(":", payload, 5)
     local guild = Dec(gEnc)
     if not guild or guild == MyGuild() or not list or not AcceptFrom(senderName, guild) then return end
     local versions, newest = {}, nil
@@ -725,10 +753,23 @@ function Roster.HandleVersionList(payload, senderName)
         end
     end
     local now = GetTime()
+    local counts, total = {}, 0
     for e in list:gmatch("[^;]+") do
         local name, i = e:match("^(.-)~(%d+)$")
         local v = name and versions[tonumber(i)]
-        if v then otherVersions[Most.PlayerKey(Most.Plain(name))] = { v = v, at = now, guild = guild } end
+        if v then
+            otherVersions[Most.PlayerKey(Most.Plain(name))] = { v = v, at = now, guild = guild }
+            counts[v] = (counts[v] or 0) + 1
+            total = total + 1
+        end
+    end
+    -- 0.15.6: what the list said, so the log can be compared with the Roster
+    if addonTable.Monitor and addonTable.Monitor.Note then
+        local byVersion = {}
+        for v, n in pairs(counts) do table.insert(byVersion, v .. " x" .. n) end
+        table.sort(byVersion, function(a, b) return a > b end)
+        addonTable.Monitor.Note("Versions from " .. Most.GuildTag(guild) .. " (" .. tostring(senderName) .. ", part " .. tostring(part) .. "/" .. tostring(parts)
+            .. "): " .. total .. " players" .. (#byVersion > 0 and (" (" .. table.concat(byVersion, ", ") .. ")") or ""))
     end
     -- Someone in the community has a newer version: the update note (core.lua), as for a guildmate's signal
     if newest and Roster.OnNewerVersion then Roster.OnNewerVersion(senderName, newest) end
@@ -757,12 +798,40 @@ function Roster.AddonVersions(guild)
     return out
 end
 
+-- ============================================================================
+-- SEEN BY WHISPER (0.15.6, only on this client)
+-- ============================================================================
+-- A whisper from or to a player of another listed guild proves they are online now. When nobody in that guild
+-- with the addon is online (its roster is not live), my Roster shows them online for WHISPER_SEEN_FOR, marked
+-- "(whisper)". Nothing is sent to anyone: a whisper says "online" but never "logged out", so passing it on
+-- could leave players online on everyone's list; a live roster (someone of that guild online) wins at once.
+local WHISPER_SEEN_FOR = 1200
+local whisperSeen = {}              -- name -> GetTime()
+
+local function OnWhisper(who)
+    if not who or who == "" or Most.IsSecret(who) or not ctx then return end
+    local key = Most.PlayerKey(who)
+    local myGuild = MyGuild()
+    for guild, g in pairs(rosters) do
+        if guild ~= myGuild and ctx.isGuildAllowed(guild) and g.members and g.members[key] then
+            whisperSeen[key] = GetTime()
+            return
+        end
+    end
+end
+
+local function SeenByWhisper(name)
+    local at = whisperSeen[name]
+    return at ~= nil and GetTime() - at <= WHISPER_SEEN_FOR
+end
+
 -- The listed guilds (core.lua's whitelist)
 function Roster.AllowedGuilds() return ctx and ctx.allowedGuilds or {} end
 
 -- The newest addon version seen in the community (mine included)
 function Roster.LatestVersion()
-    local latest = (_G.GetAddOnMetadata and _G.GetAddOnMetadata(addonName, "Version")) or nil
+    local meta = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+    local latest = meta and meta(addonName, "Version") or nil
     if not ctx then return latest end
     for guild in pairs(ctx.allowedGuilds) do
         for _, v in pairs(Roster.AddonVersions(guild)) do
@@ -792,9 +861,12 @@ function Roster.BuildList(showOffline)
             local live = IsLive(guild)
             for name, m in pairs(g.members) do
                 local online = m.o and live and not MyOther(name)
+                -- Not live (nobody of that guild with the addon online): a recent whisper with them (0.15.6)
+                local byWhisper = not live and not MyOther(name) and SeenByWhisper(name)
+                online = online or byWhisper
                 if not seen[name] and (online or showOffline) then
                     seen[name] = true
-                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = (online and guild == myGuild and m.z ~= "") and m.z or nil, online = online,
+                    table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = byWhisper and "(whisper)" or ((online and guild == myGuild and m.z ~= "") and m.z or nil), online = online,
                         -- Another guild's player with the addon (their relay's version list, 0.15.5)
                         version = (online and guild ~= myGuild) and Roster.OtherVersion(name) or nil })
                 end
@@ -839,8 +911,11 @@ Listener:RegisterEvent("ADDON_LOADED")
 Listener:RegisterEvent("PLAYER_LOGIN")
 Listener:RegisterEvent("GUILD_ROSTER_UPDATE")
 Listener:RegisterEvent("CHAT_MSG_SYSTEM")
-addonTable.SafeScript(Listener, "OnEvent", "roster.lua:735", function(self, event, arg1)
+Listener:RegisterEvent("CHAT_MSG_WHISPER")          -- 0.15.6: from someone (arg2 = sender)
+Listener:RegisterEvent("CHAT_MSG_WHISPER_INFORM")   -- 0.15.6: my whisper reached someone (arg2 = target)
+addonTable.SafeScript(Listener, "OnEvent", "roster.lua:735", function(self, event, arg1, arg2)
     if event == "CHAT_MSG_SYSTEM" then OnGuildmateStatusMessage(arg1) return end
+    if event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_WHISPER_INFORM" then OnWhisper(arg2) return end
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
         _G.JagodkiRosterDB = _G.JagodkiRosterDB or {}
@@ -860,8 +935,8 @@ addonTable.SafeScript(Listener, "OnEvent", "roster.lua:735", function(self, even
         -- core.lua sends the roster request after login (EventSync.LoginSync); the relay also asks every
         -- minute for linked guilds whose roster is missing or old (RequestStale keeps its own cooldown)
         C_Timer.NewTicker(20, Tick)
-    -- Version lists for the other guilds (only the relay sends; 0.15.5)
-    C_Timer.NewTicker(VERSION_LIST_EVERY, SendVersionList)
+        -- Version lists for the other guilds (only the relay sends; 0.15.5)
+        C_Timer.NewTicker(VERSION_LIST_EVERY, SendVersionList)
         C_Timer.NewTicker(60, RequestStale)
     elseif event == "GUILD_ROSTER_UPDATE" then
         -- Blizzard can fire this event many times in a row, so we recompute once per 2 s.

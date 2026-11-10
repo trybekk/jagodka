@@ -468,8 +468,12 @@ function Most.FormatEntry(e, textColor, showTime)
     local text = e.text
     local lfg = text:sub(1, #LFG_MARK) == LFG_MARK
     if lfg then text = text:sub(#LFG_MARK + 1) end
+    -- 0.15.6: a sign-up notice (events.lua) ends with <jn-event:id>: an [Open event] link, built here
+    local eventId = text:match(" <jn%-event:(%w+)>$")
+    if eventId then text = text:gsub(" <jn%-event:%w+>$", "") end
     if textColor then text = "|c" .. textColor .. text:gsub("|r", "|r|c" .. textColor) .. "|r" end
     if lfg then text = text .. " " .. LfgLink(e.author) end
+    if eventId then text = text .. " |cff6cc4e6|Hgarrmission:jagodkaev:" .. eventId .. "|h[Open event]|h|r" end
     local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
     return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), text)
 end
@@ -701,7 +705,7 @@ function Most.SayOnChannel(tab, text)
             if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel (server limit?); it went through the guilds") end
         else
             channelChatBlocked = true
-            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel, chat goes through the guilds until /reload", true) end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel, chat goes through the guilds until /reload") end
         end
     end)
     if addonTable.Monitor then
@@ -732,7 +736,7 @@ function Most.ExpectEcho(tab, text)
         for i, r in ipairs(awaitingEcho) do
             if r == rec then table.remove(awaitingEcho, i) break end
         end
-        if addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab did not come back from the channel; it went through the guilds", true) end
+        if addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab did not come back from the channel; it went through the guilds") end
     end)
 end
 
@@ -1360,6 +1364,9 @@ addonTable.SafeScript(Listener, "OnEvent", "bridge.lua:1138", function(self, eve
             -- 0.15.3: the game passes ownership and the moderator mark on by itself when the owner logs out, so
             -- those are information; mutes, kicks, bans and the moderated mode are errors
             local routine = arg1 == "OWNER_CHANGED" or arg1 == "SET_MODERATOR" or arg1 == "UNSET_MODERATOR" or arg1 == "CHANNEL_OWNER"
+                -- 0.15.6: INVALID_NAME (Forever refusing a channel for a moment, on the chat and on the public one after
+                -- login) is information; a refused chat channel is reported as a refusal
+                or arg1 == "INVALID_NAME"
             if which == "chat" and arg1 == "INVALID_NAME" then NoteChatChannel("INVALID_NAME") end
             if which then addonTable.Monitor.Channel("Channel event (" .. which .. "): " .. tostring(arg1) .. " " .. tostring(arg2 or "")
                 .. ((actor and actor ~= "") and (" by " .. tostring(actor)) or ""), not routine) end

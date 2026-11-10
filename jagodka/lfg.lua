@@ -459,7 +459,7 @@ end
 addonTable.Most.OnNewEntry(function(e, live)
     if not live or e.src ~= "A" or e.author ~= addonTable.Most.MyName() then return end
     if e.tab ~= "Ogolny" and e.tab ~= "Szukaj grupy" then return end
-    if type(e.text) ~= "string" or e.text:find("^!lfg ") then return end
+    if type(e.text) ~= "string" or e.text:find("^!lfg ") or e.text:find("<jn%-event:%w+>$") then return end
     local text = e.text
     -- A moment later, so the hint shows under my message
     addonTable.SafeTimer.After(0.3, function() LFG.CheckOwnMessage(text) end)
@@ -703,7 +703,8 @@ end
 -- ============================================================================
 -- THE TAB
 -- ============================================================================
-local panel, rows, scroll, view = nil, {}, nil, { page = 1, actFilter = nil, roleFilter = nil, sortKey = nil, desc = false }
+-- 0.15.6: roles and guilds are sets (tick several: { key = true }), class one class; nil = any
+local panel, rows, scroll, view = nil, {}, nil, { page = 1, actFilter = nil, roles = nil, guilds = nil, class = nil, sortKey = nil, desc = false }
 local search, nav, empty, columns = nil, nil, nil, nil
 
 local function Matches(l, text)
@@ -717,11 +718,17 @@ local function Matches(l, text)
         end
         if not any then return false end
     end
-    if view.roleFilter and not l.roles[view.roleFilter] then return false end
+    -- Roles: a player with any of the ticked roles passes
+    if view.roles then
+        local any = false
+        for role in pairs(view.roles) do if l.roles[role] then any = true end end
+        if not any then return false end
+    end
+    if view.guilds and not view.guilds[l.guild or ""] then return false end
+    if view.class and l.class ~= view.class then return false end
+    -- 0.15.6: the search box looks at the player's name and the note (activity, guild and role have filters)
     if text == "" then return true end
-    local hay = { l.name, l.guild, l.note }
-    for _, a in ipairs(l.acts) do table.insert(hay, a.n) end
-    for _, v in ipairs(hay) do if v and tostring(v):lower():find(text, 1, true) then return true end end
+    for _, v in ipairs({ l.name, l.note }) do if v and tostring(v):lower():find(text, 1, true) then return true end end
     return false
 end
 
@@ -915,20 +922,6 @@ RenderList = function()
 end
 LFG.Render = function() RenderList() end
 
-local function NewDropdown(name, labels, onPick, width)
-    local dd = CreateFrame("Frame", name, panel, "UIDropDownMenuTemplate")
-    _G.UIDropDownMenu_SetWidth(dd, width)
-    _G.UIDropDownMenu_Initialize(dd, function(_, level)
-        for _, item in ipairs(labels) do
-            local info = _G.UIDropDownMenu_CreateInfo()
-            info.text, info.notCheckable = item.label, true
-            info.func = function() onPick(item.key) _G.UIDropDownMenu_SetText(dd, item.label) end
-            _G.UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    _G.UIDropDownMenu_SetText(dd, labels[1].label)
-    return dd
-end
 
 -- core.lua: c = { applyStyle, classRoles, onRowClick }
 function LFG.Attach(p, c)
@@ -952,7 +945,7 @@ function LFG.Attach(p, c)
     sLabel:SetText("Search:")
     search.hint = search:CreateFontString(nil, "ARTWORK", "GameFontDisable")
     search.hint:SetPoint("LEFT", search, "LEFT", 5, 0)
-    search.hint:SetText("Name, dungeon, zone...")
+    search.hint:SetText("Player name or note...")
     search:SetScript("OnTextChanged", function(self) self.hint:SetShown(self:GetText() == "") view.page = 1 RenderList() end)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     LFG.searchBox = search
@@ -974,7 +967,7 @@ function LFG.Attach(p, c)
             _G.UIDropDownMenu_AddButton(info, level)
         end
         if level == 1 then
-            Add("Any activity", function() Pick(nil, "Any activity") end)
+            Add("Any activity", function() Pick(nil, "Activity") end)
             for _, group in ipairs(addonTable.InstanceGroups()) do Add(group.group, nil, true, group) end
             Add("|cffffd100Questing|r", nil, true, QUESTS)
             -- No "Anything" here: players open to anything already show under every filter
@@ -1001,21 +994,104 @@ function LFG.Attach(p, c)
             end
         end
     end)
-    _G.UIDropDownMenu_SetText(typeDD, "Any activity")
-    typeDD:SetPoint("LEFT", search, "RIGHT", -6, -2)
-    local roleDD = NewDropdown("JagodkaLFGRoleFilter", { { key = nil, label = "Any role" }, { key = "TANK", label = "Tank" }, { key = "HEAL", label = "Healer" }, { key = "DPS", label = "DPS" } },
-        function(k) view.roleFilter, view.page = k, 1 RenderList() end, 80)
+    _G.UIDropDownMenu_SetText(typeDD, "Activity")
+    -- 0.15.6: one row of filters under the search, as in Members and Events: activity, role (tick several),
+    -- guild (tick several, the guilds on the board with counts), class
+    _G.UIDropDownMenu_SetWidth(typeDD, 115)
+    typeDD:SetPoint("TOPLEFT", panel, "TOPLEFT", -14, -68)
+    -- A filter where several can be ticked: get() / set(table or nil) the set, choices() = { { value, text } }
+    local function MultiDropdown(name, width, label, many, anyText, choices, get, set)
+        local dd = CreateFrame("Frame", name, panel, "UIDropDownMenuTemplate")
+        _G.UIDropDownMenu_SetWidth(dd, width)
+        dd.Refresh = function()
+            local picked, one, chosen = 0, nil, get()
+            for _, it in ipairs(choices()) do if chosen and chosen[it.value] then picked, one = picked + 1, it.short or it.text end end
+            _G.UIDropDownMenu_SetText(dd, picked == 0 and label or (picked == 1 and one or (many .. picked)))
+        end
+        _G.UIDropDownMenu_Initialize(dd, function(_, level)
+            local info = _G.UIDropDownMenu_CreateInfo()
+            info.text, info.notCheckable = anyText, true
+            info.func = function() set(nil) view.page = 1 dd.Refresh() RenderList() end
+            _G.UIDropDownMenu_AddButton(info, level)
+            for _, it in ipairs(choices()) do
+                info = _G.UIDropDownMenu_CreateInfo()
+                info.text, info.isNotRadio, info.keepShownOnClick = it.text, true, true
+                info.checked = get() and get()[it.value] or false
+                info.func = function()
+                    local s = get() or {}
+                    s[it.value] = (not s[it.value]) or nil
+                    set(next(s) and s or nil)
+                    view.page = 1
+                    dd.Refresh() RenderList()
+                end
+                _G.UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        dd.Refresh()
+        return dd
+    end
+    local roleDD = MultiDropdown("JagodkaLFGRoleFilter", 70, "Role", "Roles: ", "Any role",
+        function() return { { value = "TANK", text = "Tank" }, { value = "HEAL", text = "Healer" }, { value = "DPS", text = "DPS" } } end,
+        function() return view.roles end, function(s) view.roles = s end)
     roleDD:SetPoint("LEFT", typeDD, "RIGHT", -28, 0)
-    -- Reset: search, both filters, sorting and page (as in Roster and Events)
+    -- The guilds of the players on the board now, in the order of the guild tags, by the full name
+    local guildDD = MultiDropdown("JagodkaLFGGuildFilter", 105, "Guild", "Guilds: ", "All guilds",
+        function()
+            local count, names, out = {}, {}, {}
+            for _, l in ipairs(All()) do
+                if l.guild then
+                    if not count[l.guild] then table.insert(names, l.guild) end
+                    count[l.guild] = (count[l.guild] or 0) + 1
+                end
+            end
+            local Most = addonTable.Most
+            table.sort(names, function(a, b)
+                local ta, tb = Most.GuildTag(a) or a, Most.GuildTag(b) or b
+                if #ta ~= #tb then return #ta < #tb end
+                if ta ~= tb then return ta < tb end
+                return a < b
+            end)
+            for _, g in ipairs(names) do table.insert(out, { value = g, text = g .. " |cff808080(" .. count[g] .. ")|r", short = g }) end
+            return out
+        end,
+        function() return view.guilds end, function(s) view.guilds = s end)
+    guildDD:SetPoint("LEFT", roleDD, "RIGHT", -28, 0)
+    -- Class: one class, in the class color
+    local classDD = CreateFrame("Frame", "JagodkaLFGClassFilter", panel, "UIDropDownMenuTemplate")
+    _G.UIDropDownMenu_SetWidth(classDD, 75)
+    local CLASSES = _G.CLASS_SORT_ORDER or { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+    local function ClassText(c)
+        local name = _G.LOCALIZED_CLASS_NAMES_MALE and _G.LOCALIZED_CLASS_NAMES_MALE[c] or c
+        local color = _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[c]
+        return color and color.colorStr and ("|c" .. color.colorStr .. name .. "|r") or name
+    end
+    classDD.Refresh = function() _G.UIDropDownMenu_SetText(classDD, view.class and ClassText(view.class) or "Class") end
+    _G.UIDropDownMenu_Initialize(classDD, function(_, level)
+        local info = _G.UIDropDownMenu_CreateInfo()
+        info.text, info.checked = "Any class", view.class == nil
+        info.func = function() view.class, view.page = nil, 1 classDD.Refresh() RenderList() end
+        _G.UIDropDownMenu_AddButton(info, level)
+        for _, c in ipairs(CLASSES) do
+            if c ~= "DEATHKNIGHT" and c ~= "MONK" and c ~= "DEMONHUNTER" and c ~= "EVOKER" then
+                info = _G.UIDropDownMenu_CreateInfo()
+                info.text, info.checked = ClassText(c), view.class == c
+                info.func = function() view.class, view.page = c, 1 classDD.Refresh() RenderList() end
+                _G.UIDropDownMenu_AddButton(info, level)
+            end
+        end
+    end)
+    classDD.Refresh()
+    classDD:SetPoint("LEFT", guildDD, "RIGHT", -28, 0)
+    -- Reset: search, the filters, sorting and page (as in Members and Events), next to the search
     local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     reset:SetSize(55, 22)
-    reset:SetPoint("LEFT", roleDD, "RIGHT", -8, 2)
+    reset:SetPoint("LEFT", search, "RIGHT", 8, 0)
     reset:SetText("Reset")
     -- searchText: what goes in the search box afterwards ([Open in LFG] links), or nothing
     function LFG.ResetView(searchText)
-        view.actFilter, view.roleFilter, view.sortKey, view.desc, view.page = nil, nil, nil, false, 1
-        _G.UIDropDownMenu_SetText(typeDD, "Any activity")
-        _G.UIDropDownMenu_SetText(roleDD, "Any role")
+        view.actFilter, view.roles, view.guilds, view.class, view.sortKey, view.desc, view.page = nil, nil, nil, nil, nil, false, 1
+        _G.UIDropDownMenu_SetText(typeDD, "Activity")
+        roleDD.Refresh() guildDD.Refresh() classDD.Refresh()
         search:SetText(searchText or "")
         search:ClearFocus()
         _G.FauxScrollFrame_SetOffset(scroll, 0)
@@ -1024,7 +1100,7 @@ function LFG.Attach(p, c)
     reset:SetScript("OnClick", function() LFG.ResetView() end)
     -- The table
     panel.list = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-    panel.list:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -72)
+    panel.list:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -100)   -- 0.15.6: room for the filter row
     panel.list:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 30)
     ctx.applyStyle(panel.list)
     empty = panel.list:CreateFontString(nil, "OVERLAY", "GameFontDisable")

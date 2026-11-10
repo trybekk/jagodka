@@ -15,7 +15,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 ## Looking for group
 - List yourself with your **roles**, up to **4 activities** (dungeons, raids, PvP, questing in any zone, or anything) and a short note
 - Everyone in the community sees your listing within seconds; it lasts 3 hours and survives a relog
-- Search, filter by activity and role, sort; whisper or invite with a right click
+- Search, filter by activity, role, guild and class, sort; whisper or invite with a right click
 - A short note with an **[Open in LFG]** link appears on the community LFG chat when you list yourself
 - Write "LFG SFK" or "szukam kogoś na DM" on the chat and, if players are listed for the same, **you see who they are** (only you)
 - **Invite players to your events** straight from the list: they get a whisper with an **[Open event]** link that opens the sign-up
@@ -23,6 +23,8 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 ## Events and calendar
 - **Every member can organize** an event (officers more at once), with an instance, date, time and description
 - Sign up with your **spec**, as Coming, Maybe or Not coming; mark yourself as raid leader
+- Filter the list by guild, type, instance, day and your own sign-ups
+- Sign-ups show on the community LFG chat with an **[Open event]** link, so everyone sees something is going on
 - A reminder 15 minutes before the start
 - Monthly calendar view with filters and search
 - Invite everyone who signed up to a group with one click
@@ -30,7 +32,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 
 ## Members and guilds
 - Browse the members of every community guild, including those without the addon
-- Search, sort and filter; right-click to whisper or invite
+- Search by name and **filter** by guild, rank, class, **professions**, location and addon version; sort; right-click to whisper or invite
 - See who has the addon and **which version**, in all our guilds
 - Professions of members with the addon
 - **Discord names:** share yours in Settings > Profile, and see "Discord: name" when you hover a player anywhere (in the world, on the chat, in the lists)

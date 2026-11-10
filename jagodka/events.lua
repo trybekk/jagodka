@@ -273,6 +273,26 @@ function Events.Cancel(ev)
 end
 
 -- My sign-up: spec (nil = keep the current one), status Y/M/N/X (nil = keep, Coming when new), leader (nil = keep)
+-- 0.15.6: signing up (Coming or Maybe, from not signed up) posts a short notice on the community LFG chat, so
+-- everyone sees something is going on: "Signed up for Molten Core (15.11 20:00) as Heal - 12 coming <jn-event:id>".
+-- Sent from the menu click (the game wants a click for channel messages); each client turns the marker into an
+-- [Open event] link (bridge.lua). At most once per event per SIGN_NOTICE_EVERY, so switching specs is not spam.
+local SIGN_NOTICE_EVERY = 600
+local signNoticeAt = {}             -- event id -> GetTime()
+local function SignNotice(ev, s)
+    local Most = addonTable.Most
+    local guild = Most and Most.MyGuild()
+    if not guild or not Most.IsGuildAllowed(guild) or (addonTable.Mute and addonTable.Mute.IsMuted(MyName())) then return end
+    if signNoticeAt[ev.id] and GetTime() - signNoticeAt[ev.id] < SIGN_NOTICE_EVERY then return end
+    signNoticeAt[ev.id] = GetTime()
+    local coming = 0
+    for _, st in pairs(ev.status or {}) do if st == "Y" then coming = coming + 1 end end
+    local text = ((s.st == "M") and "Maybe for " or "Signed up for ") .. tostring(ev.title or "an event")
+        .. " (" .. tostring(ev.date or "") .. " " .. tostring(ev.time or "") .. ")"
+        .. (s.r and (" as " .. tostring(s.r)) or "") .. " - " .. coming .. " coming <jn-event:" .. tostring(ev.id) .. ">"
+    Most.PublishTyped("Szukaj grupy", text, MyName(), guild)
+end
+
 function Events.Sign(ev, spec, status, leader)
     if not InListedGuild() then return false, "Your guild is not on the Community list." end
     if not Find(ev.id) or IsOver(ev) then return false, "This event is over." end
@@ -292,6 +312,7 @@ function Events.Sign(ev, spec, status, leader)
     Rebuild(ev)
     SendSign(ev, me)
     Changed(ev)
+    if (s.st == "Y" or s.st == "M") and cur.st ~= "Y" and cur.st ~= "M" then addonTable.Safe("events.lua:SignNotice", SignNotice, ev, s) end
     return true
 end
 
