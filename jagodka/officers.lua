@@ -227,12 +227,32 @@ local function Add(e, live)
     for _, fn in ipairs(listeners) do fn(e, live) end
 end
 
+-- Sub-realms (0.15.2): the officers channel, like every channel made by players, exists once per WoW: Forever
+-- sub-realm. Officers online who are not on my copy of it (by its member list, read every few minutes) get my
+-- message as a direct whisper (OMSG), which reaches every sub-realm; nothing goes through GUILD or a relay.
+local onChannel = {}            -- officer -> when last seen on my officers channel's member list
+local DIRECT_PART_BYTES = 200
+function Officers.SendDirect(text)
+    if not IsMeOfficer() or not text or text == "" then return end
+    local now, missing = GetTime(), {}
+    for _, name in ipairs(OnlineOfficers()) do
+        if name ~= Most.MyName() and now - (onChannel[name] or -math.huge) > 600 then table.insert(missing, name) end
+    end
+    if #missing == 0 then return end
+    local ts = GetServerTime()
+    for _, part in ipairs(Most.SplitText(text, DIRECT_PART_BYTES)) do
+        for _, name in ipairs(missing) do Most.Whisper(name, "OMSG", ts .. ":" .. part, "high") end
+    end
+    Note("message also whispered to " .. #missing .. " officers not on my officers channel (another sub-realm)")
+end
+
 -- From core.lua (the input, a hardware event): true when sent; otherwise false and the reason
 function Officers.Say(text)
     if not IsMeOfficer() then return false, "only officers can write here" end
     local id = Officers.ChannelId()
     if not id then return false, current and "joining the officers channel, try again in a moment" or "no officers key yet, wait a moment (or /jagodka sync)" end
     for _, part in ipairs(Most.SplitText(text, Most.MAX_CHAT_BYTES)) do _G.SendChatMessage(part, "CHANNEL", nil, id) end
+    Officers.SendDirect(text)
     return true
 end
 
@@ -297,7 +317,7 @@ end
 -- PACKETS (core.lua); only direct whispers from officers count. Returns true if handled.
 -- ============================================================================
 function Officers.HandlePacket(pType, payload, senderName, channel)
-    if pType ~= "OKEY" and pType ~= "OKREQ" and pType ~= "OHREQ" and pType ~= "OHIST" and pType ~= "ORALLY" then return false end
+    if pType ~= "OKEY" and pType ~= "OKREQ" and pType ~= "OHREQ" and pType ~= "OHIST" and pType ~= "ORALLY" and pType ~= "OMSG" then return false end
     -- Never through GUILD or a relay (FW): the key and the messages must not pass through members' clients
     if channel ~= "WHISPER" or senderName == Most.MyName() or not IsMeOfficer() or not IsOfficer(senderName) then return true end
     if pType == "OKEY" then
@@ -326,6 +346,16 @@ function Officers.HandlePacket(pType, payload, senderName, channel)
         SendHistory(senderName, tonumber(payload) or 0)
     elseif pType == "OHIST" then
         HandleHistoryPart(payload)
+    elseif pType == "OMSG" then
+        -- An officer on another sub-realm (Officers.SendDirect): shown like a line from the channel
+        local ts, text = strsplit(":", payload, 2)
+        ts = tonumber(ts)
+        text = text and Most.SanitizeChat(text)
+        if ts and text and text ~= "" then
+            local p = Most.FindKnownPlayer(senderName)
+            Add({ id = string.format("OW.%s.%x.%d", senderName, ts, math.random(0, 99999)), ts = ts, guild = (p and p.guild) or "?",
+                author = senderName, tab = TAB, src = "A", text = text, via = "W" }, true)
+        end
     elseif pType == "ORALLY" then
         if GetTime() - lastRallyShown >= RALLY_SHOW_AGAIN then
             lastRallyShown = GetTime()
@@ -353,6 +383,7 @@ function Officers.HandleList(list)
     if not IsMeOfficer() then return end
     for raw in tostring(list or ""):gmatch("[^,]+") do
         local name = Most.PlayerKey((raw:gsub("^%s+", ""):gsub("^[%*@%+]+", "")))
+        if name and name ~= "" then onChannel[name] = GetTime() end
         if name and name ~= "" and name ~= Most.MyName() and not IsOfficer(name) then
             -- Only a rank known from the rosters counts (a player whose roster has not come yet is not a reason)
             local _, rankIndex = addonTable.Roster.GetRank(name)

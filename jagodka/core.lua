@@ -3392,10 +3392,19 @@ C_Timer.NewTicker(60, function()
 if announced then AddMyselfToActiveList() if Most.ShouldSendPong() then SendStatusPacket("PONG") end end
 -- Another addon (or a disconnect) may have removed us from the global channel or the chat channel, so we
 -- come back. The chat channel is checked on its own: before, it was retried only with the public one.
+-- 0.15.4: tries spaced out, 1, 2, 4, 8 and then every 10 minutes (was every minute): after a relog the server
+-- sometimes refuses our channels for a while (NOT_ALLOWED_IN_CHANNEL, INVALID_NAME), and asking again every
+-- minute may keep that going. Back on both channels = the next problem starts from 1 minute again.
 local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
 if not Most.GetChannelId() or keyMissing then
-addonTable.Monitor.Channel("Not on the " .. (keyMissing and "chat" or "public") .. " channel, joining again (" .. Most.ChannelListText() .. ")")
+EventSync.joinTries = (EventSync.joinTries or 0) + 1
+if GetTime() >= (EventSync.nextJoinAt or 0) then
+EventSync.nextJoinAt = GetTime() + math.min(600, 60 * 2 ^ math.min(EventSync.joinTries - 1, 4)) - 5
+addonTable.Monitor.Channel("Not on the " .. (keyMissing and "chat" or "public") .. " channel, joining again (try " .. EventSync.joinTries .. "; " .. Most.ChannelListText() .. ")")
 Most.JoinChannel()
+end
+else
+EventSync.joinTries, EventSync.nextJoinAt = 0, 0
 end
 PruneOfflinePlayers()
 end)

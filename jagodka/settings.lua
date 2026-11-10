@@ -4,7 +4,7 @@
 --  * Section "Chats": which other messages also show in the "Jagodki Nadina - General" tab of the game's
 --    chat (chattab.lua), next to the community chat that is always there: whispers, guild, officer, party,
 --    raid, say, yell, emotes, system messages, and the game channels the character is on (General, Trade...).
---  * Saved per character (JagodkiCharDB, SavedVariablesPerCharacter). Nothing is applied until the player
+--  * Saved per character, in the account's data under the character's name (Settings.CharStore; from 0.15.4). Nothing is applied until the player
 --    changes something here, so a tab set up by hand in the game's own tab settings stays as it is.
 --  * Display only, in the player's own game chat: nothing is sent.
 -- ============================================================================
@@ -36,9 +36,29 @@ local function IsOurChannel(name)
     return name:find("^JagodkaNet") ~= nil or name:find("^Jgd") ~= nil or name:find("^Jgo") ~= nil
 end
 
+-- 0.15.4: a character's own settings live in the ACCOUNT's saved data (JagodkiChatDB.chars["First Surname"]), not
+-- in the character's folder (JagodkiCharDB): the game keeps that folder under the server's name, and when WoW:
+-- Forever moved a character under another server name the character came back with empty settings ("the
+-- checkboxes are not saved", 10.11). What was in JagodkiCharDB is moved over once. Also used by lfg.lua.
+local scratch = {}   -- before the character's name is known (never saved)
+function Settings.CharStore()
+    local me = addonTable.Most and addonTable.Most.MyName()
+    if not me then return scratch end
+    _G.JagodkiChatDB = _G.JagodkiChatDB or {}
+    local all = _G.JagodkiChatDB.chars
+    if type(all) ~= "table" then all = {} _G.JagodkiChatDB.chars = all end
+    local s = all[me]
+    if type(s) ~= "table" then
+        s = {}
+        all[me] = s
+        local old = _G.JagodkiCharDB
+        if type(old) == "table" then s.chatTab, s.lfg = old.chatTab, old.lfg end
+    end
+    return s
+end
+
 local function DB()
-    _G.JagodkiCharDB = _G.JagodkiCharDB or {}
-    local db = _G.JagodkiCharDB
+    local db = Settings.CharStore()
     db.chatTab = db.chatTab or { set = false, groups = {}, channels = {} }
     db.chatTab.community = db.chatTab.community or {}
     return db.chatTab

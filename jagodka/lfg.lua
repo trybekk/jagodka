@@ -188,8 +188,8 @@ local function SendMine(target)
 end
 
 local function SaveMineToDB()
-    _G.JagodkiCharDB = _G.JagodkiCharDB or {}
-    _G.JagodkiCharDB.lfg = mine and { roles = mine.roles, acts = mine.acts, note = mine.note, ts = mine.ts } or nil
+    -- In the account's data under my name (settings.lua, 0.15.4), not the character's folder
+    addonTable.Settings.CharStore().lfg = mine and { roles = mine.roles, acts = mine.acts, note = mine.note, ts = mine.ts } or nil
 end
 
 -- Request after login and with the Sync button (own guild only; bridge.lua keeps LQ in the guild)
@@ -483,7 +483,7 @@ end
 
 -- After login: my listing from before (/reload, relog) comes back while it is still valid, and goes out again
 local function RestoreMine()
-    local saved = _G.JagodkiCharDB and _G.JagodkiCharDB.lfg
+    local saved = addonTable.Settings.CharStore().lfg
     if type(saved) ~= "table" or not saved.ts or GetServerTime() - saved.ts > LISTING_FOR or type(saved.acts) ~= "table" then return end
     local M = Most()
     mine = { name = M.MyName(), class = MyClass(), level = _G.UnitLevel("player"), guild = M.MyGuild(), roles = saved.roles or {}, acts = saved.acts, note = saved.note or "", ts = saved.ts }

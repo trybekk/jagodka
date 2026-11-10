@@ -644,6 +644,7 @@ local TAB_TAGS = { Handel = "[Trade] ", ["Szukaj grupy"] = "[LFG] " }
 -- during fast typing) is only resent itself, and the next ones still go on the channel.
 local ECHO_WAIT = 8        -- seconds we wait for our own message to come back from the channel
 local awaitingEcho = {}    -- messages sent on the channel without their echo yet, oldest first: { tab, text, guild, parts }
+local AlsoThroughGuilds    -- defined below (0.15.4)
 local channelChatBlocked = false
 local channelEchoSeen = false
 
@@ -654,6 +655,20 @@ local function OwnEchoArrived()
     if rec.fromGameTab and addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab came back from the chat channel") end
     rec.parts = rec.parts - 1
     if rec.parts <= 0 then table.remove(awaitingEcho, 1) end
+end
+
+-- ============================================================================
+-- EVERY OWN MESSAGE THROUGH THE GUILDS TOO (0.15.4): WoW: Forever keeps players on several sub-realms, and a
+-- channel made by players works within one of them only (10.11: the user on CAMWOWEU5Realm8PvP, others on other
+-- sub-realms, "nobody sees my messages"; a new key helped only until the next relog). The guild and the relays
+-- reach every sub-realm, so each message typed on General, Trade or LFG also goes as GMSG (the path older
+-- versions always used and still read); a reader who gets both copies shows one (HasSameMessage). The channel
+-- stays for speed on the own sub-realm. Chat is a few messages a minute, a small share of the guild traffic.
+-- ============================================================================
+AlsoThroughGuilds = function(rec)
+    if not rec or rec.published or not rec.text or rec.text == "" then return end
+    rec.published = true
+    if rec.guild and Most.IsGuildAllowed(rec.guild) then Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild) end
 end
 
 -- Sends a typed message on the channel. The game allows channel messages only right after a key press or
@@ -675,18 +690,19 @@ function Most.SayOnChannel(tab, text)
     end
     local rec = { tab = tab, text = text, guild = MyGuild(), parts = #parts }
     table.insert(awaitingEcho, rec)
+    -- 0.15.4: always through the guilds too (see AlsoThroughGuilds): the echo check below only logs now
+    AlsoThroughGuilds(rec)
     C_Timer.After(ECHO_WAIT, function()
         if rec.parts <= 0 then return end
         for i, r in ipairs(awaitingEcho) do
             if r == rec then table.remove(awaitingEcho, i) break end
         end
         if channelEchoSeen then
-            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel (server limit?), resent through the relays") end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel (server limit?); it went through the guilds") end
         else
             channelChatBlocked = true
-            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel, chat goes through the relays until /reload", true) end
+            if addonTable.Monitor then addonTable.Monitor.Channel("Own message did not come back from the channel, chat goes through the guilds until /reload", true) end
         end
-        Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild)
     end)
     if addonTable.Monitor then
         local which = (addonTable.Key and addonTable.Key.HasKey()) and "the chat channel (key)" or "the public channel"
@@ -710,13 +726,13 @@ function Most.ExpectEcho(tab, text)
     local rec = { tab = tab, text = text, guild = MyGuild(), parts = 1, fromGameTab = true }
     table.insert(awaitingEcho, rec)
     if addonTable.Monitor then addonTable.Monitor.Channel("Own message sent on the chat channel from the game chat tab") end
+    AlsoThroughGuilds(rec)
     C_Timer.After(ECHO_WAIT, function()
         if rec.parts <= 0 then return end
         for i, r in ipairs(awaitingEcho) do
             if r == rec then table.remove(awaitingEcho, i) break end
         end
-        if addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab did not come back from the channel, resent through the relays", true) end
-        if rec.guild and Most.IsGuildAllowed(rec.guild) then Most.Publish(rec.tab, rec.text, "A", MyName(), rec.guild) end
+        if addonTable.Monitor then addonTable.Monitor.Channel("Own message from the game chat tab did not come back from the channel; it went through the guilds", true) end
     end)
 end
 
