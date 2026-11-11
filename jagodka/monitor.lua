@@ -792,7 +792,21 @@ function Monitor.Attach(panel, c)
     end)
     updatePreview:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
     updatePreview:SetScript("OnClick", function() addonTable.Update.Preview() end)
-    if addonTable.Help then addonTable.Help.Button(panel, "monitoring", nil, "Monitoring"):SetPoint("LEFT", updatePreview, "RIGHT", 8, 0) end
+    -- The festive show (out of beta window, fanfare, fireworks over the screen; update.lua), kept for occasions
+    -- (a birthday, an anniversary). Only on this client.
+    local specialPreview = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    specialPreview:SetSize(70, 22)
+    specialPreview:SetPoint("LEFT", updatePreview, "RIGHT", 2, 0)
+    specialPreview:SetText("Fireworks")
+    FitButton(specialPreview)
+    specialPreview:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("The festive show on your screen: the 1.0.0 window with the fanfare and fireworks. \"Let's go!\" fires the finale. Only you see it.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    specialPreview:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    specialPreview:SetScript("OnClick", function() addonTable.Update.PreviewSpecial() end)
+    if addonTable.Help then addonTable.Help.Button(panel, "monitoring", nil, "Monitoring"):SetPoint("LEFT", specialPreview, "RIGHT", 8, 0) end
     local clear = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     clear:SetSize(50, 22)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -26)

@@ -181,7 +181,7 @@ addonTable.Sync.Attach(MainFrame, OnlineText)
 
 local Panels = {}
 -- Tab numbers are used everywhere; Help (7) is shown before Monitoring (TAB_ORDER)
-local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help", "Settings", "LFG"}
+local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help", "Settings", "LFG", "Release Notes"}
 
 -- Column order; x and width are starting values, membersView.LayoutColumns fits them to the content.
 -- field = the row element placed at the column's position
@@ -314,8 +314,9 @@ local function ShowTab(tabIndex)
 end
 
 -- Buttons left to right in this order: Help before Monitoring (officers only, last, so hiding it leaves no gap)
--- LFG (9) right after Calendar
-for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6 }) do
+-- LFG (9) right after Calendar, Release Notes (10, 1.0.0) at the end, after Monitoring (it moves into
+-- Monitoring's place when that is hidden: EventSync.UpdateMonitoringTab)
+for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6, 10 }) do
     local name = tabNames[i]
     local btn = CreateFrame("Button", nil, MainFrame, "BackdropTemplate")
     btn:SetSize(115, 32)
@@ -323,6 +324,7 @@ for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6 }) do
     -- panel stays (tab numbers are used everywhere), it just cannot be opened; the next tabs move left.
     -- Placed one after another (MainFrame.tabX), since a long name makes its button wider (below).
     MainFrame.tabX = MainFrame.tabX or 20
+    btn.x = MainFrame.tabX
     btn:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", MainFrame.tabX, -50)
     if i == 3 then btn:Hide() end
     
@@ -357,6 +359,7 @@ for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6 }) do
         "Interface\\Icons\\INV_Misc_QuestionMark",
         "Interface\\Icons\\INV_Misc_Gear_01",
         "Interface\\GroupFrame\\UI-Group-LeaderIcon",
+        "Interface\\Icons\\INV_Misc_Book_09",
     }
     if i == 7 then
         -- Help: the same round badge as the "?" buttons next to the features (help.lua)
@@ -652,6 +655,13 @@ btn.text:SetTextColor(0.6, 0.6, 0.6)
 end
 end
 RefreshChatDisplay()
+end
+-- 1.0.0 festive show (update.lua): closing it opens the addon window on the community chat, General tab
+function addonTable.OpenCommunityChat()
+currentChatTab = "Ogolny"
+UpdateChatTabVisuals()
+MainFrame:Show()
+ShowTab(1)
 end
 local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
@@ -1152,6 +1162,12 @@ local invite = (_G.C_PartyInfo and _G.C_PartyInfo.InviteUnit) or _G.InviteUnit
 if invite then invite(Most.GameName(target)) end
 end
 _G.UIDropDownMenu_AddButton(info, level)
+-- 0.15.6+: "First Surname" in a small box under the row, selected for Ctrl+C (armory.lua), also offline
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Copy name", true
+local anchorRow = menuMember.row
+info.func = function() addonTable.Armory.CopyName(target, anchorRow) end
+_G.UIDropDownMenu_AddButton(info, level)
 -- Event sign-up list: an officer can remove the player from that event
 if menuMember.event and addonTable.Events.CanManage(menuMember.event) then
 local event = menuMember.event
@@ -1190,7 +1206,8 @@ membersView.OnRowClick = function(self, button)
 local m = self.member
 if not m or m.name == Most.MyName() then return end
 if button == "RightButton" then
-menuMember = m
+-- The row, for "Copy name" (the box opens under it); not stored in the shared player entry
+menuMember = setmetatable({ row = self }, { __index = m })
 _G.ToggleDropDownMenu(1, nil, MemberMenu, "cursor", 0, 0)
 elseif button == "LeftButton" and _G.IsShiftKeyDown() and m.online then
 _G.ChatFrame_SendTell(Most.GameName(m.name))
@@ -2645,6 +2662,8 @@ end)
 addonTable.Monitor.Attach(Panels[6], { activePlayers = activePlayers, applyStyle = ApplyModernStyle })
 -- Help tab (help.lua): officers' topics only for officers
 addonTable.Help.Attach(Panels[7], { isOfficer = IsPlayerOfficer, applyStyle = ApplyModernStyle, showTab = function() ShowTab(7) end })
+-- Release Notes tab (1.0.0, releasenotes.lua): every version's notes, newest first
+addonTable.ReleaseNotes.Attach(Panels[10], { applyStyle = ApplyModernStyle })
 -- Settings tab (settings.lua)
 addonTable.Settings.Attach(Panels[8], { applyStyle = ApplyModernStyle, isOfficer = IsPlayerOfficer })
 -- Opens an event in the Events tab by its id ([Open event] links in whispers, lfg.lua); false when unknown here
@@ -2676,6 +2695,12 @@ addonTable.LFG.Attach(Panels[9], { applyStyle = ApplyModernStyle, classRoles = E
 open = function() MainFrame:Show() ShowTab(9) end })
 -- The rank is known only some time after login and can change, so this runs on guild updates
 function EventSync.UpdateMonitoringTab()
+-- Release Notes (the last button) stands after Monitoring, or in its place when it is hidden
+local notesBtn = menuButtons[10]
+if notesBtn then
+notesBtn:ClearAllPoints()
+notesBtn:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", IsPlayerOfficer() and notesBtn.x or menuButtons[6].x, -50)
+end
 if IsPlayerOfficer() then
 menuButtons[6]:Show()
 chatTabButtons.Oficerowie:Show()
@@ -3612,11 +3637,16 @@ C_Timer.After(10, addonTable.Officers.Request)
 C_Timer.After(12, function() addonTable.LFG.Request(true) end)
 return true
 end
--- 0.15.5: once per new version (per account), one line in the chat about what is new, so new features get used
-EventSync.WHATS_NEW = "New: filters in Roster, Events and LFG (guild, class, rank, professions, role...), sign-ups shown on the LFG chat, and addon versions of all guilds in the Roster. More in Help."
+-- 0.15.5: once per new version (per account), one line in the chat about what is new, so new features get used;
+-- since 1.0.0 only when a version has no notes in releasenotes.lua (the what's new window shows them otherwise)
+EventSync.WHATS_NEW = "A new version is installed: see what changed in the Release Notes tab (the last tab of the addon window)."
 C_Timer.After(25, function()
 _G.JagodkiChatDB = _G.JagodkiChatDB or {}
 if _G.JagodkiChatDB.whatsNewSeen == ADDON_VERSION then return end
+-- 1.0.0: the "what's new" window when this version has notes (update.lua; it marks the version seen when the
+-- window is really on screen), the chat line otherwise; also on a fresh install (the festive 1.0 show instead,
+-- once per account)
+if addonTable.Update.ShowWhatsNewOnce(ADDON_VERSION) then return end
 _G.JagodkiChatDB.whatsNewSeen = ADDON_VERSION
 local frame = (addonTable.Zakladka and addonTable.Zakladka.Frame and addonTable.Zakladka.Frame()) or _G.DEFAULT_CHAT_FRAME
 if frame then frame:AddMessage("|cffbf40ff[Jagodka " .. ADDON_VERSION .. "]|r |cffffd100" .. EventSync.WHATS_NEW .. "|r") end

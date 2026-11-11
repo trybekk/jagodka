@@ -717,25 +717,49 @@ local function SendVersionList()
     end
     local full = not versionFullAt or GetTime() - versionFullAt >= VERSION_FULL_EVERY
     if full then wipe(versionSent) versionFullAt = GetTime() end
-    local versions, index, entries = {}, {}, {}
+    local entries, all = {}, {}
     for _, p in ipairs(ctx.activePlayers) do
         local v = tostring(p.version or "")
         if p.guild == guild and v:match("^%d+%.%d+%.%d+$") and versionSent[p.name] ~= v then
             versionSent[p.name] = v
-            if not index[v] then table.insert(versions, v) index[v] = #versions end
-            table.insert(entries, (tostring(p.name):gsub("[~;:]", "")) .. "~" .. index[v])
+            all[v] = (all[v] or 0) + 1
+            table.insert(entries, { n = (tostring(p.name):gsub("[~;:]", "")), v = v })
         end
     end
     if #entries == 0 then return end
-    local head = table.concat(versions, ",")
-    local fixed = #"VLIST:" + #Enc(guild) + 1 + 3 + 1 + 3 + 1 + #head + 1
-    local chunks = Chunk(entries, MAX_ADDON_BYTES - fixed, MAX_ADDON_BYTES - fixed)
-    for i, chunk in ipairs(chunks) do
-        Most.Send("VLIST", table.concat({ Enc(guild), i, #chunks, head, chunk }, ":"), "low")
+    -- 1.0.0: players grouped by version and each part carrying only its own versions (0.15.6 put all of them in
+    -- every part: 5.7 players per packet in the 11.11 log, ~11 now). Readers take the versions from each part.
+    table.sort(entries, function(a, b) if a.v ~= b.v then return a.v > b.v end return a.n < b.n end)
+    local limit = MAX_ADDON_BYTES - (#"VLIST:" + #Enc(guild) + 1 + 3 + 1 + 3 + 1 + 1)
+    local parts, cur = {}, nil
+    local function NewPart() return { versions = {}, index = {}, items = {}, size = 0 } end
+    cur = NewPart()
+    for _, e in ipairs(entries) do
+        local function Cost(part)
+            local head = part.index[e.v] and 0 or (#e.v + ((#part.versions > 0) and 1 or 0))
+            local i = part.index[e.v] or (#part.versions + 1)
+            return head + #e.n + 1 + #tostring(i) + ((#part.items > 0) and 1 or 0), i
+        end
+        local cost, i = Cost(cur)
+        if #cur.items > 0 and cur.size + cost > limit then
+            table.insert(parts, cur)
+            cur = NewPart()
+            cost, i = Cost(cur)
+        end
+        if not cur.index[e.v] then table.insert(cur.versions, e.v) cur.index[e.v] = #cur.versions end
+        table.insert(cur.items, e.n .. "~" .. i)
+        cur.size = cur.size + cost
+    end
+    table.insert(parts, cur)
+    for i, part in ipairs(parts) do
+        Most.Send("VLIST", table.concat({ Enc(guild), i, #parts, table.concat(part.versions, ","), table.concat(part.items, ";") }, ":"), "low")
     end
     if addonTable.Monitor and addonTable.Monitor.Note then
+        local counts = {}
+        for v, n in pairs(all) do table.insert(counts, v .. " x" .. n) end
+        table.sort(counts, function(a, b) return a > b end)
         addonTable.Monitor.Note("Sent the version list of " .. Most.GuildTag(guild) .. (full and " (whole)" or " (changes)") .. ": "
-            .. #entries .. " players in " .. #chunks .. " parts (" .. head .. ")")
+            .. #entries .. " players in " .. #parts .. " parts (" .. table.concat(counts, ", ") .. ")")
     end
 end
 

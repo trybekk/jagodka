@@ -32,10 +32,11 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 
 ## Members and guilds
 - Browse the members of every community guild, including those without the addon
-- Search by name and **filter** by guild, rank, class, **professions**, location and addon version; sort; right-click to whisper or invite
+- Search by name and **filter** by guild, rank, class, **professions**, location and addon version; sort; right-click to whisper, invite or **copy the name**
 - See who has the addon and **which version**, in all our guilds
 - Professions of members with the addon
 - **Discord names:** share yours in Settings > Profile, and see "Discord: name" when you hover a player anywhere (in the world, on the chat, in the lists)
+- **Armory links** (Sixty Upgrades) for every character, ready to copy
 - Your **character card**: level, guild, rank, professions, experience and an Armory link
 - Side column: your events and LFG listing, officers online, guilds (with how many have the addon) and classes at a glance
 
@@ -48,6 +49,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 ## Good to know
 - Only guilds on the community list can use the addon
 - At least one person with the addon must be online in a guild to connect it to the others
-- Keep the addon up to date: new versions come often, and the addon tells you when one is out
+- Keep the addon up to date: the addon tells you when a new version is out, and after an update a small window shows what is new
+- The **Release Notes** tab lists what changed in every version
 - In dungeons and battlegrounds the game pauses addon messages; the addon catches up by itself when you leave
 - Built-in **Help** in English and Polish, with small "?" buttons next to every feature

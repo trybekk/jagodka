@@ -19,7 +19,8 @@ local string, table, type = _G.string, _G.table, _G.type
 local Armory = {}
 addonTable.Armory = Armory
 
-local BASE_URL = "https://armorywowforever.com/c/forever/eu/pvp/"
+-- 0.15.6+: Sixty Upgrades' armory (before: armorywowforever.com/c/forever/eu/pvp/)
+local BASE_URL = "https://sixtyupgrades.com/forever/armory/eu/pvp/"
 local ICON = "Interface\\Icons\\INV_Chest_Plate01"
 
 local box = nil
@@ -75,7 +76,7 @@ local function CreateBox(parent)
         if key == "C" and _G.IsControlKeyDown() then
             C_Timer.After(0.1, function()
                 box:Hide()
-                if _G.UIErrorsFrame then _G.UIErrorsFrame:AddMessage("Armory link copied", 0.75, 0.25, 1, 1, 2) end
+                if _G.UIErrorsFrame then _G.UIErrorsFrame:AddMessage(box.copiedText or "Copied", 0.75, 0.25, 1, 1, 2) end
             end)
         end
     end)
@@ -83,23 +84,41 @@ local function CreateBox(parent)
     box.input = input
 end
 
+-- The box with any text, selected for Ctrl+C. anchor: the frame it opens under (nil = at the mouse);
+-- copied: the message after Ctrl+C; width: of the box (default 380)
+local function ShowBox(anchor, text, copied, width, alignRight)
+    -- In the main window (not a tab), so it works from the Roster rows and from the character card
+    if not box then CreateBox(_G.JagodkiNadinaMainFrame or _G.UIParent) end
+    box.url, box.anchor, box.copiedText = text, anchor, copied
+    box:SetWidth(width or 380)
+    box:ClearAllPoints()
+    -- Opens to the right of the icon: X, "Ctrl+C", the text; alignRight (character card, at the
+    -- window's right edge) = to the left of it
+    if not anchor then
+        local x, y = _G.GetCursorPosition()
+        local scale = _G.UIParent:GetEffectiveScale()
+        box:SetPoint("TOPLEFT", _G.UIParent, "BOTTOMLEFT", x / scale - 8, y / scale - 4)
+    elseif alignRight then box:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
+    else box:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -8, -2) end
+    box:Show()
+    box.input:SetText(text)
+    box.input:SetCursorPosition(0)
+    box.input:SetFocus()
+    box.input:HighlightText()
+end
+
 local function Open(button)
     local url = Armory.Url(button.name)
     if not url then return end
     if box and box:IsShown() and box.anchor == button then box:Hide() return end
-    -- In the main window (not a tab), so it works from the Roster rows and from the character card
-    if not box then CreateBox(_G.JagodkiNadinaMainFrame or _G.UIParent) end
-    box.url, box.anchor = url, button
-    box:ClearAllPoints()
-    -- Opens to the right of the icon: X, "Ctrl+C", the link; button.alignRight (character card, at the
-    -- window's right edge) = to the left of it
-    if button.alignRight then box:SetPoint("TOPRIGHT", button, "BOTTOMRIGHT", 0, -2)
-    else box:SetPoint("TOPLEFT", button, "BOTTOMLEFT", -8, -2) end
-    box:Show()
-    box.input:SetText(url)
-    box.input:SetCursorPosition(0)
-    box.input:SetFocus()
-    box.input:HighlightText()
+    ShowBox(button, url, "Armory link copied", nil, button.alignRight)
+end
+
+-- 0.15.6+: a player's name ("First Surname") in the same box, for Ctrl+C (Roster menu: "Copy name").
+-- anchor: the row (the box opens under it), or nil = at the mouse
+function Armory.CopyName(name, anchor)
+    if type(name) ~= "string" or name == "" then return end
+    ShowBox(anchor, name, "Name copied", 260)
 end
 
 -- For other buttons (charcard.lua): button.name = the character
