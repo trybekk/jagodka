@@ -1153,15 +1153,16 @@ local function HandleChannelList(list, isKeyChannel)
 end
 
 -- A message on the channel (shared chat from 0.12.0): from players of listed guilds (status packet or roster);
--- the guild comes from there, not from the message. On the chat channel from the secret key, a player not
--- known yet is shown too, without a guild tag: only community members know that channel, and a player who
--- has just joined a guild is missing from its roster here for a while (the first big log hid their messages).
+-- the guild comes from there, not from the message. 1.0.1: a player not known from our guilds is no longer shown
+-- with a gray [?] (0.13.8), also on the chat channel from the secret key: the key is saved for the whole account,
+-- so an alt outside our guilds knew the channel and could write to everyone. A player who has just joined one of
+-- our guilds is seen anyway: since 0.15.4 every own message also goes through the guilds, and their name reaches
+-- the rosters within minutes.
 local function HandleChannelMessage(text, playerName, lineID, isKeyChannel)
     if not ctx or not text or not playerName then return end
     local author = Most.PlayerKey(playerName)
     if author == MyName() then OwnEchoArrived() end
     local p = Most.FindKnownPlayer(author)
-    if not p and isKeyChannel then p = { guild = UNKNOWN_GUILD } end
     if not p then Count(debug.rejected, "channel message from a player not in the listed guilds") return end
     local tab = "Ogolny"
     for t, tag in pairs(TAB_TAGS) do

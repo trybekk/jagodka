@@ -21,6 +21,12 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.0.1", {
+        "# Security",
+        "Only characters in our guilds are on the community chat: an alt outside our guilds no longer gets onto the chat channel, so it can neither read nor write there.",
+        "Messages on the community chat from players who are not in any of our guilds are no longer shown at all.",
+        "New members of our guilds are still seen at once: their messages also go through the guilds, and their names reach everyone's lists within minutes.",
+    }, "community chat only for our guilds" },
     { "1.0.0", {
         "# New",
         "Armory links now open Sixty Upgrades, the armory most of us use.",

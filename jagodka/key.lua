@@ -118,6 +118,18 @@ function Key.HasKey() return current ~= nil end
 function Key.Join()
     if not current then return end
     local name, password = Derive(current.k)
+    -- 1.0.1: only a character in one of our guilds is on the chat channel. The key is saved for the whole account,
+    -- so an alt outside our guilds knew it and could read and write the community chat: such a character leaves
+    -- the channel. While the game has not given the guild name yet (a loading screen), nothing changes.
+    local guild = Most.MyGuild()
+    if not _G.IsInGuild() or (guild and not Most.IsGuildAllowed(guild)) then
+        if Key.ChannelId() and _G.LeaveChannelByName then
+            _G.LeaveChannelByName(name)
+            if Monitor() then Monitor().Channel("Left the chat channel: this character is not in one of our guilds") end
+        end
+        return
+    end
+    if not guild then return end
     if joinedName and joinedName ~= name and _G.LeaveChannelByName then
         _G.LeaveChannelByName(joinedName)
         if Monitor() then Monitor().Channel("Left the old chat channel (key changed)") end
@@ -383,5 +395,7 @@ addonTable.SafeScript(Listener, "OnEvent", "key.lua:355", function(self, event, 
                 if not current and _G.IsInGuild() then Most.Send("KREQ", "0", "high") end
             end)
         end
+        -- 1.0.1: left our guilds (or joined one): off the chat channel, or onto it, a moment later
+        if current then C_Timer.After(GUILD_JOIN_DELAY, Key.Join) end
     end
 end)
