@@ -21,6 +21,23 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.0.2", {
+        "! Everyone should update: the member lists of the other guilds get fresh faster when everyone has this version.",
+        "# New",
+        "The blueberry button by the minimap no longer goes missing: the addon checks it every minute and brings it back. /jagodka minimap puts it back at its default place.",
+        "Officers online in the right column shows up to 6 officers with no slider; the header still counts all of them.",
+        "# Changes",
+        "No more big \"addon outdated\" window popping up on its own. When an officer sends an update reminder, a small note shows by the minimap button with a gentle sound. The Roster's Version column still shows in yellow who has a newer version.",
+        "# Fixes",
+        "Members of the other guilds stay up to date: levels, ranks and who is in the guild now reach every guild. Before, a whole guild's list could be missing for hours, so someone at level 58 still showed 51.",
+        "The other guilds no longer drop out of the network and come back every minute.",
+        "Players who just logged in no longer flip back to offline when an older list arrives late.",
+        "# Security",
+        "Characters outside our guilds now leave the addon's public channel too, not only the community chat (needs the update on their side).",
+        "Member lists of guilds outside our community are no longer passed around.",
+        "# Officers",
+        "Monitoring logs it when the game blocks an addon action, with the action's name, to find the cause quickly.",
+    }, "fresher member lists, a minimap button that stays" },
     { "1.0.1", {
         "# Security",
         "Only characters in our guilds are on the community chat: an alt outside our guilds no longer gets onto the chat channel, so it can neither read nor write there.",

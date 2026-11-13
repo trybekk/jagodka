@@ -63,18 +63,6 @@ close:SetPoint("BOTTOM", 0, 18)
 close:SetText("Close")
 close:SetScript("OnClick", function() frame:Hide() end)
 
-local function PlayAlert()
-    if not _G.PlaySound then return end
-    _G.PlaySound(ALERT_SOUND, "Master")
-    C_Timer.After(ALERT_GAP, function() _G.PlaySound(ALERT_SOUND, "Master") end)
-end
-
-local function Open(newest)
-    message:SetText("|cffff5555Your addon is outdated.|r\nYour version: " .. (GetAddOnMetadata(addonName, "Version") or "?")
-        .. ", newest seen: " .. newest .. "\n\nA new version is available on |cffffd100CurseForge|r:\nupdate it in the CurseForge app.")
-    frame:Show()
-    PlayAlert()
-end
 
 -- ============================================================================
 -- WHEN TO SHOW
@@ -97,12 +85,15 @@ function Update.Show(newerVersion)
         return
     end
     shown[newerVersion] = true
-    Open(newerVersion)
+    -- 1.0.2: the compact note by the addon's minimap button with a gentle sound (below), not the big window in
+    -- the middle with the raid warning. Not called by itself any more (core.lua CheckPlayerVersion): players
+    -- see the note only from an officer's Remind outdated (Update.Remind)
+    Update.ShowNote(newerVersion)
 end
 
--- Monitoring: the same window, without marking anything as shown
+-- Monitoring ("Update test"): the same note, without marking anything as shown
 function Update.Preview()
-    Open("(preview)")
+    Update.ShowNote("(preview)")
 end
 
 -- ============================================================================
@@ -159,11 +150,15 @@ local function ShowToast(newest)
     toast:SetHeight(math.max(30, toast.title:GetStringHeight() + 3 + toast.text:GetStringHeight()) + 2 * TOAST_PADDING)
     PlaceToast()
     toast:Show()
-    PlayAlert()
+    -- 1.0.2: one gentle sound (the game's whisper sound) instead of the raid warning twice
+    if _G.PlaySound then pcall(_G.PlaySound, (_G.SOUNDKIT and _G.SOUNDKIT.TELL_MESSAGE) or 3081, "Master") end
     toastToken = toastToken + 1
     local token = toastToken
     C_Timer.After(TOAST_FOR, function() if token == toastToken then toast:Hide() end end)
 end
+-- 1.0.2: the one notice of a newer version, for a version seen at another player (Update.Show) and the
+-- officers' reminder (Update.Remind) alike
+Update.ShowNote = ShowToast
 
 -- An officer's reminder (UPD packet, core.lua checks the officer and that my version is older): once per
 -- newer version per REMIND_AGAIN_AFTER seconds, and after combat when it comes during one

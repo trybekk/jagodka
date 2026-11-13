@@ -224,10 +224,28 @@ local function HideFromChat(name)
 end
 Most.HideFromChat = HideFromChat
 
+-- A character outside our guilds (left the guild, or an alt elsewhere) has no business on our channels. While the
+-- game has not given the guild name yet (a loading screen) this says false, so nothing changes.
+function Most.OutsideCommunity()
+    if not ctx then return false end
+    local guild = MyGuild()
+    return not IsInGuild() or (guild ~= nil and not ctx.isGuildAllowed(guild))
+end
+
 function Most.JoinChannel()
     -- The old temporary channel (up to 0.7.6) is no longer useful, so we leave it
     if (GetChannelName(OLD_COMM_CHANNEL) or 0) > 0 and _G.LeaveChannelByName then _G.LeaveChannelByName(OLD_COMM_CHANNEL) end
     local name = ChannelName()
+    -- 1.0.2: such a character also leaves the public channel, as the chat channel since 1.0.1 (Key.Join below).
+    -- About 40 of them hung on it in the 2026-11-13 log, and one sent his new guild's roster to our relays.
+    if Most.OutsideCommunity() then
+        if Most.GetChannelId() and _G.LeaveChannelByName then
+            _G.LeaveChannelByName(name)
+            if addonTable.Monitor then addonTable.Monitor.Channel("Left the public channel: this character is not in one of our guilds") end
+        end
+        if addonTable.Key then addonTable.Key.Join() end
+        return
+    end
     if not Most.GetChannelId() then _G.JoinChannelByName(name, COMM_PASSWORD) end
     HideFromChat(name)
     -- The chat channel from the secret key (key.lua), when we have one
@@ -1025,6 +1043,7 @@ local OWN_GUILD_ONLY = {
     DQ = true, DC = true,   -- Discord names (discord.lua)
 }
 
+local foreignRosterNoted = {} -- origin -> true: their foreign roster was noted in Monitoring
 function Most.Route(text, channel, senderName)
     local pType, rest = strsplit(":", text, 2)
     if pType ~= "FW" then
@@ -1060,6 +1079,17 @@ function Most.Route(text, channel, senderName)
                 Count(debug.rejected, "forward of a player outside the relay's guild")
                 return nil
             end
+        end
+        -- A roster (full or changes) of a guild outside the community is not reposted (older versions still send
+        -- them from a player in another guild); the Monitoring log names the sender once
+        local innerType, innerGuild = strsplit(":", inner, 3)
+        if (innerType == "RF" or innerType == "RD") and ctx and not ctx.isGuildAllowed(Dec(innerGuild or "")) then
+            Count(debug.rejected, "roster of a guild outside the community")
+            if not foreignRosterNoted[origin] then
+                foreignRosterNoted[origin] = true
+                if addonTable.Monitor then addonTable.Monitor.Note("Ignored the roster of " .. Dec(innerGuild or "") .. " from " .. origin .. " (not one of our guilds), via " .. senderName) end
+            end
+            return nil
         end
         if not ReplaceQueuedStatus(text, nil) then
             table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = GetTime() })

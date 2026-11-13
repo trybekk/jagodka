@@ -3364,8 +3364,8 @@ local guildsH = SideGuilds.SHOWN * SideGuilds.ROW_H + 6
 local classH = math.ceil(#SideGuilds.CLASSES / 3) * SideGuilds.CLASS_ROW_H + 10
 SideGuilds.panel:SetHeight(guildsH)
 SideGuilds.classPanel:SetHeight(classH)
--- The officers list is exactly OFFICERS_SHOWN rows high (5 px above and below the rows, as in its
--- scroll frame); more officers online = the slider appears
+-- The officers list is exactly OFFICERS_SHOWN rows high (5 px above and below the rows); 1.0.2: more
+-- officers online are not shown (no slider), the header counts them all
 local OFFICERS_SHOWN = 6
 RightPanel:SetHeight(5 + OFFICERS_SHOWN * 26 + 5)
 end
@@ -3529,12 +3529,11 @@ local function RenderScrollList()
 HeaderText:SetText("Officers online (" .. #onlineList .. ")")
 -- The counter in the window header = everyone online from all listed guilds (RightPanel.onlineTotal)
 OnlineText:SetText("Online: |cff00ff00" .. (RightPanel.onlineTotal or 0) .. "|r")
-local visible = RightPanel.visibleRows or 17
-_G.FauxScrollFrame_Update(scrollFrame, #onlineList, visible, ROW_HEIGHT)
-local offset = _G.FauxScrollFrame_GetOffset(scrollFrame)
--- Slider visible only with a longer list: then bars end before it, otherwise at the edge
-local scrollBar = _G[scrollFrame:GetName() .. "ScrollBar"]
-local rightInset = (#onlineList > visible and scrollBar and scrollBar:IsShown()) and -28 or -4
+-- 1.0.2: at most 6 rows (the panel's height), no slider: the header still counts everyone
+local visible = math.min(RightPanel.visibleRows or 6, 6)
+scrollFrame:Hide()
+local offset = 0
+local rightInset = -4
 for i = 1, MAX_ROWS do
 local idx = i + offset local row = rows[i]
 row:SetPoint("RIGHT", RightPanel, "RIGHT", rightInset, 0)
@@ -3744,10 +3743,12 @@ local function CheckPlayerVersion(name, version)
 if name == Most.MyName() or not version or warnedVersions[version] then return end
 if CompareVersions(version, ADDON_VERSION) <= 0 then return end
 warnedVersions[version] = true
-local text = name .. " has a newer addon version (" .. version .. ") - please update yours (" .. ADDON_VERSION .. ")."
-addonTable.Update.Show(version)
-Most.AddSystem(text)
-if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r |cffff5555" .. text .. "|r") end
+-- 1.0.2: nothing pops up by itself any more (no window, no chat line): players are told about an outdated addon
+-- only when an officer sends Remind outdated (the note by the minimap button, update.lua). A newer version
+-- still shows in the Roster's Version column (yellow) and in the officers' log.
+if addonTable.Monitor and addonTable.Monitor.Note then
+addonTable.Monitor.Note(name .. " has a newer addon version (" .. version .. ") than mine (" .. ADDON_VERSION .. ")")
+end
 end
 -- Another guild's version list (roster.lua, 0.15.5) with a newer version than mine: the same update note
 Roster.OnNewerVersion = function(name, version) CheckPlayerVersion(name, version) end
@@ -3799,7 +3800,10 @@ if announced then AddMyselfToActiveList() if Most.ShouldSendPong() then SendStat
 -- sometimes refuses our channels for a while (NOT_ALLOWED_IN_CHANNEL, INVALID_NAME), and asking again every
 -- minute may keep that going. Back on both channels = the next problem starts from 1 minute again.
 local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
-if not Most.GetChannelId() or keyMissing then
+-- 1.0.2: a character outside our guilds stays off both channels (Most.JoinChannel), no tries
+if Most.OutsideCommunity() then
+EventSync.joinTries, EventSync.nextJoinAt = 0, 0
+elseif not Most.GetChannelId() or keyMissing then
 if GetTime() >= (EventSync.nextJoinAt or 0) then
 -- 0.15.5: a try after 1, 2, 4 and 8 minutes, then every 30 (the server refused most players for hours on
 -- 10.11, and their chat goes through the guilds anyway)
@@ -3885,6 +3889,8 @@ local old = existingIndex and activePlayers[existingIndex]
 local same = old and old.level == playerData.level and old.guild == playerData.guild and old.rank == playerData.rank
 and old.rankIndex == playerData.rankIndex and old.version == playerData.version and old.zone == playerData.zone and old.class == playerData.class
 if existingIndex then activePlayers[existingIndex] = playerData else table.insert(activePlayers, playerData) end
+-- Their own signal beats an older roster of their guild (PruneOfflinePlayers drops a player that roster calls offline)
+if gld ~= GetGuildInfo("player") then Roster.MarkOnline(senderName, gld) end
 if not same then
 UpdateScrollList()
 if UpdateMainTable then UpdateMainTable() end
@@ -3959,6 +3965,12 @@ MainFrame.ApplyLayout()
 MainFrame:Show()
 return
 end
+-- "/jagodka minimap" (1.0.2) = the minimap button back, shown and at its default place
+if msg and msg:lower():match("^%s*minimap%s*$") then
+EventSync.EnsureMinimapButton(true)
+if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage("|cffbf40ff[Jagodka]|r The minimap button is back at its default place.") end
+return
+end
 -- "/jagodka sync" = run the sync after login again by hand (EventSync.ManualSync)
 if msg and (msg:lower():match("^%s*sync%s*$") or msg:lower():match("^%s*synch%s*$")) then
 local ok, wait = EventSync.ManualSync()
@@ -4010,13 +4022,42 @@ local icon = LibStub("LibDBIcon-1.0")
 -- Registered only after ADDON_LOADED, because SavedVariables are not loaded before that
 local MinimapLoader = CreateFrame("Frame")
 MinimapLoader:RegisterEvent("ADDON_LOADED")
+-- 1.0.2: the minimap button is always there (players reported it missing). It is made first, on its own: before,
+-- restoring the window's saved size ran first in the same handler, and an error there left the button unmade.
+-- The addon has no option to hide it, so a "hide" saved by anything is cleared, and a broken saved position goes
+-- back to the default. EventSync.EnsureMinimapButton also runs 10 s after login and on /jagodka minimap.
+function EventSync.EnsureMinimapButton(reset)
+local db = _G.JagodkiMinimapDB
+if not db then return end
+if type(db.minimap) ~= "table" then db.minimap = {} end
+db.minimap.hide = false
+if reset or (db.minimap.minimapPos ~= nil and not tonumber(db.minimap.minimapPos)) then db.minimap.minimapPos = nil end
+if not icon:IsRegistered("JagodkiNadina") then
+icon:Register("JagodkiNadina", JagodkiLDB, db.minimap)
+if addonTable.Monitor and EventSync.minimapChecked then addonTable.Monitor.Note("Minimap button was missing: made again") end
+end
+if reset and icon.Refresh then icon:Refresh("JagodkiNadina", db.minimap) end
+icon:Show("JagodkiNadina")
+end
 addonTable.SafeScript(MinimapLoader, "OnEvent", "core.lua:3552", function(self, event, loadedName)
 if loadedName ~= addonName then return end
+self:UnregisterEvent("ADDON_LOADED")
 _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
-_G.JagodkiMinimapDB.minimap = _G.JagodkiMinimapDB.minimap or { hide = false }
+addonTable.Safe("core.lua:minimap button", EventSync.EnsureMinimapButton)
 -- Saved position and scale of the main window
 local win = _G.JagodkiMinimapDB.window
-if win and tonumber(win.w) then MainFrame.ApplyLayout(win.w, win.h, win.left, win.top) end
-icon:Register("JagodkiNadina", JagodkiLDB, _G.JagodkiMinimapDB.minimap)
-self:UnregisterEvent("ADDON_LOADED")
+if win and tonumber(win.w) then addonTable.Safe("core.lua:window layout", MainFrame.ApplyLayout, win.w, win.h, win.left, win.top) end
+-- Once more after login, when the minimap and other addons are ready; then every minute a light check: made again
+-- when missing, shown again when a saved "hide" hid it. A button another addon took into its own bar (minimap
+-- button collectors) is left where it is.
+C_Timer.After(10, function()
+EventSync.minimapChecked = true
+EventSync.EnsureMinimapButton()
+C_Timer.NewTicker(60, function()
+local db = _G.JagodkiMinimapDB
+if not icon:IsRegistered("JagodkiNadina") or (db and type(db.minimap) == "table" and db.minimap.hide) then
+EventSync.EnsureMinimapButton()
+end
+end)
+end)
 end)

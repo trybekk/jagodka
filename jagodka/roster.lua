@@ -162,7 +162,9 @@ end
 local function IsSender()
     local guild = MyGuild()
     local g = guild and rosters[guild]
-    if not g or not ctx then return false end
+    -- A guild outside the community sends nothing (a player in another guild with the addon whispered its
+    -- 42-part roster to our relays every hour, the 2026-11-13 log)
+    if not g or not ctx or not ctx.isGuildAllowed(guild) then return false end
     local myName, now = Most.MyName(), GetTime()
     local candidates = { myName }
     -- 0.15.3: with quiet online signals a guildmate is heard every 10 minutes; everyone must still see the same
@@ -383,8 +385,13 @@ local function AcceptFrom(sender, guild)
     return Roster.IsMember(sender, guild) == nil
 end
 
--- names (optional): the set of players seen in this full roster, to find who is no longer in the guild
-local function Upsert(g, list, names)
+-- names (optional): the set of players seen in this full roster, to find who is no longer in the guild.
+-- since (full rosters only): when that roster started arriving. A big guild's roster takes 10-30 min, so its
+-- online flags are that old; a status learned live after `since` (a change or the player's own signal, m.t)
+-- is kept. Before, the late parts marked players offline who were online, and the other guild's relay
+-- dropped out of the network every minute (the 2026-11-13 log).
+local function Upsert(g, list, names, since)
+    local now = GetServerTime()
     for e in list:gmatch("[^;]+") do
         local flag, statusName = e:match("^([%+%-])([^,]+)$")
         local left = e:match("^!([^,]+)$")
@@ -394,16 +401,37 @@ local function Upsert(g, list, names)
         elseif flag then
             -- Status change only (the next full roster adds an unknown player)
             local m = g.members[Most.PlayerKey(statusName)]
-            if m then m.o = (flag == "+") end
+            if m then m.o, m.t = (flag == "+"), now end
         else
             -- Keyed by the player name with the surname where the client has one (Most.PlayerKey)
             local name, m = DecodeEntry(e)
             if name then
                 local key = Most.PlayerKey(name)
+                local old = g.members[key]
+                if not since then
+                    m.t = now
+                elseif old and old.t and old.t >= since then
+                    m.o, m.t = old.o, old.t
+                end
                 g.members[key] = m
                 if names then names[key] = true end
             end
         end
+    end
+end
+
+-- A player of another guild sent their own signal (core.lua): they are online, whatever an older roster says
+function Roster.MarkOnline(name, guild)
+    local g = guild and rosters[guild]
+    local m = g and g.members[name]
+    if not m or guild == MyGuild() then return end
+    local now = GetServerTime()
+    -- A logout change ("-Name") within the last minute beats a signal that waited in a relay's queue
+    if not m.o and m.t and now - m.t < 60 then return end
+    m.t = now
+    if not m.o then
+        m.o = true
+        Changed()
     end
 end
 
@@ -428,7 +456,7 @@ function Roster.HandlePacket(pType, payload, senderName)
         end
         local s = inc.snaps[snap]
         if not s then
-            s = { got = {}, count = 0, names = {} }
+            s = { got = {}, count = 0, names = {}, first = GetServerTime() }
             inc.snaps[snap] = s
         end
         s.last, s.total = GetTime(), total
@@ -440,7 +468,7 @@ function Roster.HandlePacket(pType, payload, senderName)
             g.ranks = {}
             for r in ranks:gmatch("[^,]+") do table.insert(g.ranks, Dec(r)) end
         end
-        Upsert(g, list, s.names)
+        Upsert(g, list, s.names, s.first)
         g.updated = GetServerTime()
         -- Nearly whole: fresh enough to stop asking (nearlyAt), but nobody is removed and it does not decide
         -- membership (fullAt stays for a whole roster), since the missing parts may hold anyone
@@ -490,10 +518,12 @@ function Roster.HandlePacket(pType, payload, senderName)
         if senderName ~= Most.MyName() and GetTime() >= readyAt and IsSender() then
             for gEnc in payload:gmatch("[^,]+") do
                 if Dec(gEnc) == MyGuild() then
-                    -- A short delay collects requests made at the same moment
+                    -- A short delay collects requests made at the same moment; the random part, as for the
+                    -- hourly roster, lets a second sender see that one already started (two senders of
+                    -- Jagódki Nadina II answered the same request 1 s apart, and neither roster arrived whole)
                     if not requestsPending then
                         requestsPending = true
-                        C_Timer.After(3, AnswerRequests)
+                        C_Timer.After(3 + math.random(0, OWN_FULL_WAIT), AnswerRequests)
                     end
                 end
             end

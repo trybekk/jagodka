@@ -395,7 +395,11 @@ addonTable.SafeScript(Listener, "OnEvent", "key.lua:355", function(self, event, 
                 if not current and _G.IsInGuild() then Most.Send("KREQ", "0", "high") end
             end)
         end
-        -- 1.0.1: left our guilds (or joined one): off the chat channel, or onto it, a moment later
-        if current then C_Timer.After(GUILD_JOIN_DELAY, Key.Join) end
+        -- 1.0.1: left our guilds (or joined one): off the chat channel, or onto it, a moment later;
+        -- 1.0.2: off the public channel too (Most.JoinChannel calls Key.Join). Joining it stays with the login
+        -- (8 s, so it does not take /1 before General) and the regular check every minute.
+        C_Timer.After(GUILD_JOIN_DELAY, function()
+            if Most.OutsideCommunity() then Most.JoinChannel() elseif current then Key.Join() end
+        end)
     end
 end)

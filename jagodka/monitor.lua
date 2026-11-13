@@ -783,11 +783,11 @@ function Monitor.Attach(panel, c)
     updatePreview:SetSize(82, 22)
     updatePreview:SetPoint("LEFT", clearSaved, "RIGHT", 2, 0)
     -- "Update popup" did not fit the button; the tooltip says what it does
-    updatePreview:SetText("Update test")
+    updatePreview:SetText("Outdated test")
     FitButton(updatePreview)
     updatePreview:SetScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:SetText("Shows the 'addon outdated' window as a preview, with its sound.", 1, 1, 1, 1, true)
+        _G.GameTooltip:SetText("Shows the note about an outdated addon by the minimap button, as players see it, with its sound.", 1, 1, 1, 1, true)
         _G.GameTooltip:Show()
     end)
     updatePreview:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
@@ -1139,4 +1139,16 @@ function Monitor.Attach(panel, c)
     end)
     C_Timer.NewTicker(WATCH_INTERVAL, WatchLinks)
     C_Timer.NewTicker(SAVE_STATE_INTERVAL, SaveState)
+end
+
+-- 1.0.2: the game blocked one of our calls ("Jagodka has been blocked from an action only available to the
+-- Blizzard UI"): the game names the function only in this event, so it goes to the log
+do
+    local blocked = CreateFrame("Frame")
+    blocked:RegisterEvent("ADDON_ACTION_BLOCKED")
+    blocked:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+    addonTable.SafeScript(blocked, "OnEvent", "monitor.lua:blocked", function(_, event, who, what)
+        if who ~= addonName then return end
+        Monitor.Error("The game blocked " .. tostring(what) .. " (" .. event .. (_G.InCombatLockdown() and ", in combat" or "") .. ")")
+    end)
 end
