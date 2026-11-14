@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forever API – Jagodka</title>
+<style>
+:root {
+  --bg: #f7f5fa; --panel: #ffffff; --text: #1e1a24; --muted: #6b6475; --line: #e3dfe9;
+  --accent: #7b3fbf; --accent-soft: #efe6f8; --code: #f1eef5;
+  --ok: #1f7a4d; --ok-soft: #e2f4ea; --info: #1f5d99; --info-soft: #e3eef9;
+  --warn: #8a5a00; --warn-soft: #fbf0d9; --old: #7a7480; --old-soft: #eeecf0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15121a; --panel: #1e1a25; --text: #ece8f2; --muted: #a39cad; --line: #332c3d;
+    --accent: #b98ae8; --accent-soft: #2d2238; --code: #2a2432;
+    --ok: #6fd3a0; --ok-soft: #1b3328; --info: #8fbff0; --info-soft: #1b2a3b;
+    --warn: #f0c46a; --warn-soft: #3a2f17; --old: #a39cad; --old-soft: #2a2630;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15121a; --panel: #1e1a25; --text: #ece8f2; --muted: #a39cad; --line: #332c3d;
+  --accent: #b98ae8; --accent-soft: #2d2238; --code: #2a2432;
+  --ok: #6fd3a0; --ok-soft: #1b3328; --info: #8fbff0; --info-soft: #1b2a3b;
+  --warn: #f0c46a; --warn-soft: #3a2f17; --old: #a39cad; --old-soft: #2a2630;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1150px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+h1 span { color: var(--accent); }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav a { padding: 6px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 500; }
+nav a.on { background: var(--accent-soft); color: var(--accent); }
+#q { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 15px; }
+#theme { border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+main { max-width: 1150px; margin: 0 auto; padding: 16px; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 4px 10px; border-radius: 99px; cursor: pointer; font-size: 13px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.card h3 { margin: 0 0 6px; font-size: 16px; }
+.meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.badge { padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.s-u-nas { background: var(--ok-soft); color: var(--ok); }
+.s-blizzard { background: var(--info-soft); color: var(--info); }
+.s-spolecznosc { background: var(--warn-soft); color: var(--warn); }
+.s-nieaktualne { background: var(--old-soft); color: var(--old); }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; font: 13px/1.4 Consolas, monospace; word-break: break-word; }
+a { color: var(--accent); }
+.apis { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.apis a { font: 12px Consolas, monospace; background: var(--code); padding: 2px 8px; border-radius: 6px; text-decoration: none; }
+.srcs { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.info { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.empty { color: var(--muted); padding: 24px; text-align: center; }
+section { display: none; }
+section.on { display: block; }
+pre { background: var(--code); padding: 12px; border-radius: 8px; overflow-x: auto; font: 13px/1.5 Consolas, monospace; }
+mark { background: var(--accent-soft); color: inherit; padding: 0 1px; border-radius: 3px; }
+/* API list */
+.api { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+.api > summary { list-style: none; cursor: pointer; padding: 8px 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.api > summary::-webkit-details-marker { display: none; }
+.api > summary .n { font: 14px Consolas, monospace; font-weight: 600; word-break: break-all; }
+.api > summary .d { color: var(--muted); font-size: 13px; flex-basis: 100%; }
+.api[open] > summary { border-bottom: 1px solid var(--line); }
+.k { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--code); color: var(--muted); white-space: nowrap; }
+.flag { display: inline-block; font-size: 11px; padding: 0 6px; margin: 1px 2px 1px 0; border-radius: 4px; background: var(--warn-soft); color: var(--warn); }
+.body { padding: 10px 12px 12px; }
+.sig { font: 13px/1.5 Consolas, monospace; background: var(--code); padding: 8px 10px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.fields { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+.fields th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px 2px; }
+.fields td { padding: 3px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.fields td:first-child, .fields td:nth-child(2) { font-family: Consolas, monospace; white-space: nowrap; }
+.uses { margin-top: 10px; border-left: 3px solid var(--ok); background: var(--ok-soft); border-radius: 0 8px 8px 0; padding: 8px 10px; }
+.uses-h { font-weight: 600; font-size: 13px; color: var(--ok); margin-bottom: 4px; }
+.use { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 2px 0; flex-wrap: wrap; }
+.use a { font-family: Consolas, monospace; white-space: nowrap; }
+.use code { background: transparent; padding: 0; white-space: pre-wrap; }
+.flag.jg { background: var(--ok-soft); color: var(--ok); }
+.links { margin-top: 8px; font-size: 13px; display: flex; gap: 12px; flex-wrap: wrap; }
+.t-link { cursor: pointer; text-decoration: underline dotted; }
+/* community markdown */
+.md h1, .md h2, .md h3, .md h4 { margin: 1.1em 0 .4em; line-height: 1.3; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 18px; } .md h3 { font-size: 16px; } .md h4 { font-size: 15px; }
+.md table { border-collapse: collapse; margin: 8px 0; font-size: 13px; display: block; overflow-x: auto; }
+.md td, .md th { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; }
+.md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.md ul { padding-left: 22px; }
+.toc { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+@media (max-width: 640px) { .fields td:nth-child(3), .fields th:nth-child(3) { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1><span>Forever API</span> · Jagodka</h1>
+    <nav>
+      <a href="#notatki" data-tab="notatki">Notatki</a>
+      <a href="#api" data-tab="api">API</a>
+      <a href="#spolecznosc" data-tab="spolecznosc">Społeczność</a>
+      <a href="#zrodla" data-tab="zrodla">Źródła</a>
+      <a href="#aktualizacja" data-tab="aktualizacja">Aktualizacja</a>
+      <a href="jagodka.html" style="color:var(--accent)">Jagodka – jak działa →</a>
+    </nav>
+    <input id="q" type="search" placeholder="Szukaj… (np. ListChannel, GetGuildRosterInfo, sekret)" autocomplete="off">
+    <button id="theme" title="Jasny / ciemny">◐</button>
+  </div>
+</header>
+<main>
+  <section id="s-notatki">
+    <p class="info">Co z API WoW Forever (interface 16001) ma znaczenie dla Jagodki. Kolor znaczka mówi, skąd to wiemy.</p>
+    <div class="filters" id="nf-status"></div>
+    <div class="filters" id="nf-topic"></div>
+    <div id="notes"></div>
+  </section>
+  <section id="s-api">
+    <p class="info" id="api-meta"></p>
+    <div class="filters" id="af-kind"></div>
+    <div class="filters" id="af-flag"></div>
+    <div id="api-list"></div>
+    <p class="info" id="api-count" style="margin-top:10px"></p>
+  </section>
+  <section id="s-spolecznosc">
+    <p class="info">Całe notatki autorów addonów do Forever, pobierane przez skrypt aktualizacji (licencja MIT). Wyszukiwarka pokazuje tylko akapity z szukanymi słowami.</p>
+    <div class="toc" id="c-toc"></div>
+    <div id="community"></div>
+  </section>
+  <section id="s-zrodla">
+    <p class="info">Skąd bierzemy wiedzę. „Zaufanie” mówi, na ile można polegać bez sprawdzania w grze.</p>
+    <div class="filters" id="sf-kind"></div>
+    <div id="sources"></div>
+  </section>
+  <section id="s-aktualizacja">
+    <div class="card">
+      <h3>Odświeżenie (jedno kliknięcie)</h3>
+      <p>Kliknij dwa razy <code>doc\update.bat</code> (albo w PowerShellu: <code>powershell -ExecutionPolicy Bypass -File doc\update.ps1</code>), potem odśwież tę stronę. Potrzebny tylko git.</p>
+      <p>Skrypt pobiera do <code>doc\.cache</code>:</p>
+      <ul>
+        <li><b>Dokumentację API Blizzarda dla Forever</b> (Gethe/wow-ui-source, gałąź <code>forever</code>). To każda funkcja <code>C_…</code>, każdy event, enum, struktura i metoda ramek, z argumentami, wartościami zwracanymi i flagami.</li>
+        <li><b>Listę ForeverAPI</b>: starsze funkcje globalne, które są w grze, ale Blizzard ich nie opisuje, oraz to, co gra zablokowała.</li>
+        <li><b>Sygnatury tych funkcji z Warcraft Wiki</b> (przez Ketho/vscode-wow-api).</li>
+        <li><b>Notatki społeczności</b> do zakładki Społeczność.</li>
+      </ul>
+      <p>Wynik trafia do plików <code>doc\data\api.js</code>, <code>api.tsv</code> i <code>community.js</code>.</p>
+      <p class="info" id="upd-meta"></p>
+    </div>
+    <div class="card">
+      <h3>Notatki i źródła</h3>
+      <p>To zwykłe pliki do edycji: <code>doc\data\notes.js</code> (notatki) i <code>doc\data\sources.js</code> (źródła). Skrypt ich nie rusza. Po każdej analizie logów albo nowym znalezisku dopisujemy tam notatkę ze statusem i źródłem.</p>
+    </div>
+    <div class="card">
+      <h3>Statusy notatek</h3>
+      <p><span class="badge s-u-nas">u nas</span> widzieliśmy to w naszych logach · <span class="badge s-blizzard">Blizzard</span> z kodu lub dokumentacji Blizzarda · <span class="badge s-spolecznosc">społeczność</span> od innych autorów, my tego nie sprawdzaliśmy · <span class="badge s-nieaktualne">nieaktualne</span> było prawdą, już nie jest</p>
+    </div>
+  </section>
+</main>
+<script src="data/notes.js"></script>
+<script src="data/sources.js"></script>
+<script src="data/api.js"></script>
+<script src="data/community.js"></script>
+<script>
+(function () {
+  "use strict";
+  var NOTES = window.FOREVER_NOTES || [], SOURCES = window.FOREVER_SOURCES || [];
+  var API = window.FOREVER_API || [], META = window.FOREVER_API_META || null, COMM = window.FOREVER_COMMUNITY || [];
+  var srcById = {}; SOURCES.forEach(function (s) { srcById[s.id] = s; });
+  var byName = {}; API.forEach(function (a) { byName[a.n] = a; var short = a.n.replace(/^Enum\./, ""); if (!byName[short]) byName[short] = a; });
+  var $ = function (id) { return document.getElementById(id); };
+  var q = $("q");
+  var STATUS = { "u-nas": "u nas", "blizzard": "Blizzard", "spolecznosc": "społeczność", "nieaktualne": "nieaktualne" };
+  var TOPIC = { podstawy: "Podstawy", komunikacja: "Komunikacja", kanaly: "Kanały", czat: "Czat", instancje: "Instancje i walka", gildia: "Gildia", statystyki: "Statystyki", bledy: "Błędy i blokady" };
+  var KIND = { f: "funkcja", e: "event", t: "enum", s: "struktura", c: "stałe", g: "globalna (spoza docs)" };
+  var KINDSRC = { blizzard: "Blizzard", wiki: "Wiki", community: "Społeczność", guide: "Poradnik", ours: "Nasze" };
+  var TRUST = { high: "wysokie", medium: "średnie", low: "niskie" };
+  var FLAGS = { Jagodka: "używane w Jagodce", Secret: "sekrety", HasRestrictions: "ograniczenia", Protected: "chronione", Hardware: "wymaga kliknięcia", "ForeverAPI-restrictions": "zablokowane w grze" };
+  var state = { tab: "notatki", status: null, topic: null, kind: null, flag: null, skind: null, cdoc: null };
+
+  function setTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  try { setTheme(localStorage.getItem("fapi-theme")); } catch (e) {}
+  $("theme").onclick = function () {
+    var rgb = getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [255, 255, 255];
+    var t = (+rgb[0] + +rgb[1] + +rgb[2]) < 200 ? "light" : "dark"; setTheme(t);
+    try { localStorage.setItem("fapi-theme", t); } catch (e) {}
+  };
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function words() { return q.value.toLowerCase().split(/\s+/).filter(Boolean); }
+  function matches(text, ws) { text = text.toLowerCase(); return ws.every(function (w) { return text.indexOf(w) !== -1; }); }
+  function stripTags(h) { return h.replace(/<[^>]+>/g, ""); }
+  function reEsc(w) { return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function hl(htmlText, ws) {
+    if (!ws.length) return htmlText;
+    return htmlText.split(/(<[^>]+>)/).map(function (part) {
+      if (part.charAt(0) === "<") return part;
+      ws.forEach(function (w) { part = part.replace(new RegExp("(" + reEsc(esc(w)) + ")", "gi"), "<mark>$1</mark>"); });
+      return part;
+    }).join("");
+  }
+  function chips(el, map, key, counts) {
+    el.innerHTML = "";
+    var all = document.createElement("button"); all.className = "chip" + (state[key] ? "" : " on"); all.textContent = "Wszystko";
+    all.onclick = function () { state[key] = null; render(); }; el.appendChild(all);
+    Object.keys(map).forEach(function (k) {
+      if (counts && !counts[k]) return;
+      var b = document.createElement("button"); b.className = "chip" + (state[key] === k ? " on" : "");
+      b.textContent = map[k] + (counts ? " (" + counts[k] + ")" : "");
+      b.onclick = function () { state[key] = state[key] === k ? null : k; render(); }; el.appendChild(b);
+    });
+  }
+  function srcLink(id) { var s = srcById[id]; return s ? (s.url ? '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.name) + "</a>" : esc(s.name)) : esc(id); }
+
+  // ---------- Notes ----------
+  function renderNotes() {
+    var ws = words(), sc = {}, tc = {};
+    NOTES.forEach(function (n) { sc[n.status] = (sc[n.status] || 0) + 1; tc[n.topic] = (tc[n.topic] || 0) + 1; });
+    chips($("nf-status"), STATUS, "status", sc); chips($("nf-topic"), TOPIC, "topic", tc);
+    var list = NOTES.filter(function (n) {
+      if (state.status && n.status !== state.status) return false;
+      if (state.topic && n.topic !== state.topic) return false;
+      return matches(n.title + " " + stripTags(n.body) + " " + (n.api || []).join(" ") + " " + TOPIC[n.topic], ws);
+    });
+    $("notes").innerHTML = list.length ? list.map(function (n) {
+      var apis = (n.api || []).map(function (a) { return '<a href="#api" data-q="' + esc(a) + '">' + esc(a) + "</a>"; }).join("");
+      return '<div class="card" id="n-' + esc(n.id) + '"><div class="meta"><span class="badge s-' + esc(n.status) + '">' + esc(STATUS[n.status] || n.status) + "</span><span>" + esc(TOPIC[n.topic] || n.topic) + "</span><span>· " + esc(n.date) + "</span></div>" +
+        "<h3>" + hl(esc(n.title), ws) + "</h3><div>" + hl(n.body, ws) + "</div>" +
+        (apis ? '<div class="apis">' + apis + "</div>" : "") +
+        ((n.sources || []).length ? '<div class="srcs">Źródła: ' + n.sources.map(srcLink).join(" · ") + "</div>" : "") + "</div>";
+    }).join("") : '<div class="empty">Nic nie pasuje.</div>';
+  }
+
+  // ---------- API ----------
+  function typeHtml(t) {
+    // link types that are structures or enums in the index
+    return esc(t).replace(/[A-Za-z_][\w]*/g, function (w) {
+      var hit = byName[w] || byName["Enum." + w];
+      return hit && (hit.k === "s" || hit.k === "t") ? '<span class="t-link" data-q="' + esc(hit.n) + '">' + w + "</span>" : w;
+    });
+  }
+  function fieldsTable(title, list) {
+    if (!list || !list.length) return "";
+    return '<table class="fields"><tr><th>' + title + "</th><th>typ</th><th>uwagi</th></tr>" + list.map(function (f) {
+      return "<tr><td>" + esc(f[0]) + (f[2] ? "?" : "") + "</td><td>" + typeHtml(f[1]) + "</td><td>" + esc(f[3] || "") + (f[2] ? (f[3] ? "; " : "") + "może być nil" : "") + "</td></tr>";
+    }).join("") + "</table>";
+  }
+  function signature(a) {
+    var args = (a.a || []).map(function (f) { return f[2] ? "[" + f[0] + "]" : f[0]; }).join(", ");
+    var rets = (a.r || []).map(function (f) { return f[0] || f[1]; }).join(", ");
+    if (a.k === "f" || a.k === "g") return (rets ? rets + " = " : "") + a.n + "(" + args + ")";
+    if (a.k === "e") return a.n + ": " + (a.p || []).map(function (f) { return f[0]; }).join(", ");
+    return "";
+  }
+  // Where Jagodka uses it (doc/update.ps1 scans jagodka/*.lua): file:line and the line of code
+  function usesHtml(a) {
+    if (!a.u || !a.u.length) return "";
+    return '<div class="uses"><div class="uses-h">U nas w kodzie: ' + a.uc + (a.uc === 1 ? " użycie" : (a.uc % 10 >= 2 && a.uc % 10 <= 4 && (a.uc % 100 < 12 || a.uc % 100 > 14)) ? " użycia" : " użyć") + (a.uc > a.u.length ? " (pokazano " + a.u.length + ")" : "") + "</div>" +
+      a.u.map(function (u) {
+        return '<div class="use"><a href="../jagodka/' + encodeURIComponent(u[0]) + '" target="_blank" rel="noopener">' + esc(u[0]) + ":" + u[1] + '</a><code>' + esc(u[2]) + "</code></div>";
+      }).join("") + "</div>";
+  }
+  function apiBody(a) {
+    var src = a.s === "ForeverAPI" ? '<a href="https://github.com/zmarotrix/ForeverAPI/blob/master/docs/globals-undocumented.md" target="_blank" rel="noopener">ForeverAPI (lista)</a>'
+      : '<a href="https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/' + encodeURIComponent(a.s) + '" target="_blank" rel="noopener">Blizzard: ' + esc(a.s) + "</a>";
+    var wikiName = a.k === "e" ? a.n : a.n.replace(/^Enum\./, "");
+    var wiki = a.k === "t" ? "https://warcraft.wiki.gg/wiki/Enum." + encodeURIComponent(wikiName) : a.k === "s" || a.k === "c" ? "" : "https://warcraft.wiki.gg/wiki/" + (a.k === "e" ? "" : "API_") + encodeURIComponent(wikiName.replace(":", "_"));
+    var sig = signature(a);
+    return '<div class="body">' + (sig ? '<div class="sig">' + esc(sig) + "</div>" : "") +
+      (a.d ? "<p>" + esc(a.d) + "</p>" : "") +
+      fieldsTable("argument", a.a) + fieldsTable("zwraca", a.r) + fieldsTable("dane eventu", a.p) + fieldsTable(a.k === "t" ? "wartość" : "pole", a.fl) +
+      usesHtml(a) +
+      (!sig && !a.fl && !a.d ? '<p class="info">Brak opisu w źródłach.</p>' : "") +
+      (a.k === "g" && !a.a && !a.r ? '<p class="info">Funkcja jest w grze, ale nikt nie opisał jej argumentów; sprawdź w grze (/dump) albo na Wiki.</p>' : "") +
+      '<div class="links">' + src + (wiki ? '<a href="' + wiki + '" target="_blank" rel="noopener">Warcraft Wiki</a>' : "") + "</div></div>";
+  }
+  var LIMIT = 200, shown = [];
+  function renderApi() {
+    var ws = words();
+    if (META) $("api-meta").innerHTML = "Całe API klienta Forever: " + API.length + " pozycji. Kliknij pozycję, żeby zobaczyć argumenty, wartości zwracane i pola. Źródło: " + esc(META.blizzard) + " · wygenerowano " + esc(META.generated) + ".";
+    else $("api-meta").textContent = "Brak data/api.js – uruchom doc\\update.bat.";
+    var kc = {}; API.forEach(function (a) { kc[a.k] = (kc[a.k] || 0) + 1; });
+    chips($("af-kind"), KIND, "kind", kc); chips($("af-flag"), FLAGS, "flag");
+    var hits = [];
+    for (var i = 0; i < API.length; i++) {
+      var a = API[i];
+      if (state.kind && a.k !== state.kind) continue;
+      if (state.flag && (a.f || "").indexOf(state.flag) === -1) continue;
+      if (ws.length && !matches(a.n + " " + a.d + " " + a.f + " " + a.s, ws)) continue;
+      hits.push(a);
+    }
+    if (ws.length) {
+      var w0 = ws[0];
+      var rank = function (x) { var n = x.n.toLowerCase(); return (n === w0 || n.endsWith("." + w0) || n.endsWith(":" + w0)) ? 0 : n.indexOf(w0) === 0 ? 1 : n.indexOf(w0) !== -1 ? 2 : 3; };
+      hits.sort(function (x, y) { return rank(x) - rank(y) || x.n.localeCompare(y.n); });
+    }
+    shown = hits.slice(0, LIMIT);
+    $("api-list").innerHTML = shown.map(function (a, i) {
+      var flags = (a.f || "").split(" ").filter(Boolean).map(function (f) { return f === "Jagodka" ? '<span class="flag jg">u nas: ' + (a.uc || 0) + "×</span>" : '<span class="flag">' + esc(f) + "</span>"; }).join("");
+      return '<details class="api" data-i="' + i + '"' + (shown.length === 1 ? " open" : "") + '><summary><span class="n">' + hl(esc(a.n), ws) + '</span><span class="k">' + esc(KIND[a.k] || a.k) + "</span>" + flags +
+        (a.d ? '<span class="d">' + hl(esc(a.d.length > 160 ? a.d.slice(0, 160) + "…" : a.d), ws) + "</span>" : "") + "</summary>" + (shown.length === 1 ? apiBody(a) : "") + "</details>";
+    }).join("") || '<div class="empty">Nic nie pasuje.</div>';
+    $("api-count").textContent = hits.length > LIMIT ? "Pokazano " + LIMIT + " z " + hits.length + ". Zawęź wyszukiwanie." : "Wyników: " + hits.length + " (z " + API.length + ").";
+  }
+  document.addEventListener("toggle", function (e) {
+    var d = e.target; if (!d.classList || !d.classList.contains("api") || !d.open || d.querySelector(".body")) return;
+    d.insertAdjacentHTML("beforeend", apiBody(shown[+d.dataset.i]));
+  }, true);
+
+  // ---------- Community ----------
+  function inline(s) {
+    s = esc(s);
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return s;
+  }
+  function md(text) {
+    var lines = text.replace(/\r/g, "").split("\n"), out = [], i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (/^```/.test(l)) { var buf = []; i++; while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]); i++; out.push({ t: "pre", h: "<pre>" + esc(buf.join("\n")) + "</pre>" }); continue; }
+      var h = l.match(/^(#{1,4})\s+(.*)/); if (h) { out.push({ t: "h", h: "<h" + h[1].length + ">" + inline(h[2]) + "</h" + h[1].length + ">", txt: h[2] }); i++; continue; }
+      if (/^\|/.test(l)) { var rows = []; while (i < lines.length && /^\|/.test(lines[i])) { if (!/^\|[\s:|-]+\|?\s*$/.test(lines[i])) rows.push(lines[i]); i++; }
+        out.push({ t: "p", h: "<table>" + rows.map(function (r) { return "<tr>" + r.replace(/^\||\|\s*$/g, "").split("|").map(function (c) { return "<td>" + inline(c.trim()) + "</td>"; }).join("") + "</tr>"; }).join("") + "</table>", txt: rows.join(" ") }); continue; }
+      if (/^\s*[-*]\s+/.test(l)) { var items = []; while (i < lines.length && /^\s*[-*]\s+|^\s{2,}\S/.test(lines[i])) { if (/^\s*[-*]\s+/.test(lines[i])) items.push(lines[i].replace(/^\s*[-*]\s+/, "")); else items[items.length - 1] += " " + lines[i].trim(); i++; }
+        items.forEach(function (it) { out.push({ t: "li", h: "<ul><li>" + inline(it) + "</li></ul>", txt: it }); }); continue; }
+      if (/^>\s?/.test(l)) { var qb = []; while (i < lines.length && /^>\s?/.test(lines[i])) qb.push(lines[i++].replace(/^>\s?/, "")); out.push({ t: "p", h: "<blockquote>" + inline(qb.join(" ")) + "</blockquote>", txt: qb.join(" ") }); continue; }
+      if (!l.trim()) { i++; continue; }
+      var para = []; while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|```|\||\s*[-*]\s|>)/.test(lines[i])) para.push(lines[i++]);
+      out.push({ t: "p", h: "<p>" + inline(para.join(" ")) + "</p>", txt: para.join(" ") });
+    }
+    return out;
+  }
+  var mdCache = {};
+  function renderCommunity() {
+    var ws = words();
+    $("c-toc").innerHTML = "";
+    if (!COMM.length) { $("community").innerHTML = '<div class="empty">Brak data/community.js – uruchom doc\\update.bat.</div>'; return; }
+    var counts = {};
+    var html = COMM.map(function (d) {
+      if (state.cdoc && state.cdoc !== d.id) return "";
+      var blocks = mdCache[d.id] || (mdCache[d.id] = md(d.text));
+      var body;
+      if (ws.length) {
+        var lastH = "", hits = [];
+        blocks.forEach(function (b) { if (b.t === "h") { lastH = b.h; return; } if (matches(b.txt || stripTags(b.h), ws)) hits.push((hits.lastH !== lastH ? lastH : "") + hl(b.h, ws)), hits.lastH = lastH; });
+        counts[d.id] = hits.length;
+        if (!hits.length) return "";
+        body = hits.join("");
+      } else body = blocks.map(function (b) { return b.h; }).join("");
+      return '<div class="card md"><div class="meta"><span class="badge s-spolecznosc">społeczność</span><span>' + esc(d.license) + "</span><span>· pobrane " + esc(d.fetched) + '</span><a href="' + esc(d.page) + '" target="_blank" rel="noopener">oryginał</a></div><h3>' + esc(d.title) + "</h3>" + body + "</div>";
+    }).join("");
+    var toc = {}; COMM.forEach(function (d) { toc[d.id] = d.title.split(" (")[0] + (ws.length ? " (" + (counts[d.id] || 0) + ")" : ""); });
+    chips($("c-toc"), toc, "cdoc");
+    $("community").innerHTML = html || '<div class="empty">Nic nie pasuje.</div>';
+  }
+
+  // ---------- Sources ----------
+  function renderSources() {
+    var ws = words(), kc = {};
+    SOURCES.forEach(function (s) { kc[s.kind] = (kc[s.kind] || 0) + 1; });
+    chips($("sf-kind"), KINDSRC, "skind", kc);
+    var list = SOURCES.filter(function (s) { return (!state.skind || s.kind === state.skind) && matches(s.name + " " + s.what + " " + s.update, ws); });
+    $("sources").innerHTML = list.map(function (s) {
+      var cls = s.kind === "ours" ? "u-nas" : (s.kind === "blizzard" || s.kind === "wiki") ? "blizzard" : s.kind === "guide" ? "nieaktualne" : "spolecznosc";
+      return '<div class="card"><div class="meta"><span class="badge s-' + cls + '">' + esc(KINDSRC[s.kind] || s.kind) +
+        "</span><span>zaufanie: " + esc(TRUST[s.trust] || s.trust) + "</span><span>· sprawdzone " + esc(s.checked) + "</span></div>" +
+        "<h3>" + (s.url ? '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + hl(esc(s.name), ws) + "</a>" : hl(esc(s.name), ws)) + "</h3>" +
+        "<div>" + hl(esc(s.what), ws) + '</div><div class="srcs">Jak aktualizować: ' + esc(s.update) + "</div></div>";
+    }).join("") || '<div class="empty">Nic nie pasuje.</div>';
+  }
+
+  function render() {
+    document.querySelectorAll("nav a").forEach(function (a) { a.classList.toggle("on", a.dataset.tab === state.tab); });
+    document.querySelectorAll("section").forEach(function (s) { s.classList.toggle("on", s.id === "s-" + state.tab); });
+    if (state.tab === "notatki") renderNotes();
+    else if (state.tab === "api") renderApi();
+    else if (state.tab === "spolecznosc") renderCommunity();
+    else if (state.tab === "zrodla") renderSources();
+    else if (META) $("upd-meta").textContent = "Ostatnio: " + META.generated + " · " + META.blizzard + " · " + META.foreverApi + (META.wiki ? " · " + META.wiki : "");
+  }
+  function fromHash() { var t = (location.hash || "#notatki").slice(1); state.tab = $("s-" + t) ? t : "notatki"; render(); }
+  window.addEventListener("hashchange", fromHash);
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest("[data-q]");
+    if (!a) return;
+    q.value = a.dataset.q; state.kind = null; state.flag = null;
+    if (a.tagName !== "A") { e.preventDefault(); if (location.hash !== "#api") location.hash = "#api"; else render(); window.scrollTo(0, 0); }
+  });
+  var timer; q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(render, 150); });
+  document.addEventListener("keydown", function (e) { if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+  // index.html?q=GetGuildRosterInfo#api opens with a search filled in
+  try { var pq = new URLSearchParams(location.search).get("q"); if (pq) q.value = pq; } catch (e) {}
+  fromHash();
+})();
+</script>
+</body>
+</html>

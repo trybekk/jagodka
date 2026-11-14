@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jagodka – jak działa</title>
+<style>
+:root {
+  --bg: #f7f5fa; --panel: #ffffff; --text: #1e1a24; --muted: #6b6475; --line: #e3dfe9;
+  --accent: #7b3fbf; --accent-soft: #efe6f8; --code: #f1eef5;
+  --ok: #1f7a4d; --ok-soft: #e2f4ea; --info: #1f5d99; --info-soft: #e3eef9; --warn: #8a5a00; --warn-soft: #fbf0d9;
+  --g1: #7b3fbf; --g2: #1f5d99; --g3: #1f7a4d;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15121a; --panel: #1e1a25; --text: #ece8f2; --muted: #a39cad; --line: #332c3d;
+    --accent: #b98ae8; --accent-soft: #2d2238; --code: #2a2432;
+    --ok: #6fd3a0; --ok-soft: #1b3328; --info: #8fbff0; --info-soft: #1b2a3b; --warn: #f0c46a; --warn-soft: #3a2f17;
+    --g1: #b98ae8; --g2: #8fbff0; --g3: #6fd3a0;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15121a; --panel: #1e1a25; --text: #ece8f2; --muted: #a39cad; --line: #332c3d;
+  --accent: #b98ae8; --accent-soft: #2d2238; --code: #2a2432;
+  --ok: #6fd3a0; --ok-soft: #1b3328; --info: #8fbff0; --info-soft: #1b2a3b; --warn: #f0c46a; --warn-soft: #3a2f17;
+  --g1: #b98ae8; --g2: #8fbff0; --g3: #6fd3a0;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1300px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; white-space: nowrap; } h1 span { color: var(--accent); }
+.bar a.nav { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.bar a.nav:hover { background: var(--accent-soft); color: var(--accent); }
+#q { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 15px; }
+#theme { border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.wrap { max-width: 1300px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; padding: 16px; }
+nav#toc { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; font-size: 14px; }
+nav#toc a { display: block; padding: 3px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+nav#toc a:hover, nav#toc a.on { background: var(--accent-soft); color: var(--accent); }
+nav#toc a.sub { padding-left: 20px; font-size: 13px; }
+nav#toc a.hidden { display: none; }
+main section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 22px 18px; margin-bottom: 16px; scroll-margin-top: 70px; }
+main section.hidden { display: none; }
+h2 { font-size: 21px; margin: 18px 0 8px; } h3 { font-size: 16px; margin: 18px 0 6px; scroll-margin-top: 70px; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; font: 13px/1.4 Consolas, monospace; word-break: break-word; }
+pre { background: var(--code); padding: 10px 12px; border-radius: 8px; overflow-x: auto; font: 13px/1.5 Consolas, monospace; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+td code { white-space: nowrap; }
+.tw { overflow-x: auto; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 14px; }
+.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+.pill { font-size: 11px; padding: 1px 7px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+.hi { background: var(--warn-soft); color: var(--warn); } .lo { background: var(--info-soft); color: var(--info); }
+.muted { color: var(--muted); font-size: 13px; }
+mark { background: var(--accent-soft); color: inherit; border-radius: 3px; }
+svg { max-width: 100%; height: auto; display: block; margin: 10px auto; }
+svg text { fill: var(--text); font: 13px system-ui, sans-serif; }
+svg .small { font-size: 11px; fill: var(--muted); }
+svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+svg .g1 { stroke: var(--g1); } svg .g2 { stroke: var(--g2); } svg .g3 { stroke: var(--g3); }
+svg .relay { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+svg .arrow { stroke: var(--accent); stroke-width: 2; fill: none; marker-end: url(#ah); }
+svg .arrow2 { stroke: var(--muted); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; marker-end: url(#ah2); }
+svg .ahead { fill: var(--accent); } svg .ahead2 { fill: var(--muted); }
+svg .lane { stroke: var(--line); stroke-width: 1; }
+.empty { display: none; color: var(--muted); padding: 30px; text-align: center; }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } nav#toc { position: static; max-height: none; } }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <h1><span>Jagodka</span> · jak działa</h1>
+  <a class="nav" href="index.html">← Forever API</a>
+  <input id="q" type="search" placeholder="Szukaj w dokumentacji… (np. RF, relay, klucz, PONG)" autocomplete="off">
+  <button id="theme" title="Jasny / ciemny">◐</button>
+</div></header>
+<div class="wrap">
+<nav id="toc"></nav>
+<main>
+<div class="empty" id="empty">Nic nie pasuje.</div>
+
+<section id="przeglad"><h2>1. Przegląd</h2>
+<p>Jagodka łączy gildie społeczności <b>Jagódki Nadina</b> (JN, JN2, JN3 = „IIl”, JN4; na liście są też V i VI, jeszcze niezałożone) w jedną sieć: wspólny czat (General, Trade, LFG), czat oficerów, wspólną listę członków wszystkich gildii, wydarzenia z zapisami, LFG, profesje, notatki, nazwy Discord i narzędzia oficerskie (Monitoring, ogłoszenia, wyciszenia).</p>
+<p>Gra pokazuje każdemu tylko <b>jego własną gildię</b>, a wiadomości addonów nie da się wysłać na kanał gracza (w Classic <code>SendAddonMessage(…,"CHANNEL")</code> zwraca 4 = InvalidChatType). Dlatego całość stoi na trzech drogach:</p>
+<ul>
+<li><b>GUILD</b> – pakiet do wszystkich z addonem w mojej gildii,</li>
+<li><b>WHISPER addonu</b> między <b>relayami</b> gildii – relay przepakowuje pakiet gildii jako <code>FW</code> i szepcze relayom innych gildii, a oni wrzucają go do swojej gildii,</li>
+<li><b>zwykłe kanały czatu</b> – publiczny (szukanie innych gildii) i kanał czatu z sekretnego klucza (tekst czatu wpisany przez graczy), plus osobny kanał oficerów.</li>
+</ul>
+<p class="muted">Klient: WoW Forever (interface 16001, retail/Mainline 12.1.5 z ograniczeniami Midnight; szczegóły API w <a href="index.html">Forever API</a>) i Classic Era 11509. Ten dokument opisuje kod z wersji 1.0.3. Liczby w tabelach to stałe z kodu – przy zmianie warto je tu poprawić.</p>
+</section>
+
+<section id="moduly"><h2>2. Moduły (pliki)</h2>
+<p>Kolejność ładowania z <code>jagodka.toc</code>. Każdy plik to tabela w <code>addonTable</code> (np. <code>addonTable.Roster</code>); <code>core.lua</code> ładuje się ostatni i przekazuje modułom kontekst (<code>Init(ctx)</code>: <code>activePlayers</code>, <code>isGuildAllowed</code>, <code>isMeOfficer</code>, <code>onChanged</code>…).</p>
+<div class="tw"><table>
+<tr><th>Plik</th><th>Tabela</th><th>Za co odpowiada</th></tr>
+<tr><td><code>safe.lua</code></td><td>SafeTimer, SafeScript, Perf</td><td>Każdy handler, OnUpdate i timer chroniony <code>pcall</code>; błąd idzie do Monitoringu (ten sam raz na minutę), ticker nie umiera. Profiler <code>/jagodka perf</code>.</td></tr>
+<tr><td><code>sync.lua</code></td><td>Sync</td><td>Pasek postępu synchronizacji w nagłówku okna (etapy: channel, history, events, rosters, lfg).</td></tr>
+<tr><td><code>bridge.lua</code></td><td>Most</td><td><b>Transport</b>: kolejka wysyłki, kodowanie pól, nazwy graczy, relay, przekazywanie FW, kanał publiczny, wspólny czat (kanał + GMSG), historia, odkrywanie gildii, CREF, sekrety.</td></tr>
+<tr><td><code>key.lua</code></td><td>Key</td><td>Sekretny klucz społeczności → nazwa i hasło kanału czatu; KEY/KREQ, tworzenie, rotacja, kontrola właściciela kanału.</td></tr>
+<tr><td><code>officers.lua</code></td><td>Officers</td><td>Czat oficerów (własny klucz OKEY tylko szeptem między oficerami), historia, rally, ogłoszenia i prośba o test czatu (wyświetlanie).</td></tr>
+<tr><td><code>monitor.lua</code></td><td>Monitor</td><td>Zakładka Monitoring: log pakietów, statystyki, widok sieci, Preserve logs (JagodkiMonitorDB), blokady akcji.</td></tr>
+<tr><td><code>mute.lua</code></td><td>Mute</td><td>Wyciszenia na wspólnym czacie (MUTE/MREQ/MCLAIM).</td></tr>
+<tr><td><code>roster.lua</code></td><td>Roster</td><td>Listy członków wszystkich gildii (RF/RD/RQ), rotujący nadawca, listy wersji (VLIST).</td></tr>
+<tr><td><code>notes.lua</code></td><td>Notes</td><td>Notatki publiczne innych gildii na żądanie (NREQ/NOTE).</td></tr>
+<tr><td><code>professions.lua</code></td><td>Professions</td><td>Profesje graczy z addonem (PROF, PREQ/PREQN/PCLAIM/PSYNC).</td></tr>
+<tr><td><code>discord.lua</code></td><td>Discord</td><td>Nazwy Discord (DI/DQ/DC/DL), linijka w tooltipach.</td></tr>
+<tr><td><code>armory.lua</code>, <code>charcard.lua</code></td><td>Armory, CharCard</td><td>Link do armory (Sixty Upgrades), karta postaci. Nic nie wysyłają.</td></tr>
+<tr><td><code>help.lua</code>, <code>settings.lua</code></td><td>Help, Settings</td><td>Pomoc EN/PL, ustawienia (per postać w <code>JagodkiChatDB.chars</code>).</td></tr>
+<tr><td><code>lfg.lua</code></td><td>LFG</td><td>Ogłoszenia LFG (LF/LX/LQ/LC).</td></tr>
+<tr><td><code>chattab.lua</code></td><td>Zakladka</td><td>Zakładka „Jagodki Nadina - General” w czacie gry, pisanie z niej na kanał.</td></tr>
+<tr><td><code>instances.lua</code></td><td>Instances</td><td>Lista instancji (Era / Forever, daty otwarcia).</td></tr>
+<tr><td><code>events.lua</code></td><td>Events</td><td>Wydarzenia: dane, reguły, synchronizacja (EH/ED/ES/EK/EX, EQ/EC), przypomnienia.</td></tr>
+<tr><td><code>releasenotes.lua</code>, <code>update.lua</code></td><td>ReleaseNotes, Update</td><td>Zakładka Release Notes, okno „co nowego”, notka o starej wersji (UPD).</td></tr>
+<tr><td><code>core.lua</code></td><td>EventSync</td><td>Okno i zakładki, lista dozwolonych gildii, status graczy (PING/PONG, <code>activePlayers</code>), odbiornik <code>CHAT_MSG_ADDON</code> i rozdzielanie pakietów, sync po logowaniu, CANN/CTEST/UPD, komendy, minimapa.</td></tr>
+</table></div>
+</section>
+
+<section id="kanaly"><h2>3. Drogi komunikacji</h2>
+<svg viewBox="0 0 900 330" role="img" aria-label="Schemat sieci: gildie, relaye, szepty FW i kanały">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahead" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahead2" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<rect class="box g1" x="20" y="20" width="250" height="190" rx="12" style="stroke:var(--g1)"/>
+<text x="35" y="45" style="font-weight:600">Jagódki Nadina (JN)</text>
+<rect class="relay" x="45" y="65" width="120" height="34" rx="8"/><text x="58" y="87">relay JN</text>
+<rect class="box" x="45" y="115" width="95" height="28" rx="6"/><text x="58" y="134" class="small">gracz</text>
+<rect class="box" x="155" y="115" width="95" height="28" rx="6"/><text x="168" y="134" class="small">gracz</text>
+<text x="40" y="190" class="small">GUILD: każdy z addonem w gildii</text>
+<rect class="box g2" x="630" y="20" width="250" height="190" rx="12" style="stroke:var(--g2)"/>
+<text x="645" y="45" style="font-weight:600">Jagódki Nadina II (JN2)</text>
+<rect class="relay" x="735" y="65" width="120" height="34" rx="8"/><text x="748" y="87">relay JN2</text>
+<rect class="box" x="650" y="115" width="95" height="28" rx="6"/><text x="663" y="134" class="small">gracz</text>
+<rect class="box" x="760" y="115" width="95" height="28" rx="6"/><text x="773" y="134" class="small">gracz</text>
+<text x="650" y="190" class="small">GUILD: każdy z addonem w gildii</text>
+<path class="arrow" d="M170,75 C350,40 550,40 730,75"/>
+<text x="355" y="38" class="small">WHISPER addonu: FW:nadawca:PAKIET</text>
+<path class="arrow" d="M730,92 C550,125 350,125 170,92"/>
+<text x="380" y="132" class="small">i z powrotem (każdy relay do każdego)</text>
+<rect class="box g3" x="300" y="230" width="300" height="80" rx="12" style="stroke:var(--g3)"/>
+<text x="315" y="255" style="font-weight:600">Kanały czatu (zwykły tekst)</text>
+<text x="315" y="275" class="small">publiczny JagodkaNet / JagodkaNetH – odkrywanie</text>
+<text x="315" y="292" class="small">czat z klucza Jgd…, oficerów – tekst wiadomości</text>
+<path class="arrow2" d="M140,145 L320,240"/><path class="arrow2" d="M760,145 L580,240"/>
+</svg>
+<div class="tw"><table>
+<tr><th>Droga</th><th>Co nią idzie</th><th>Uwagi</th></tr>
+<tr><td><b>GUILD</b> (<code>SendAddonMessage</code>)</td><td>Prawie wszystkie pakiety: status, zmiany, prośby o sync, wydarzenia, LFG…</td><td>Gra odsyła nam nasz własny pakiet z GUILD – więc wszyscy (też nadawca) obsługują go jedną ścieżką.</td></tr>
+<tr><td><b>WHISPER</b> addonu</td><td>FW między relayami; odpowiedzi na sync (HIST, MUTE, PSYNC, LF, EH…); pełne rostery RF do relayów; klucz oficerów; NREQ/NOTE</td><td>Poza instancjami szepty nie podlegają limitowi 10/prefiks (Warcraft Wiki). Szept do wylogowanego → systemowe „player not found”, gracz od razu wypada z listy.</td></tr>
+<tr><td><b>Kanał publiczny</b> <code>JagodkaNet</code> (Alliance) / <code>JagodkaNetH</code> (Horde), hasło w kodzie</td><td>Lista członków kanału = szukanie graczy innych gildii; czat graczy bez klucza</td><td>Hasło zatrzymuje przypadkowych ludzi, nie kogoś z addonem. Postać spoza naszych gildii wychodzi z kanału (1.0.2).</td></tr>
+<tr><td><b>Kanał czatu z klucza</b> <code>Jgd</code>+frakcja+hash</td><td>Tekst wpisany na General / Trade / LFG</td><td>Nazwa i hasło liczone z sekretnego klucza (<a href="#klucz">sekcja 11</a>). Działa w obrębie pod-realmu Forever, dlatego wiadomość idzie też przez gildie (GMSG).</td></tr>
+<tr><td><b>Kanał oficerów</b></td><td>Czat oficerów</td><td>Własny klucz, rozsyłany tylko szeptem między oficerami.</td></tr>
+</table></div>
+</section>
+
+<section id="transport"><h2>4. Transport i kolejka</h2>
+<h3 id="format">Format pakietu</h3>
+<p>Prefiks addonu: <code>JagodkaComm</code>. Treść: <code>TYP:payload</code>, pola w payloadzie rozdzielone <code>:</code>. Pola tekstowe kodowane <code>Most.EncodeField</code>: <code>%</code>→<code>%25</code>, <code>:</code>→<code>%3A</code>, nowa linia→<code>%0A</code>. Każdy tekst od innych przechodzi przez <code>Most.Plain</code> (usuwa <code>|</code>, więc nikt nie wstrzyknie kolorów ani fałszywych linków); tekst czatu przez <code>Most.SanitizeChat</code> (zostają tylko poprawne linki przedmiotów/zaklęć).</p>
+<p>Limit gry to 255 bajtów; addon trzyma pakiety do <b>205</b> bajtów (<code>MAX_ADDON_BYTES</code>), żeby relay zmieścił nagłówek <code>FW:Imię Nazwisko:</code>. Dłuższe dane dzielone są na części (czat: <code>id#część/razem</code>, max 10 części; rostery i listy: osobne numery części).</p>
+<h3 id="kolejka">Kolejka wysyłki (<code>bridge.lua</code>)</h3>
+<ul>
+<li>Dwie kolejki: <span class="pill hi">high</span> (rzeczy na żywo) i <span class="pill lo">low</span> (synchronizacja, rostery). High zawsze pierwsza.</li>
+<li>Pompa co <b>0,2 s</b>; wiadro tokenów: max <b>10</b>, przybywa <b>1/s</b> (jak limit gry na prefiks). Jeden pakiet = jeden token.</li>
+<li>Wynik <code>SendAddonMessage</code>: 0 = OK. Kody <b>3</b> (AddonMessageThrottle), <b>8</b> (ChannelThrottle), <b>9</b> (GeneralError), <b>11</b> (AddOnMessageLockdown – instancje) i <code>false</code> są chwilowe: pakiet zostaje i jest ponawiany do <b>30</b> razy (≈30 s). Inne kody (np. 4) – pakiet odrzucony od razu, żeby nie blokować kolejki.</li>
+<li><code>Most.Send(typ, payload, prio)</code> → GUILD (domyślnie high); <code>Most.Whisper(cel, typ, payload, prio)</code> → WHISPER (domyślnie low).</li>
+<li>Monitoring widzi każdy pakiet (TX/RX, rozmiar, czas w kolejce, próby) i statystyki „Queue: N high, M low, Wait…”.</li>
+</ul>
+<h3 id="nazwy">Nazwy graczy</h3>
+<p>Na Forever postać ma imię i nazwisko; unikalne jest tylko „Imię Nazwisko”. Addon wszędzie używa klucza <code>Most.PlayerKey</code> = <code>"Marianek Jagoda"</code> (jedna spacja), a do funkcji gry (szept, zaproszenie, link) <code>Most.GameName</code> = <code>"Marianek-Jagoda"</code>. Bez nazwisk (Classic Era) – samo imię.</p>
+</section>
+
+<section id="relay"><h2>5. Relay – łącznik gildii</h2>
+<ul>
+<li><b>Kto jest relayem:</b> alfabetycznie pierwsze imię wśród graczy z addonem online w danej gildii (<code>Most.GetRelayName</code>). Każdy liczy to samo, więc wszyscy zgadzają się bez głosowania. Online = sygnał w ciągu <code>ONLINE_TIMEOUT</code> 150 s; we własnej gildii gracz, którego roster gry pokazuje offline, odpada od razu.</li>
+<li>Przez pierwsze <b>5 s</b> po logowaniu (<code>RELAY_READY_DELAY</code>) nie przekazujemy niczego – świeży gracz jeszcze nikogo nie zna i uważałby się za relaya.</li>
+<li><b>Przekazywanie (<code>Most.Route</code>):</b> relay dostaje pakiet z GUILD → owija go w <code>FW:nadawca:PAKIET</code> → szepcze do relaya każdej innej znanej gildii. Odbiorca wrzuca <code>FW:…</code> bez zmian do swojej GUILD; wszyscy w tej gildii rozpakowują go i obsługują jako pakiet od <i>nadawcy</i>. FW nie jest przekazywane dalej.</li>
+<li><b>Nie wychodzą poza gildię</b> (<code>OWN_GUILD_ONLY</code>), chyba że wysłał je sam relay: PING, PONG, KREQ, HREQ/HCLAIM, EQ/EC, LQ/LC, MREQ/MCLAIM, PREQ/PREQN/PCLAIM, DQ/DC (i stare EV_REQ/EV_CLAIM). Statusy wszystkich graczy zapchałyby relaya; inne gildie znają naszych graczy z rostera, a potrzebują tylko statusu samego relaya.</li>
+<li><b>Priorytet przekazania:</b> high dla rzeczy na żywo (<code>LIVE_PACKETS</code>: GMSG, EH/ED/ES/EK/EX, LF/LX, CANN, CTEST, PING, PONG, RD, stare EV_*), reszta low. Czekający w kolejce przekazany PONG tego samego gracza jest zastępowany nowszym.</li>
+<li><b>Kontrole przy odbiorze FW (szept):</b> nadawca szeptu musi być znanym graczem naszej gildii (status albo roster); <i>origin</i> musi być w rosterze gildii tego relaya (gdy roster mamy); roster (RF/RD) gildii spoza społeczności jest wyrzucany z notką „Ignored the roster of …”.</li>
+<li><b>Zmiana relaya:</b> co 5 s sprawdzamy, czy właśnie zostaliśmy relayem – jeśli tak, od razu wysyłamy PONG, żeby inne gildie wiedziały, do kogo szeptać. Wylogowanie: „X has gone offline” albo nieudany szept usuwa gracza z listy natychmiast, więc relayem zostaje następny.</li>
+</ul>
+<div class="note">Rostery pełne (RF) nie idą przez kolejkę relaya: nadawca rostera szepcze je <b>bezpośrednio</b> do relayów innych gildii jako <code>FW:ja:RF:…</code> (od 0.15.x – wcześniej 130 części szło przez dwie kolejki i ginęło przy zmianie relaya).</div>
+</section>
+
+<section id="odkrywanie"><h2>6. Odkrywanie innych gildii</h2>
+<ol>
+<li>Relay co <b>30 s</b> (<code>DISCOVER_INTERVAL</code>) czyta listę członków kanału publicznego i kanału czatu (<code>ListChannelByName</code>; od 1.0.3 nie w walce ani w instancji – gra to blokuje). Odpowiedź <code>CHAT_MSG_CHANNEL_LIST</code> jest chowana z czatu.</li>
+<li>Dla nieznanego gracza (nie z mojej gildii, nie aktywny, nie z gildii, z którą już mamy połączenie) wysyła <b>powitanie</b>: szept <code>FW:ja:PING:…</code>. Max 5 powitań na odczyt (1, gdy już mamy jakąś połączoną gildię), ten sam gracz najwyżej co 10 min (<code>HELLO_RETRY</code>).</li>
+<li>Powitany gracz wrzuca PING do swojej gildii (jak każde FW) – jego relay poznaje nas, odpowiada <b>PONG + PROF</b> szeptem i od tej pory gildie są połączone (widać w „Linked guilds”).</li>
+</ol>
+</section>
+
+<section id="obecnosc"><h2>7. Obecność graczy (PING / PONG)</h2>
+<pre>PING|PONG : poziom : KLASA : gildia : ranga : wersja : indeksRangi : strefa(enc)</pre>
+<ul>
+<li><b>PING</b> – „jestem, odpowiedzcie”: po logowaniu (gdy gra zna już gildię), przy otwarciu okna, przy zmianie gildii, w <code>/jagodka sync</code>. Odpowiada tylko <b>relay</b> (PONG + profesje szeptem, po 0,2–1,5 s).</li>
+<li><b>PONG</b> – „nadal jestem” co 60 s. <b>Ciche sygnały</b> (0.15.3): gdy ≤10% graczy z addonem w gildii ma wersję starszą niż 0.15.3, co minutę mówi tylko 5 pierwszych alfabetycznie (kandydaci na relaya), reszta co 10 min; nowsi trzymają takiego gracza 720 s (<code>QUIET_KEEP</code>).</li>
+<li><b>activePlayers</b> (core.lua): lista graczy z addonem online: name, level, class, guild, rank, rankIndex, version, zone, lastSeen. Sygnał bez zmian aktualizuje tylko czas (bez przerysowania tabel).</li>
+<li><b>Usuwanie (<code>PruneOfflinePlayers</code>, co 60 s i przy zmianie rostera):</b> gracz mojej gildii offline w rosterze gry (i bez sygnału od 30 s); gracz innej gildii, którego roster jego gildii mówi offline (i bez sygnału od 30 s); moja inna postać; brak sygnału dłużej niż 150 s (inne gildie) albo 150/720 s (moja).</li>
+<li><b>Ochrona przed podszywaniem:</b> gildia musi być na liście; kto podaje moją gildię, musi być w rosterze gry; kto podaje inną naszą gildię, nie może być nieobecny w jej świeżym rosterze. Sygnał gracza innej gildii oznacza go online w jej rosterze (<code>Roster.MarkOnline</code>, 1.0.2).</li>
+<li><b>Wersje:</b> gracz z nowszą wersją → notka w Monitoringu i żółta kolumna Version w Rosterze (od 1.0.2 nic nie wyskakuje samo).</li>
+</ul>
+</section>
+
+<section id="logowanie"><h2>8. Logowanie i synchronizacja</h2>
+<svg viewBox="0 0 900 250" role="img" aria-label="Oś czasu po zalogowaniu">
+<line class="lane" x1="40" y1="60" x2="870" y2="60"/>
+<g><circle cx="50" cy="60" r="6" class="relay"/><text x="35" y="40">0 s</text><text x="30" y="85" class="small">PLAYER_LOGIN</text><text x="30" y="100" class="small">prefiks, GuildRoster,</text><text x="30" y="115" class="small">PING gdy gildia znana</text></g>
+<g><circle cx="200" cy="60" r="6" class="relay"/><text x="185" y="40">+2 s</text><text x="160" y="85" class="small">HREQ (historia czatu)</text><text x="160" y="100" class="small">MREQ (wyciszenia)</text></g>
+<g><circle cx="320" cy="60" r="6" class="relay"/><text x="305" y="40">+4 s</text><text x="290" y="85" class="small">EQ (wydarzenia)</text></g>
+<g><circle cx="430" cy="60" r="6" class="relay"/><text x="410" y="40">+5/6 s</text><text x="400" y="85" class="small">relay gotowy;</text><text x="400" y="100" class="small">RQ (rostery, relay)</text></g>
+<g><circle cx="545" cy="60" r="6" class="relay"/><text x="530" y="40">+8 s</text><text x="510" y="85" class="small">LQ (LFG);</text><text x="510" y="100" class="small">dołączenie do kanałów</text></g>
+<g><circle cx="650" cy="60" r="6" class="relay"/><text x="630" y="40">+10 s</text><text x="615" y="85" class="small">Discover; PREQ</text><text x="615" y="100" class="small">(profesje)</text></g>
+<g><circle cx="745" cy="60" r="6" class="relay"/><text x="730" y="40">+14 s</text><text x="715" y="85" class="small">powtórka syncu, gdy</text><text x="715" y="100" class="small">jestem relayem</text></g>
+<g><circle cx="850" cy="60" r="6" class="relay"/><text x="830" y="40">+65 s</text><text x="800" y="85" class="small">roster: start</text><text x="800" y="100" class="small">porównań</text></g>
+<text x="40" y="160" class="small">Klucz czatu: KREQ zaraz po logowaniu; bez odpowiedzi po 120 s (+0–90 s) klucz tworzy oficer albo relay.</text>
+<text x="40" y="180" class="small">Profesje: własne PROF po 6 s; PREQ po 10 s, ponowienia po 25 s (max 2). Discord: DQ po 90 s, własne DI po 2–5 min.</text>
+<text x="40" y="200" class="small">Czasy syncu liczone od pierwszego PING (TryAnnounce). Kanały: dołączenie 8 s po PLAYER_LOGIN, żeby nie zająć /1 przed General.</text>
+</svg>
+<ul>
+<li><b>Jedna odpowiedź na prośbę</b> (<code>Most.ShouldAnswer</code> + <code>Most.ClaimAndAnswer</code>): odpowiadać próbuje tylko ok. <b>4</b> losowych graczy gildii (nigdy relay, jeśli może ktoś inny). Każdy czeka losowo 0,5–2,5 s, wysyła <b>CLAIM</b> (HCLAIM/EC/LC/MCLAIM/PCLAIM/DC), czeka jeszcze 1,5 s – czyjś wcześniejszy claim (albo równoczesny z imieniem wcześniej w alfabecie) anuluje jego odpowiedź. Odpowiedź idzie szeptem, zwykle low.</li>
+<li><b>Prośby syncu zostają w gildii</b> – każda gildia ma te same dane, więc odpowiada własna.</li>
+<li><b><code>/jagodka sync</code></b> (i przycisk Sync now): PING, HREQ, MREQ, +2 EQ, +4 RQ, +6 PREQ, +8 KREQ, +10 OKREQ, +12 LQ; najwyżej raz na minutę.</li>
+<li><b>Po wyjściu z instancji</b> (PLAYER_ENTERING_WORLD poza instancją): po 5 s dołączenie do kanałów i to samo co <code>/jagodka sync</code> – w środku gra blokowała wiadomości (kod 11) i dawała sekrety.</li>
+</ul>
+</section>
+
+<section id="czat"><h2>9. Wspólny czat</h2>
+<h3 id="czat-wysylanie">Wysyłanie</h3>
+<ol>
+<li>Gracz pisze w oknie addonu albo w zakładce czatu gry → <code>Most.SayOnChannel</code>: zwykły <code>SendChatMessage(…,"CHANNEL")</code> na <b>kanał z klucza</b> (bez klucza – publiczny). Trade i LFG mają tag <code>[Trade] </code> / <code>[LFG] </code>. Gra wymaga przy tym naciśnięcia klawisza, dlatego to musi iść prosto z pola wpisywania.</li>
+<li><b>Zawsze też przez gildie</b> (0.15.4, <code>AlsoThroughGuilds</code>): ta sama wiadomość jako <code>GMSG</code> do GUILD i przez relaye – kanał gracza działa tylko w obrębie pod-realmu Forever.</li>
+<li>Kontrola echa: serwer odsyła naszą wiadomość z kanału; brak w 8 s → wpis w Monitoringu, a gdy w tej sesji nie wróciła żadna – czat idzie tylko przez gildie do /reload.</li>
+</ol>
+<pre>GMSG : id : czasSerwera : gildia : autor : zakładka : A : tekst
+id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
+<h3 id="czat-odbior">Odbiór i deduplikacja</h3>
+<ul>
+<li>Z kanału: autor musi być znanym graczem naszych gildii (status albo roster) – inaczej wiadomość nie jest pokazana (1.0.1). Gildia brana z naszej wiedzy, nie z wiadomości.</li>
+<li>GMSG: autor = nadawca; gildia nadawcy zgodna; nieznany nadawca z mojej gildii musi być w rosterze gry (z innej – nie może być nieobecny w jej rosterze).</li>
+<li>Duplikaty: po <code>id</code>, a wiadomość z kanału i jej kopia z GMSG – po (autor, zakładka, tekst, ±120 s), z przeciwnych dróg.</li>
+<li>Wyciszony autor (mute.lua) – odrzucony przez każdego odbiorcę.</li>
+<li>Log: 300 wiadomości (<code>JagodkiChatDB.log</code>), wstawiane według czasu serwera.</li>
+</ul>
+<h3 id="historia">Historia</h3>
+<p><code>HREQ:najnowszyCzas</code> → jeden gracz gildii odpowiada <code>HCLAIM:proszący</code> i szepcze do 30 ostatnich wiadomości jako <code>HIST</code> (format GMSG). Historia przyjmowana tylko od znanego gracza.</p>
+</section>
+
+<section id="pakiety"><h2>10. Słownik pakietów</h2>
+<p class="muted">Kanał: G = GUILD (i przez relaye do innych gildii, chyba że „tylko gildia”), W = szept. Priorytet: high/low w kolejce. Wyszukiwarka u góry filtruje też tę tabelę.</p>
+<div class="tw"><table id="ptable">
+<tr><th>Typ</th><th>Moduł</th><th>Droga</th><th>Payload</th><th>Kiedy / kto</th></tr>
+<tr><td><code>PING</code></td><td>core</td><td>G, tylko gildia; W jako FW (powitanie)</td><td><code>poziom:KLASA:gildia:ranga:wersja:idxRangi:strefa</code></td><td>Logowanie, otwarcie okna, zmiana gildii, sync. Odpowiada relay.</td></tr>
+<tr><td><code>PONG</code></td><td>core</td><td>G, tylko gildia (relay: też inne gildie); W odpowiedź</td><td>jak PING</td><td>Co 60 s (ciche: co 10 min), odpowiedź relaya na PING.</td></tr>
+<tr><td><code>FW</code></td><td>bridge</td><td>W relay→relay, potem G</td><td><code>nadawca:PAKIET</code></td><td>Przekazanie pakietu między gildiami; powitanie; pełny roster.</td></tr>
+<tr><td><code>GMSG</code></td><td>bridge</td><td>G <span class="pill hi">high</span></td><td><code>id:ts:gildia:autor:zakładka:A:tekst</code></td><td>Każda wpisana wiadomość czatu (też gdy poszła kanałem).</td></tr>
+<tr><td><code>HREQ</code> / <code>HCLAIM</code> / <code>HIST</code></td><td>bridge</td><td>G tylko gildia / G / W</td><td><code>od</code> / <code>proszący</code> / jak GMSG</td><td>Historia czatu po logowaniu.</td></tr>
+<tr><td><code>CREF</code></td><td>bridge</td><td>G <span class="pill lo">low</span></td><td><code>1|0:powód:próby:podrealm</code></td><td>Serwer odmawia mi kanału czatu (co 30 min) / wróciłem.</td></tr>
+<tr><td><code>KEY</code></td><td>key</td><td>G albo W <span class="pill hi">high</span></td><td><code>klucz:ts:autor</code></td><td>Relay co 10 min i gdy widzi starszy; odpowiedź na KREQ; nowy klucz.</td></tr>
+<tr><td><code>KREQ</code></td><td>key</td><td>G, tylko gildia (relay – dalej)</td><td><code>tsMojegoKlucza</code></td><td>Po logowaniu, bez klucza co 60 s, sync.</td></tr>
+<tr><td><code>OKEY</code> / <code>OKREQ</code></td><td>officers</td><td>W tylko między oficerami</td><td><code>klucz:ts:autor</code> / <code>ts</code></td><td>Klucz czatu oficerów; nigdy przez GUILD ani relaye.</td></tr>
+<tr><td><code>OMSG</code></td><td>officers</td><td>W</td><td><code>ts:część</code></td><td>Wiadomość oficera do oficerów spoza kanału (inny pod-realm).</td></tr>
+<tr><td><code>OHREQ</code> / <code>OHIST</code></td><td>officers</td><td>W <span class="pill lo">low</span></td><td><code>od</code> / <code>ts:autor:gildia:i:n:tekst</code></td><td>Historia czatu oficerów (do 50).</td></tr>
+<tr><td><code>ORALLY</code></td><td>officers</td><td>W</td><td><code>1</code></td><td>Przycisk „rally” oficerów (co 5 min).</td></tr>
+<tr><td><code>CANN</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>tekst(enc, ≤180 B)</code></td><td>Ogłoszenie oficera – duży napis u wszystkich.</td></tr>
+<tr><td><code>CTEST</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>1</code></td><td>Prośba oficera o test czatu.</td></tr>
+<tr><td><code>UPD</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>wersja</code></td><td>„Remind outdated” – notka u starszych wersji.</td></tr>
+<tr><td><code>RF</code></td><td>roster</td><td>W do relayów (FW) + 1. część do G <span class="pill lo">low</span></td><td><code>gildia:snap:i:n:pełny(1/0):rangi(1. część):wpisy</code></td><td>Pełny roster: co 60 min i na RQ (najwyżej co 30 min); nadawca rotuje co 5 min.</td></tr>
+<tr><td><code>RD</code></td><td>roster</td><td>G <span class="pill hi">high</span></td><td><code>gildia:wpis;+Imię;-Imię;!Imię…</code></td><td>Zmiany rostera co 20 s (tylko nadawca).</td></tr>
+<tr><td><code>RQ</code></td><td>roster</td><td>G <span class="pill lo">low</span></td><td><code>gildia,gildia…</code></td><td>Relay prosi o brakujące/stare rostery (co 5 min, ponowienia).</td></tr>
+<tr><td><code>VLIST</code></td><td>roster</td><td>G <span class="pill lo">low</span></td><td><code>gildia:i:n:wersja,wersja:imię~nr;…</code></td><td>Wersje graczy gildii: zmiany co 3 min, całość co 15 min.</td></tr>
+<tr><td><code>EH</code></td><td>events</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>id:rev:edytor:twórca:gildia:tytuł:data:godz:instancja:części</code></td><td>Nagłówek wydarzenia (utworzenie, edycja).</td></tr>
+<tr><td><code>ED</code></td><td>events</td><td>jw.</td><td><code>id:rev:część:tekst</code></td><td>Reszta opisu.</td></tr>
+<tr><td><code>ES</code></td><td>events</td><td>jw.</td><td><code>id:imię:rola:spec:status:lider:czas</code></td><td>Zapis jednego gracza.</td></tr>
+<tr><td><code>EK</code> / <code>EX</code></td><td>events</td><td>jw.</td><td><code>id:imię:czas:kto</code> / <code>id:czas:kto</code></td><td>Usunięcie z wydarzenia / odwołanie.</td></tr>
+<tr><td><code>EQ</code> / <code>EC</code></td><td>events</td><td>G tylko gildia</td><td><code>od</code> / <code>proszący</code></td><td>Sync wydarzeń: tylko zmiany nowsze niż „od” (−10 min).</td></tr>
+<tr><td><code>LF</code> / <code>LX</code></td><td>lfg</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>imię:ts:klasa:poziom:role:typNazwa;…:notka</code> / <code>imię:ts</code></td><td>Ogłoszenie LFG (co 10 min, wygasa po 3 h) / zdjęcie.</td></tr>
+<tr><td><code>LQ</code> / <code>LC</code></td><td>lfg</td><td>G tylko gildia</td><td><code>1</code> / <code>proszący</code></td><td>Sync LFG po logowaniu.</td></tr>
+<tr><td><code>MUTE</code></td><td>mute</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>imię:1|0:ts:przez:powód</code></td><td>Wyciszenie / odciszenie (nowsze wygrywa).</td></tr>
+<tr><td><code>MREQ</code> / <code>MCLAIM</code></td><td>mute</td><td>G tylko gildia</td><td><code>od</code> / <code>proszący</code></td><td>Sync wyciszeń.</td></tr>
+<tr><td><code>PROF</code></td><td>professions</td><td>G <span class="pill lo">low</span> / W</td><td><code>A=300/300,H=285/300</code> (kody profesji)</td><td>Po logowaniu i przy zmianie (najwyżej co 10 min); odpowiedź relaya na PING.</td></tr>
+<tr><td><code>PREQ</code> / <code>PREQN</code> / <code>PCLAIM</code> / <code>PSYNC</code></td><td>professions</td><td>G tylko gildia / W</td><td><code>od</code> / <code>nr.część:Imię;…</code> / <code>proszący[#nr]</code> / <code>Imię@ts@A=…;…</code></td><td>Profesje innych po logowaniu / dla strony Rostera.</td></tr>
+<tr><td><code>NREQ</code> / <code>NOTE</code></td><td>notes</td><td>W</td><td><code>imię</code> / <code>imię:notka</code></td><td>Notatka publiczna gracza innej gildii (najechanie na ikonę).</td></tr>
+<tr><td><code>DI</code></td><td>discord</td><td>G <span class="pill lo">low</span></td><td><code>imię:ts:discord</code></td><td>Moja nazwa Discord (po zapisie, raz na sesję).</td></tr>
+<tr><td><code>DQ</code> / <code>DC</code> / <code>DL</code></td><td>discord</td><td>G tylko gildia / W</td><td><code>ileZnam</code> / <code>proszący</code> / <code>imię@ts@discord;…</code></td><td>Sync nazw Discord.</td></tr>
+<tr><td><code>EV_*</code></td><td>(stare)</td><td>–</td><td>–</td><td>Wydarzenia sprzed 0.14.0: ignorowane.</td></tr>
+</table></div>
+</section>
+
+<section id="klucz"><h2>11. Klucz czatu i kanał z klucza</h2>
+<ul>
+<li><code>JagodkiChatDB.key = { k, ts, by, officer }</code> – klucz 16 znaków. Kanał: <code>Jgd</code> + <code>a|h</code> + hash(klucz+frakcja) w base36 (6 znaków); hasło: dwa hashe klucza (12 znaków). Bez klucza nie da się znaleźć ani przejąć kanału.</li>
+<li>Klucz krąży tylko przez GUILD i relaye (<code>KEY</code>) od graczy naszych gildii. <b>Kto wygrywa</b> (<code>Wins</code>): klucz oficera (wg rosterów) bije klucz członka; między oficerskimi – nowszy; między członkowskimi – starszy (potem mniejszy).</li>
+<li>Po logowaniu <code>KREQ</code>; relay odpowiada, gdy ma inny. Nikt nie ma klucza po 120 s (+0–90 s losowo) → tworzy go oficer, a bez oficera relay (klucz członka; oficer potwierdzi go później).</li>
+<li>Relay rozsyła klucz co 10 min i od razu, gdy widzi starszy (do tej samej osoby najwyżej co 60 s).</li>
+<li>Nowy klucz: <code>/jagodka key</code> (oficerowie) albo sam u oficera, gdy kanał ma właściciela spoza naszych gildii, banuje nas lub ma inne hasło (najwyżej co 10 min). Oficer co 60 s czyta listę kanału, żeby to sprawdzić.</li>
+<li>Postać spoza naszych gildii nie dołącza do kanału czatu (1.0.1) ani publicznego (1.0.2) i wychodzi z nich.</li>
+</ul>
+</section>
+
+<section id="oficerowie"><h2>12. Czat oficerów i narzędzia oficerskie</h2>
+<ul>
+<li>Osobny kanał z osobnego klucza (<code>JagodkiChatDB.officerKey</code>), klucz <b>tylko szeptem</b> między oficerami wg rosterów (<code>OKEY</code>/<code>OKREQ</code>, pytamy 3 oficerów online). Pakiety FW są tu ignorowane.</li>
+<li>Brak klucza po 120 s (+0–60 s) → oficer tworzy i szepcze wszystkim oficerom online. Nowy klucz: przycisk w Monitoringu albo sam, gdy na kanale jest ktoś z rosterów, kto nie jest oficerem.</li>
+<li>Historia: <code>OHREQ</code>/<code>OHIST</code> (do 50 wiadomości, osobny log <code>JagodkiChatDB.officerLog</code>, 300). Bez kanału wiadomość oficerów nie idzie wcale (wyjątek: OMSG do oficerów spoza kanału).</li>
+<li>Gracz, który przestaje być oficerem, zapomina klucz i log, wychodzi z kanału.</li>
+<li>Narzędzia (Monitoring › Officer actions): <b>Announcement</b> (CANN), <b>Chat test</b> (CTEST), <b>Remind outdated</b> (UPD) – każde najwyżej co 5 min; odbiorca sprawdza, że nadawca jest oficerem <b>według rostera</b>, nie według rangi, którą sam podaje. Też: New chat key, New officers key.</li>
+</ul>
+</section>
+
+<section id="rostery"><h2>13. Rostery wszystkich gildii</h2>
+<ul>
+<li><b>Nadawca</b> (<code>IsSender</code>): w każdej gildii jeden gracz z addonem; kandydaci = online z addonem i online w rosterze; posortowani, wybór <code>(floor(czas/300) + suma bajtów nazwy gildii) % liczba</code> – zmiana co 5 min, każdy liczy tak samo. Gildia spoza społeczności nie wysyła nic (1.0.2).</li>
+<li><b>Odczyt własnej gildii</b> z gry (<code>GetGuildRosterInfo</code>); gdy gracz ma wyłączone „show offline”, addon włącza je na chwilę odczytu (chyba że okno gildii jest otwarte – wtedy roster „niepełny”).</li>
+<li><b>Wpis:</b> <code>Imię Nazwisko,W603+</code> = klasa (W/P/H/R/I/S/M/L/D), poziom, ranga (0–9), online <code>+</code>/<code>-</code>.</li>
+<li><b>Zmiany (RD)</b> co 20 s: każdy porównuje, wysyła tylko nadawca; <code>+Imię</code>/<code>-Imię</code> = sam status, pełny wpis = nowy członek / poziom / ranga, <code>!Imię</code> = odszedł. High – logowania docierają w sekundy.</li>
+<li><b>Pełny (RF)</b> co 60 min (losowo 0–45 s opóźnienia, pomija, gdy ktoś inny zaczął) i na <code>RQ</code> (najwyżej co 30 min, odpowiedź po 3–48 s). Duża gildia = ok. 130 części, dociera 10–30 min.</li>
+<li><b>RQ</b> wysyła tylko relay, dla gildii bez całego rostera albo starszego niż <code>FRESH_FOR</code> (65 min); ponowienie po 5 min (max 2); roster z ≥95% części liczy się jako świeży.</li>
+<li><b>Odbiór:</b> roster innej gildii tylko od gracza tej gildii. Części zbierane w „snapie” (10 min); po całości gracze, których w nim nie ma, są usuwani. Status online z rostera nie nadpisuje statusu poznanego na żywo po starcie tego snapu (1.0.2, <code>since</code>).</li>
+<li><b>Wersje (VLIST):</b> wysyła pierwszy alfabetycznie gracz gildii z ≥0.15.6; zmiany co 180 s, całość co 900 s (ustawienia z bety); trzymane 2×900+60 s.</li>
+<li>Zapis: <code>JagodkiRosterDB</code> (konto) – ostatnie znane rostery, widoczne też gdy nikt z gildii nie gra.</li>
+</ul>
+</section>
+
+<section id="wydarzenia"><h2>14. Wydarzenia</h2>
+<ul>
+<li>Reguły sprawdza <b>autor i każdy odbiorca</b>: członek ma max <b>1</b> aktywne wydarzenie, oficer <b>5</b> (<code>MEMBER_ACTIVE</code>, <code>OFFICER_ACTIVE</code>); edytują/odwołują/usuwają graczy autor i oficerowie (wg rosterów); każdy zapisuje tylko siebie (spec swojej klasy, Coming/Maybe/Not coming).</li>
+<li>Wydarzenie znika samo 5 h po starcie (u wszystkich w tej samej chwili, bez pakietu); odwołane ID pamiętane 23 dni.</li>
+<li>Każda zmiana = mały pakiet (EH/ED/ES/EK/EX, high). Pakiet na żywo musi pochodzić od osoby, którą nazywa; odpowiedź syncu (szept) może nieść cudzą zmianę, ale reguły nadal obowiązują.</li>
+<li>Sync: <code>EQ:od</code> (najnowsza znana zmiana − 10 min) → jeden gracz <code>EC</code> i szeptem tylko nowsze zmiany. Ten sam proszący najwyżej co 120 s.</li>
+<li>Przypomnienie 15 min przed startem (Coming/Maybe); zapis widać na czacie LFG z linkiem [Open event].</li>
+</ul>
+</section>
+
+<section id="lfg"><h2>15. LFG</h2>
+<ul>
+<li>Jedno ogłoszenie na gracza: role, do 4 aktywności, notka (60). <code>LF</code> do GUILD (high), co 10 min ponownie (heartbeat), wygasa po 3 h; <code>LX</code> zdejmuje.</li>
+<li>Sprzątanie: po 3 h; gracz offline w rosterach – po 10 min łaski (szare); niesłyszany 40 min – usunięty; moje inne postacie – od razu.</li>
+<li>Sync: <code>LQ</code> w gildii → jeden gracz <code>LC</code> i szeptem LF/LX (low), ten sam proszący najwyżej co 2 min.</li>
+<li>Notka na czacie LFG z linkiem [Open in LFG] (link budowany u odbiorcy, nie wysyłany).</li>
+</ul>
+</section>
+
+<section id="inne"><h2>16. Wyciszenia, profesje, notatki, Discord</h2>
+<h3 id="mute">Wyciszenia</h3>
+<p><code>JagodkiChatDB.mutes[imię] = { m, ts, by, r }</code>; odciszenie też jest wpisem (żeby stare wyciszenie nie wróciło), usuwane po 30 dniach. Oficer wycisza (nie innego oficera ani siebie), GM każdego poza sobą; odcisza każdy oficer. Uprawnienia sprawdza każdy odbiorca, z rang w rosterach. Powód obowiązkowy (≤60 liter).</p>
+<h3 id="prof">Profesje</h3>
+<p>Gra daje poziomy profesji tylko własnej postaci, więc każdy wysyła swoje (<code>PROF</code>, kody profesji zamiast nazw – działa między językami). Zapisywane w <code>JagodkiChatDB.professions</code>. Po logowaniu <code>PREQ</code> (max 300 najnowszych wpisów w odpowiedzi), strona Rostera pyta o brakujących <code>PREQN</code> (ten sam gracz najwyżej co 5 min).</p>
+<h3 id="notes">Notatki</h3>
+<p>Własna gildia – z gry (oficerska tylko z uprawnieniem gry i nigdy nie zapisywana). Inne gildie – tylko publiczna: najechanie na ikonę → <code>NREQ</code> do relaya tej gildii → <code>NOTE</code>. Pamiętane w <code>JagodkiChatDB.publicNotes</code>. Notatki oficerskie nigdy nie są wysyłane.</p>
+<h3 id="discord">Discord</h3>
+<p>Ustawienia › Profil (dla konta). <code>DI</code> po zapisie i raz na sesję; sync <code>DQ</code>/<code>DC</code>/<code>DL</code>; max 5000 nazw (<code>JagodkiChatDB.discord.known</code>), nowsza wygrywa. DI przyjmowane tylko od gracza, którego dotyczy.</p>
+</section>
+
+<section id="bezpieczenstwo"><h2>17. Bezpieczeństwo i zaufanie</h2>
+<ul>
+<li><b>Lista gildii</b> (<code>AllowedGuilds</code> w core.lua): tylko „Jagódki Nadina”, „… II”, „… IIl”, „… IV”, „… V”, „… VI”. Każdy pakiet ze statusem innej gildii jest ignorowany.</li>
+<li><b>Kto jest kim:</b> gracz znany = status (PING/PONG) albo wpis w rosterze; gildia z naszej wiedzy, nie z treści pakietu. Oficer = <b>ranga z rostera</b> gildii, nigdy z rangi, którą ktoś wysyła o sobie.</li>
+<li><b>Autor = nadawca</b> dla pakietów na żywo (czat, wydarzenia, LFG, Discord); FW tylko od znanego relaya i dla gracza z jego gildii.</li>
+<li><b>Treść:</b> <code>Most.Plain</code> (bez <code>|</code>) dla wszystkiego, <code>SanitizeChat</code> dla czatu, limity długości (tytuł 50, opis 400, notka LFG 60, ogłoszenie 180 B).</li>
+<li><b>Kanały:</b> klucz zamiast hasła w kodzie; postać spoza gildii schodzi z kanałów; oficer wymienia klucz, gdy kanał przejmie ktoś obcy. Nieznany autor na kanale – wiadomość niepokazana.</li>
+<li><b>Rostery obce</b> (spoza społeczności) – nie wysyłane, nie przekazywane (1.0.2).</li>
+<li><b>Sekrety</b> (instancje): każdy handler czatu sprawdza <code>Most.IsSecret</code> i pomija zdarzenie z sekretnym tekstem.</li>
+</ul>
+</section>
+
+<section id="instancje"><h2>18. Instancje, walka i blokady gry</h2>
+<ul>
+<li>W dungeonach/BG gra zwraca <b>11 (AddOnMessageLockdown)</b> – kolejka ponawia do 30 razy, potem pakiet przepada; po wyjściu robimy pełny sync.</li>
+<li>Teksty czatu w instancji mogą być <b>sekretami</b> – pomijane.</li>
+<li><code>ListChannelByName</code> blokowane w dungeonie (ADDON_ACTION_BLOCKED) → od 1.0.3 nie wołamy go w walce ani w instancji.</li>
+<li>Combat log zamknięty dla addonów (próba Stats, 13.11). Nieznany event w <code>RegisterEvent</code> przerywa ładowanie pliku – nowe eventy w <code>pcall</code>.</li>
+<li>Monitoring loguje <code>ADDON_ACTION_BLOCKED</code>/<code>FORBIDDEN</code> z nazwą funkcji (1.0.2).</li>
+<li>Gra ma oficjalne API stanu blokad (<code>C_RestrictedActions</code>, <code>InChatMessagingLockdown</code>) – kandydat na przyszłość, patrz <a href="index.html">Forever API › Notatki</a>.</li>
+</ul>
+</section>
+
+<section id="timery"><h2>19. Timery</h2>
+<div class="tw"><table>
+<tr><th>Co</th><th>Jak często</th><th>Gdzie</th></tr>
+<tr><td>Pompa kolejki wysyłki</td><td>0,2 s</td><td>bridge</td></tr>
+<tr><td>Czy zostałem relayem (wtedy PONG)</td><td>5 s</td><td>bridge</td></tr>
+<tr><td>Odkrywanie (relay czyta listy kanałów)</td><td>30 s</td><td>bridge</td></tr>
+<tr><td>Odświeżenie rostera gry</td><td>20 s</td><td>core</td></tr>
+<tr><td>Porównanie rostera / RD / pełny co godzinę</td><td>20 s (od 65 s po logowaniu)</td><td>roster</td></tr>
+<tr><td>PONG, sprzątanie listy, powrót na kanały (1, 2, 4, 8 min, potem co 30)</td><td>60 s</td><td>core</td></tr>
+<tr><td>Lista wersji (zmiany / całość)</td><td>180 s / 900 s</td><td>roster</td></tr>
+<tr><td>Klucz: rozsyłanie przez relaya / bez klucza ponowienie / oficer czyta kanał</td><td>600 s / 60 s / 60 s</td><td>key</td></tr>
+<tr><td>Czat oficerów: kontrola / lista kanału</td><td>60 s / 120 s</td><td>officers</td></tr>
+<tr><td>Własne profesje</td><td>60 s (wysyłka najwyżej co 600 s)</td><td>professions</td></tr>
+<tr><td>LFG heartbeat / sprzątanie</td><td>600 s / 60 s</td><td>lfg</td></tr>
+<tr><td>Licznik czytelników czatu (lista kanału)</td><td>60 s (gdy czat widoczny)</td><td>core</td></tr>
+<tr><td>Monitoring: lista kanału / stan / widok sieci w logu</td><td>30 s / 60 s / 300 s</td><td>monitor</td></tr>
+<tr><td>Przycisk minimapy</td><td>10 s po logowaniu, potem 60 s</td><td>core</td></tr>
+</table></div>
+</section>
+
+<section id="dane"><h2>20. Dane zapisywane (SavedVariables)</h2>
+<div class="tw"><table>
+<tr><th>Zmienna</th><th>Zakres</th><th>Zawartość</th></tr>
+<tr><td><code>JagodkiChatDB</code></td><td>konto</td><td><code>log</code> (czat, 300), <code>key</code>, <code>officerKey</code>, <code>officerLog</code>, <code>mutes</code>, <code>professions</code>, <code>publicNotes</code>, <code>discord</code>, <code>chars["Imię Nazwisko"]</code> (ustawienia per postać, LFG), <code>myCharacters</code>, <code>helpLang</code>, <code>whatsNewSeen</code>, <code>festiveSeen</code></td></tr>
+<tr><td><code>JagodkiRosterDB</code></td><td>konto</td><td>Rostery wszystkich gildii (członkowie, rangi, czasy)</td></tr>
+<tr><td><code>JagodkiEventsDB</code></td><td>konto</td><td>Wydarzenia, zapisy, odwołane ID</td></tr>
+<tr><td><code>JagodkiMinimapDB</code></td><td>konto</td><td>Pozycja przycisku minimapy, rozmiar i miejsce okna</td></tr>
+<tr><td><code>JagodkiMonitorDB</code></td><td>postać</td><td>Preserve logs: <code>recording</code>, <code>lines</code> (pierścień 100 000), <code>nextIndex</code>, <code>total</code></td></tr>
+<tr><td><code>JagodkiCharDB</code></td><td>postać</td><td>Stare ustawienia postaci (od 0.15.4 przenoszone do <code>JagodkiChatDB.chars</code>)</td></tr>
+</table></div>
+<p class="muted">Plik postaci: <code>WTF\Account\&lt;konto&gt;\&lt;serwer&gt;\&lt;postać&gt;\SavedVariables\jagodka.lua</code>; plik konta: <code>WTF\Account\&lt;konto&gt;\SavedVariables\jagodka.lua</code>.</p>
+</section>
+
+<section id="monitoring"><h2>21. Monitoring i diagnostyka</h2>
+<ul>
+<li>Zakładka dla oficerów: log każdego pakietu (typ, rozmiar, droga, czas w kolejce), filtry (Chat, Channel, Events, Rosters, Mutes, Presence, Relay, Sync, Errors), statystyki, widok sieci (relaye, gildie, gracze, obcy na kanałach), lista odmów kanału (CREF).</li>
+<li><b>Preserve logs</b>: ten sam log jako tekst w <code>JagodkiMonitorDB</code> (stan co 60 s, sieć co 300 s); zwykłe sygnały kolegów z gildii tylko liczone. Tylko nazwy, tytuły i typy – nigdy treść wiadomości ani notatek.</li>
+<li>Kategorie w zapisanym logu: <code>[session] [state] [network] [presence] [rosters] [events] [chat] [channel] [mutes] [relay] [sync] [system] [error]</code>.</li>
+<li>Przyciski: Sync now, Outdated test, New chat key, New officers key, Officer actions (Announcement, Chat test, Remind outdated).</li>
+</ul>
+</section>
+
+<section id="komendy"><h2>22. Komendy</h2>
+<div class="tw"><table>
+<tr><th>Komenda</th><th>Działanie</th></tr>
+<tr><td><code>/jagodka</code></td><td>Otwiera / zamyka okno</td></tr>
+<tr><td><code>/jagodka sync</code></td><td>Sync jak po logowaniu (raz na minutę)</td></tr>
+<tr><td><code>/jagodka key</code></td><td>Nowy klucz czatu (oficerowie)</td></tr>
+<tr><td><code>/jagodka tab</code></td><td>Odtwarza zakładkę „Jagodki Nadina - General” w czacie gry</td></tr>
+<tr><td><code>/jagodka minimap</code></td><td>Przywraca przycisk minimapy</td></tr>
+<tr><td><code>/jagodka reset</code></td><td>Domyślny rozmiar okna, na środek ekranu</td></tr>
+<tr><td><code>/jagodka perf [on|off|reset]</code></td><td>Profiler (raport bez słowa)</td></tr>
+<tr><td><code>/jnglobal /jntrade /jnlfg /jnofficers</code></td><td>Przełączenie / jedna wiadomość na czat społeczności</td></tr>
+</table></div>
+</section>
+
+<section id="utrzymanie"><h2>23. Jak utrzymywać ten dokument</h2>
+<ul>
+<li>Przy zmianie protokołu (nowy pakiet, format, stała czasu) – popraw sekcję i <a href="#pakiety">słownik pakietów</a> razem z CHANGELOG.</li>
+<li>Stałe są w nagłówkach plików (<code>local NAZWA = liczba</code>), opisy w komentarzach na górze każdego pliku – stamtąd brany jest ten tekst.</li>
+<li>Kompatybilność wstecz: nowe pola dodawaj na końcu payloadu, nowe typy pakietów starsze wersje ignorują; prośby o sync z nowym typem wymagają <code>minVersion</code> w <code>ShouldAnswer</code>.</li>
+</ul>
+</section>
+</main>
+</div>
+<script>
+(function () {
+  "use strict";
+  function setTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  try { setTheme(localStorage.getItem("fapi-theme")); } catch (e) {}
+  document.getElementById("theme").onclick = function () {
+    var rgb = getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [255, 255, 255];
+    var t = (+rgb[0] + +rgb[1] + +rgb[2]) < 200 ? "light" : "dark"; setTheme(t);
+    try { localStorage.setItem("fapi-theme", t); } catch (e) {}
+  };
+  var sections = Array.prototype.slice.call(document.querySelectorAll("main section"));
+  var toc = document.getElementById("toc"), links = [];
+  sections.forEach(function (s) {
+    var a = document.createElement("a"); a.href = "#" + s.id; a.textContent = s.querySelector("h2").textContent; a.dataset.sec = s.id; toc.appendChild(a); links.push(a);
+    s.querySelectorAll("h3[id]").forEach(function (h) { var b = document.createElement("a"); b.href = "#" + h.id; b.className = "sub"; b.textContent = h.textContent; b.dataset.sec = s.id; toc.appendChild(b); links.push(b); });
+  });
+  // remember original HTML for highlight reset
+  var origs = sections.map(function (s) { return s.innerHTML; });
+  var q = document.getElementById("q"), timer;
+  function reEsc(w) { return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  // Short words (up to 3 letters, e.g. packet types RF, FW, LQ) match whole words only, longer ones anywhere
+  function wordRe(w, flags) { return new RegExp((w.length <= 3 ? "(?:^|[^\\p{L}\\p{N}_])(" : "(") + reEsc(w) + ")" + (w.length <= 3 ? "(?=$|[^\\p{L}\\p{N}_])" : ""), flags + "u"); }
+  function has(text, w) { return wordRe(w, "i").test(text); }
+  // Text of an element with a space between its pieces (textContent glues table cells: "RF" + "roster" = "RFroster")
+  function textOf(el) { var out = [], tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); while (tw.nextNode()) out.push(tw.currentNode.nodeValue); return out.join(" "); }
+  function apply() {
+    var ws = q.value.toLowerCase().split(/\s+/).filter(Boolean), any = false;
+    sections.forEach(function (s) {
+      s.innerHTML = origs[sections.indexOf(s)];
+      if (!ws.length) { s.classList.remove("hidden"); any = true; return; }
+      var text = textOf(s);
+      var hit = ws.every(function (w) { return has(text, w); });
+      s.classList.toggle("hidden", !hit);
+      if (!hit) return;
+      any = true;
+      // in the packet table show only matching rows
+      var rows = s.querySelectorAll("table#ptable tr");
+      rows.forEach(function (tr, i) { if (i === 0) return; var t = textOf(tr); tr.style.display = ws.every(function (w) { return has(t, w); }) ? "" : "none"; });
+      // highlight text nodes (not inside svg)
+      var walker = document.createTreeWalker(s, NodeFilter.SHOW_TEXT, { acceptNode: function (n) { return n.parentNode.closest("svg") || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
+      var nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(function (n) {
+        if (!ws.some(function (w) { return has(n.nodeValue, w); })) return;
+        var html = n.nodeValue.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; });
+        ws.forEach(function (w) {
+          var re = wordRe(w, "gi");
+          html = html.replace(re, function (m, g) { return m.slice(0, m.length - g.length) + "<mark>" + g + "</mark>"; });
+        });
+        var span = document.createElement("span"); span.innerHTML = html;
+        n.parentNode.replaceChild(span, n);
+      });
+    });
+    links.forEach(function (a) { a.classList.toggle("hidden", document.getElementById(a.dataset.sec).classList.contains("hidden")); });
+    document.getElementById("empty").style.display = any ? "none" : "block";
+  }
+  q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(apply, 150); });
+  document.addEventListener("keydown", function (e) { if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+  try { var pq = new URLSearchParams(location.search).get("q"); if (pq) { q.value = pq; apply(); } } catch (e) {}
+  // highlight current section in the TOC
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) links.forEach(function (a) { a.classList.toggle("on", a.getAttribute("href") === "#" + en.target.id); }); });
+  }, { rootMargin: "-70px 0px -70% 0px" });
+  sections.forEach(function (s) { obs.observe(s); });
+})();
+</script>
+</body>
+</html>
