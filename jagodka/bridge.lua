@@ -1117,9 +1117,11 @@ function Most.HasLinkedGuilds()
     return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
 end
 
--- Reads the member list of a channel; the answer stays out of the chat (filter below)
+-- Reads the member list of a channel; the answer stays out of the chat (filter below).
+-- Not in combat or in an instance: the game blocks it there (seen in a dungeon, 1.0.2)
 function Most.ListChannel(name)
     if not _G.ListChannelByName or not name then return end
+    if _G.InCombatLockdown() or _G.IsInInstance() then return end
     listAskedAt = GetTime()
     _G.ListChannelByName(name)
 end

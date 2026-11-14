@@ -21,6 +21,10 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.0.3", {
+        "# Fixes",
+        "No more \"Jagodka has been blocked from an action only available to the Blizzard UI\" in dungeons: the addon no longer reads the channel's player list in combat or in an instance. The counts catch up when you leave.",
+    }, "no blocked actions in dungeons" },
     { "1.0.2", {
         "! Everyone should update: the member lists of the other guilds get fresh faster when everyone has this version.",
         "# New",
