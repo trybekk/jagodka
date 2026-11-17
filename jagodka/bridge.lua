@@ -1134,6 +1134,9 @@ local LIVE_PACKETS = {
     AH = true, AB = true, AX = true,
     -- Officers' big messages for everyone (core.lua): announcements and chat test requests
     CANN = true, CTEST = true,
+    -- 1.1.2: everything else officers do, so it is real time too (rare): update reminders, chat mutes, new chat
+    -- keys (also the relays' key reminders every 10 min, small)
+    UPD = true, MUTE = true, KEY = true,
     -- A delayed status packet would make the player look offline, and their packets would be ignored
     PING = true, PONG = true,
     -- Roster changes (who logged in or out): small and rare, but behind a big guild's full roster they

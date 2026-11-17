@@ -90,7 +90,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <li><b>WHISPER addonu</b> między <b>relayami</b> gildii – relay przepakowuje pakiet gildii jako <code>FW</code> i szepcze relayom innych gildii, a oni wrzucają go do swojej gildii,</li>
 <li><b>zwykłe kanały czatu</b> – publiczny (szukanie innych gildii) i kanał czatu z sekretnego klucza (tekst czatu wpisany przez graczy), plus osobny kanał oficerów.</li>
 </ul>
-<p class="muted">Klient: WoW Forever (interface 16001, retail/Mainline 12.1.5 z ograniczeniami Midnight; szczegóły API w <a href="index.html">Forever API</a>) i Classic Era 11509. Ten dokument opisuje kod z wersji 1.1.1 (szybciej między gildiami: osobne limity szeptów, ogłoszenia prosto do relayów; ogłoszenia oficerów, linki questów, linki z Questie, widoczna gildia VI, relay w instancji oddaje rolę). Liczby w tabelach to stałe z kodu – przy zmianie warto je tu poprawić.</p>
+<p class="muted">Klient: WoW Forever (interface 16001, retail/Mainline 12.1.5 z ograniczeniami Midnight; szczegóły API w <a href="index.html">Forever API</a>) i Classic Era 11509. Ten dokument opisuje kod z wersji 1.1.2 (akcje oficerów prosto do każdej gildii; szybciej między gildiami: osobne limity szeptów, ogłoszenia prosto do relayów; ogłoszenia oficerów, linki questów, linki z Questie, widoczna gildia VI, relay w instancji oddaje rolę). Liczby w tabelach to stałe z kodu – przy zmianie warto je tu poprawić.</p>
 </section>
 
 <section id="moduly"><h2>2. Moduły (pliki)</h2>
@@ -267,9 +267,9 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 <tr><td><code>OMSG</code></td><td>officers</td><td>W</td><td><code>ts:część</code></td><td>Wiadomość oficera do oficerów spoza kanału (inny pod-realm).</td></tr>
 <tr><td><code>OHREQ</code> / <code>OHIST</code></td><td>officers</td><td>W <span class="pill lo">low</span></td><td><code>od</code> / <code>ts:autor:gildia:i:n:tekst</code></td><td>Historia czatu oficerów (do 50).</td></tr>
 <tr><td><code>ORALLY</code></td><td>officers</td><td>W</td><td><code>1</code></td><td>Przycisk „rally” oficerów (co 5 min).</td></tr>
-<tr><td><code>CANN</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>tekst(enc, ≤180 B)</code></td><td>Ogłoszenie oficera – duży napis u wszystkich.</td></tr>
+<tr><td><code>CANN</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>tekst(enc, ≤180 B)</code></td><td>Ogłoszenie oficera – duży napis u wszystkich. Od 1.1.2 także prosto do relayów innych gildii.</td></tr>
 <tr><td><code>CTEST</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>1</code></td><td>Prośba oficera o test czatu.</td></tr>
-<tr><td><code>UPD</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>wersja</code></td><td>„Remind outdated” – notka u starszych wersji.</td></tr>
+<tr><td><code>UPD</code></td><td>core</td><td>G <span class="pill hi">high</span></td><td><code>wersja</code></td><td>„Remind outdated” – notka u starszych wersji. Od 1.1.2 high przez relaye i prosto do relayów innych gildii; odbiorca zapisuje w Monitoringu, czy pokazał i dlaczego nie.</td></tr>
 <tr><td><code>RF</code></td><td>roster</td><td>W do relayów (FW) + 1. część do G <span class="pill lo">low</span></td><td><code>gildia:snap:i:n:pełny(1/0):rangi(1. część):wpisy</code></td><td>Pełny roster: co 60 min i na RQ (najwyżej co 30 min); nadawca rotuje co 5 min.</td></tr>
 <tr><td><code>RD</code></td><td>roster</td><td>G <span class="pill hi">high</span></td><td><code>gildia:wpis;+Imię;-Imię;!Imię…</code></td><td>Zmiany rostera co 20 s (tylko nadawca).</td></tr>
 <tr><td><code>RQ</code></td><td>roster</td><td>G <span class="pill lo">low</span></td><td><code>gildia,gildia…</code></td><td>Relay prosi o brakujące/stare rostery (co 5 min, ponowienia).</td></tr>
@@ -310,6 +310,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 
 <section id="oficerowie"><h2>12. Czat oficerów i narzędzia oficerskie</h2>
 <ul>
+<li><b>Od 1.1.2 akcje oficerów w czasie rzeczywistym:</b> duży napis (<code>CANN</code>), prośba o test czatu (<code>CTEST</code>), przypomnienie o aktualizacji (<code>UPD</code>), wyciszenie (<code>MUTE</code>) i nowy / potwierdzony klucz czatu (<code>KEY</code>) idą do GUILD i dodatkowo prosto do relaya każdej innej gildii (<code>Most.ToOtherGuilds</code>), więc nie zależą od relaya gildii oficera. <code>UPD</code>, <code>MUTE</code>, <code>KEY</code> są w <code>LIVE_PACKETS</code> (high przez relaye od 1.1.2). Drugą kopię odbiorcy odrzucają (napisy raz na minutę, przypomnienie raz na 30 min, wyciszenia i klucze po czasie).</li>
 <li>Osobny kanał z osobnego klucza (<code>JagodkiChatDB.officerKey</code>), klucz <b>tylko szeptem</b> między oficerami wg rosterów (<code>OKEY</code>/<code>OKREQ</code>, pytamy 3 oficerów online). Pakiety FW są tu ignorowane.</li>
 <li>Brak klucza po 120 s (+0–60 s) → oficer tworzy i szepcze wszystkim oficerom online. Nowy klucz: przycisk w Monitoringu albo sam, gdy na kanale jest ktoś z rosterów, kto nie jest oficerem.</li>
 <li>Historia: <code>OHREQ</code>/<code>OHIST</code> (do 50 wiadomości, osobny log <code>JagodkiChatDB.officerLog</code>, 300). Bez kanału wiadomość oficerów nie idzie wcale (wyjątek: OMSG do oficerów spoza kanału).</li>

@@ -3725,6 +3725,12 @@ addonTable.ManualSync = EventSync.ManualSync
 -- relays pass it on like any packet). Receivers show the update note only when their version is older and
 -- the sender is an officer by the guild rosters (update.lua). At most every UPDATE_REMIND_COOLDOWN seconds.
 EventSync.UPDATE_REMIND_COOLDOWN, EventSync.lastUpdateRemind = 300, -300
+-- 1.1.2: officers' messages also go straight to the relay of every other guild (Most.ToOtherGuilds), so they do
+-- not depend on my guild's relay; Monitoring says how many guilds they reached directly
+function EventSync.NoteDirect(what, n)
+if n > 0 then addonTable.Monitor.Note(what .. ": also sent straight to " .. n .. " other guild" .. (n == 1 and "" or "s"))
+else addonTable.Monitor.Note(what .. ": no other guild linked yet - only your guild got it; try again in a few minutes") end
+end
 -- "Chat test" in Monitoring (officers): one CTEST packet to all guilds (GUILD and the relays); everyone with the
 -- addon shows the request to write on each community chat, when it comes from an officer by the rosters.
 -- At most every 5 minutes.
@@ -3735,6 +3741,7 @@ local wait = 300 - (GetTime() - EventSync.lastChatTest)
 if wait > 0 then return false, math.ceil(wait) end
 EventSync.lastChatTest = GetTime()
 SendJagodkaNetworkPacket("CTEST", "1", "high")
+EventSync.NoteDirect("Chat test request", Most.ToOtherGuilds("CTEST", "1"))
 addonTable.Officers.ShowChatTest()
 return true
 end
@@ -3751,6 +3758,7 @@ local wait = 300 - (GetTime() - EventSync.lastAnnounce)
 if wait > 0 then return false, math.ceil(wait) end
 EventSync.lastAnnounce = GetTime()
 SendJagodkaNetworkPacket("CANN", Most.EncodeField(text), "high")
+EventSync.NoteDirect("Announcement", Most.ToOtherGuilds("CANN", Most.EncodeField(text)))
 addonTable.Officers.ShowAnnouncement(text, Most.MyName())
 return true
 end
@@ -3760,6 +3768,7 @@ local wait = EventSync.UPDATE_REMIND_COOLDOWN - (GetTime() - EventSync.lastUpdat
 if wait > 0 then return false, math.ceil(wait) end
 EventSync.lastUpdateRemind = GetTime()
 SendJagodkaNetworkPacket("UPD", ADDON_VERSION, "high")
+EventSync.NoteDirect("Update reminder", Most.ToOtherGuilds("UPD", ADDON_VERSION))
 return true
 end
 local function TryAnnounce()
@@ -3978,7 +3987,15 @@ elseif pType == "CTEST" then
 if senderName ~= myName and senderIsOfficer then addonTable.Officers.ShowChatTest() end
 elseif pType == "UPD" then
 -- An officer's reminder to update: only for an older version than theirs (update.lua)
-if senderName ~= myName and senderIsOfficer and CompareVersions(ADDON_VERSION, payload) < 0 then addonTable.Update.Remind(payload) end
+if senderName ~= myName then
+-- 1.1.2: the reason in Monitoring, so a log shows whether the reminder arrived and why it was not shown
+if not senderIsOfficer then addonTable.Monitor.Note("Update reminder from " .. senderName .. " ignored: not an officer by the guild rosters")
+elseif CompareVersions(ADDON_VERSION, payload) >= 0 then addonTable.Monitor.Note("Update reminder from " .. senderName .. " (" .. tostring(payload) .. "): your version " .. ADDON_VERSION .. " is not older")
+else
+addonTable.Monitor.Note("Update reminder from " .. senderName .. " (" .. tostring(payload) .. ") arrived via " .. tostring(channel))
+addonTable.Update.Remind(payload)
+end
+end
 else
 -- Events (EH/ED/ES/EK/EX, sync EQ/EC): events.lua. Old EV_* packets (before 0.14.0) are ignored.
 -- Announcements (AH/AB/AX, sync AQ/AC): announcements.lua

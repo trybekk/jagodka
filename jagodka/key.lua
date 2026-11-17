@@ -207,6 +207,8 @@ function Key.Create(reason, force, asMember)
     local ts = math.max(GetServerTime(), ((current and current.ts) or 0) + 1)
     Apply(NewKeyText(), ts, MyName(), officer)
     Share()
+    -- 1.1.2: a new key also straight to the other guilds' relays, so every guild moves to the new channel at once
+    if Most.ToOtherGuilds then Most.ToOtherGuilds("KEY", Payload()) end
     if Monitor() then Monitor().Channel("New chat channel key" .. (officer and "" or " (member)") .. ": " .. reason) end
     return true
 end
@@ -217,6 +219,7 @@ local function ConfirmMemberKey()
     if not current or current.officer ~= false or not ctx or not ctx.isMeOfficer() or not Most.IsGuildAllowed(Most.MyGuild()) then return end
     Apply(current.k, math.max(GetServerTime(), (current.ts or 0) + 1), MyName(), true)
     Share()
+    if Most.ToOtherGuilds then Most.ToOtherGuilds("KEY", Payload()) end
     if Monitor() then Monitor().Channel("Confirmed the members' chat channel key as an officer (same channel)") end
 end
 

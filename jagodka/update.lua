@@ -173,12 +173,18 @@ addonTable.SafeScript(RemindCombatWatcher, "OnEvent", "update.lua:173", function
 end)
 function Update.Remind(newest)
     newest = tostring(newest)
-    if remindedAt[newest] and _G.GetTime() - remindedAt[newest] < REMIND_AGAIN_AFTER then return end
+    local Monitor = addonTable.Monitor
+    if remindedAt[newest] and _G.GetTime() - remindedAt[newest] < REMIND_AGAIN_AFTER then
+        if Monitor then Monitor.Note("Update reminder not shown again: already shown less than 30 min ago") end
+        return
+    end
     if InCombatLockdown() then
+        if Monitor and not remindPending then Monitor.Note("Update reminder waits for the end of combat") end
         remindPending = newest
         RemindCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
         return
     end
+    if Monitor then Monitor.Note("Update reminder shown by the minimap button (newest " .. newest .. ")") end
     remindedAt[newest] = _G.GetTime()
     ShowToast(newest)
 end

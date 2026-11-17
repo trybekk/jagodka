@@ -139,6 +139,8 @@ function Mute.Set(name, on, reason)
     local ts = math.max(GetServerTime(), ((mutes[name] and mutes[name].ts) or 0) + 1)
     if not Apply(name, on, ts, me, reason) then return end
     Most.Send("MUTE", Encode(name, mutes[name]), "high")
+    -- 1.1.2: also straight to the other guilds' relays, so the mute works everywhere at once (bridge.lua)
+    if Most.ToOtherGuilds then Most.ToOtherGuilds("MUTE", Encode(name, mutes[name])) end
     -- A regular message on the community chat (like "Event created by ...")
     local text = on and ("Muted " .. name .. " on the community chat (reason: " .. reason .. ")")
         or ("Unmuted " .. name .. " on the community chat")
