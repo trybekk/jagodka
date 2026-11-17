@@ -4,3 +4,6 @@ RELEASE_NOTES.md
 build.ps1
 /jagodka.lua
 doc/.cache/
+/logs/
+/analysis/
+/tools/logs.config.json

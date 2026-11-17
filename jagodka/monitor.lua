@@ -48,6 +48,8 @@ local TYPES = {
     EV_SIGN = { "events", "sign-up" }, EV_SPEC = { "events", "sign-up spec" }, EV_RL = { "events", "raid leader mark" }, EV_KICK = { "events", "removal from event" },
     EH = { "events", "event" }, ED = { "events", "event description" }, ES = { "events", "sign-up" }, EK = { "events", "taken off an event" },
     EX = { "events", "event cancelled" }, EQ = { "events", "events sync request" }, EC = { "events", "events sync taken" },
+    AH = { "events", "announcement" }, AB = { "events", "announcement text" }, AX = { "events", "announcement deleted" },
+    AQ = { "events", "announcements sync request" }, AC = { "events", "announcements sync taken" },
     LF = { "events", "LFG listing" }, LX = { "events", "LFG listing removed" }, LQ = { "events", "LFG sync request" }, LC = { "events", "LFG sync taken" },
     RF = { "rosters", "full roster" }, RD = { "rosters", "roster change" }, RQ = { "rosters", "roster request" },
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
@@ -62,7 +64,7 @@ local FILTERS = {
     { key = "mutes", label = "Mutes" }, { key = "presence", label = "Presence" }, { key = "relay", label = "Relay" }, { key = "sync", label = "Sync" },
     { key = "errors", label = "Errors" },
 }
-local SYNC_STAGES = { "channel", "history", "events", "rosters", "lfg" }
+local SYNC_STAGES = { "channel", "history", "events", "rosters", "lfg", "announcements" }
 
 local Monitor = {}
 addonTable.Monitor = Monitor

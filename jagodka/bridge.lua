@@ -481,14 +481,60 @@ end
 local LFG_MARK = "!lfg "
 local function LfgLink(author) return "|cff6cc4e6|Hgarrmission:jagodkalfg:" .. tostring(author) .. "|h[Open in LFG]|h|r" end
 
+-- Questie's shift + click (map icons, tracker, its journal) inserts plain text "[[40] Quest name (94533)]"
+-- or "[Quest name (94533)]", not a link; Questie turns it into a link only in the game's chat windows
+-- (a filter on CHAT_MSG_*), which our display skips. Here, outside real links, such text becomes the
+-- game's quest link "quest:ID:level" (the form GetQuestLink gives); a click shows the quest (Questie's
+-- tooltip when installed). Built by each client, never sent.
+local function QuestieTextToLinks(text)
+    if not text:find("(%d+)%)%]") then return text end
+    local function Convert(part)
+        part = part:gsub("%[%[(%d+)%] ([^%[%]|]-) %((%d+)%)%]", function(level, name, id)
+            return "|cffffff00|Hquest:" .. id .. ":" .. level .. "|h[[" .. level .. "] " .. name .. "]|h|r"
+        end)
+        return (part:gsub("%[([^%[%]|]-) %((%d+)%)%]", function(name, id)
+            return "|cffffff00|Hquest:" .. id .. ":0|h[" .. name .. "]|h|r"
+        end))
+    end
+    local out, pos = {}, 1
+    while true do
+        local s, e = text:find(LINK_CANDIDATE, pos)
+        table.insert(out, Convert(text:sub(pos, s and (s - 1) or #text)))
+        if not s then break end
+        table.insert(out, text:sub(s, e))
+        pos = e + 1
+    end
+    return table.concat(out)
+end
+
+-- 1.1.0: an officer's note about a new announcement (announcements.lua) is plain text, readable for older
+-- versions too: "New announcement: Title [Raid] (Announcements tab)". Here it gets a compact look: the label in
+-- gold, the title in white and an [Open announcement] link (opens the tab) in place of the ending.
+Most.ANN_NOTE_END = "(Announcements tab)"
+local ANN_NOTE = "^New announcement: (.+) %(Announcements tab%)$"
+local function AnnouncementNote(text)
+    local rest = text:match(ANN_NOTE)
+    if not rest then return nil end
+    local title, tag = rest:match("^(.-) %[(%a+)%]$")
+    title = title or rest
+    return "|cffffd100New announcement:|r |cffffffff" .. title .. "|r" .. (tag and (" |cff9d7fc0[" .. tag .. "]|r") or "")
+        .. " |cff6cc4e6|Hgarrmission:jagodkaann:1|h[Open announcement]|h|r"
+end
+
 function Most.FormatEntry(e, textColor, showTime)
     if e.src == "S" then return "|cff00ccff[System]: " .. e.text .. "|r" end
     local text = e.text
+    local note = AnnouncementNote(text)
+    if note then
+        local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
+        return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), note)
+    end
     local lfg = text:sub(1, #LFG_MARK) == LFG_MARK
     if lfg then text = text:sub(#LFG_MARK + 1) end
     -- 0.15.6: a sign-up notice (events.lua) ends with <jn-event:id>: an [Open event] link, built here
     local eventId = text:match(" <jn%-event:(%w+)>$")
     if eventId then text = text:gsub(" <jn%-event:%w+>$", "") end
+    text = QuestieTextToLinks(text)
     if textColor then text = "|c" .. textColor .. text:gsub("|r", "|r|c" .. textColor) .. "|r" end
     if lfg then text = text .. " " .. LfgLink(e.author) end
     if eventId then text = text .. " |cff6cc4e6|Hgarrmission:jagodkaev:" .. eventId .. "|h[Open event]|h|r" end
@@ -504,16 +550,23 @@ function Most.OnNewEntry(fn) table.insert(entryListeners, fn) end
 -- RELAY: one person with the addon per guild links it to other guilds
 -- ============================================================================
 -- Relay of any guild (the same rule is computed by everyone, so everyone sees the same result)
+-- 1.1.0: a player in a dungeon, raid or battleground is never the relay. The game blocks addon messages there,
+-- and on 16.11 Jagódki Nadina II was cut off from the other guilds for 14 minutes while its relay was silent but
+-- still counted as relay. Now I do not count myself while inside, and I do not send my regular online signal
+-- (ShouldSendPong), so my guildmates pick the next relay after ONLINE_TIMEOUT, also those with older versions.
+-- Leaving the instance runs the sync with my status (core.lua), and I am the relay again.
 function Most.GetRelayName(guild)
     guild = guild or MyGuild()
     if not guild or not ctx then return nil end
-    local best = (guild == MyGuild()) and MyName() or nil
-    local now = GetTime()
     local isMyGuild = (guild == MyGuild())
+    local meInside = isMyGuild and _G.IsInInstance() and true or false
+    local best = (isMyGuild and not meInside) and MyName() or nil
+    local now = GetTime()
     for _, p in ipairs(ctx.activePlayers) do
         -- A guildmate logged out according to the roster cannot be relay, even before the timeout passes
         local offlineInRoster = isMyGuild and guildmateOnlineCheck ~= nil and guildmateOnlineCheck(p.name) == false
-        if p.guild == guild and not offlineInRoster and (now - (p.lastSeen or 0)) < ONLINE_TIMEOUT and (not best or p.name < best) then
+        if p.guild == guild and not offlineInRoster and not (meInside and p.name == MyName())
+            and (now - (p.lastSeen or 0)) < ONLINE_TIMEOUT and (not best or p.name < best) then
             best = p.name
         end
     end
@@ -876,6 +929,8 @@ function Most.ShouldSendPong()
         if addonTable.Monitor then addonTable.Monitor.Note(quiet and "Quiet online signals on: only the first " .. QUIET_FAST .. " names of the guild signal every minute, the rest every " .. (QUIET_EVERY / 60) .. " min"
             or "Quiet online signals off (older versions online in the guild): everyone signals every minute") end
     end
+    -- 1.1.0: no regular signal from inside an instance (see GetRelayName), so the guild picks another relay
+    if _G.IsInInstance() then return false end
     local send = true
     if quiet and now - lastPongAt < QUIET_EVERY then
         -- Am I among the first QUIET_FAST names of my guild's online addon players?
@@ -983,6 +1038,8 @@ local LIVE_PACKETS = {
     EH = true, ED = true, ES = true, EK = true, EX = true,
     -- LFG listings (lfg.lua)
     LF = true, LX = true,
+    -- Announcements (announcements.lua, 1.1.0)
+    AH = true, AB = true, AX = true,
     -- Officers' big messages for everyone (core.lua): announcements and chat test requests
     CANN = true, CTEST = true,
     -- A delayed status packet would make the player look offline, and their packets would be ignored
@@ -1041,6 +1098,7 @@ local OWN_GUILD_ONLY = {
     HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true, LQ = true, LC = true,
     PREQ = true, PREQN = true, PCLAIM = true,
     DQ = true, DC = true,   -- Discord names (discord.lua)
+    AQ = true, AC = true,   -- Announcements sync (announcements.lua)
 }
 
 local foreignRosterNoted = {} -- origin -> true: their foreign roster was noted in Monitoring

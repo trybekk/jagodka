@@ -189,17 +189,17 @@ end
 --  * Shown once per version on each account, 25 s after the first login with it (core.lua calls
 --    Update.ShowWhatsNewOnce), after combat when it comes during one. No notes for a version = the old chat
 --    line instead (core.lua).
---  * A version in SPECIAL (1.0.0: out of beta) gets the festive look: a gold frame, the berry, a headline,
---    a thank-you line, and a short fanfare (about 3 s).
---  * Monitoring has temporary buttons that show both, to see them before a release.
+--  * The festive look (SPECIAL; made for 1.0.0, out of beta): a gold frame, the berry, a headline, a thank-you
+--    line, a fanfare and fireworks. Since 1.1.0 never shown by itself; kept for later use
+--    (Update.ShowWhatsNew(version, true), Monitoring > Fireworks shows it on your own screen).
 -- The notes of a version come from releasenotes.lua (the same as the Release Notes tab and RELEASE_NOTES.md)
 local function NotesFor(version) return addonTable.ReleaseNotes and addonTable.ReleaseNotes.Get(version) end
--- Festive shows by MINOR version ("1.0" = every 1.0.x): each account sees it once, with the first version of
--- that line it runs (JagodkiChatDB.festiveSeen), so players who update later see it too
+-- The festive show's texts (made for 1.0.0, key "1.0"; a version without its own entry uses "1.0").
+-- %VERSION% in the intro = the version it is shown for.
 local SPECIAL = {
     ["1.0"] = {
         headline = "Out of beta!",
-        intro = "Thank you to everyone who tested the beta, reported problems and shared ideas. Jagodka is now 1.0.0: one community for all our guilds.",
+        intro = "Thank you to everyone who tested the beta, reported problems and shared ideas. Jagodka is now %VERSION%: one community for all our guilds.",
         -- The authors' thanks, in the game's standard yellow (the font's own color), bigger
         -- Under the thank-you: the authors in the game's standard yellow, then their "Thank you!" in big red
         sign = "Lasarr & Trybekk",
@@ -539,7 +539,7 @@ local function MinorOf(version) return tostring(version or ""):match("^(%d+%.%d+
 -- the notes of this version or, when it has none, of the line's first one ("1.0.0"). False = nothing to show.
 function Update.ShowWhatsNew(version, festive)
     version = version or GetAddOnMetadata(addonName, "Version") or "?"
-    local special = festive and SPECIAL[MinorOf(version) or ""] or nil
+    local special = festive and (SPECIAL[MinorOf(version) or ""] or SPECIAL["1.0"]) or nil
     -- The festive window lists no changes (they are in the Release Notes tab): only the thank-you and signature
     local lines = NotesFor(version)
     if not lines and not special then return false end
@@ -581,7 +581,7 @@ function Update.ShowWhatsNew(version, festive)
     if special then
         -- Festive: the thank-you, signed by the authors in the game's standard yellow, a bigger font
         news.intro:SetWidth(width - 56)
-        news.intro:SetText(special.intro)
+        news.intro:SetText((special.intro:gsub("%%VERSION%%", version)))
         Place(news.intro, 14)
         news.sign:SetText(special.sign or "")
         Place(news.sign, 14)
@@ -613,16 +613,11 @@ end
 
 -- Once per version on this account (JagodkiChatDB.whatsNewSeen, core.lua); out of combat. Returns false
 -- when this version has no notes (core.lua then writes its chat line).
--- Shows it and only then marks it seen on this account (whatsNewSeen for the version, festiveSeen for the 1.0
--- line), so a show that never got on screen (e.g. logging out during the fight it waited for) comes next time
-local function ShowAndMark(version, festive)
-    local db = _G.JagodkiChatDB
-    if not Update.ShowWhatsNew(version, festive) then return false end
-    db.whatsNewSeen = version
-    if festive then
-        db.festiveSeen = db.festiveSeen or {}
-        db.festiveSeen[MinorOf(version)] = true
-    end
+-- Shows it and only then marks it seen on this account, so a window that never got on screen (e.g. logging
+-- out during the fight it waited for) comes next time
+local function ShowAndMark(version)
+    if not Update.ShowWhatsNew(version) then return false end
+    _G.JagodkiChatDB.whatsNewSeen = version
     return true
 end
 local newsPending = nil
@@ -631,24 +626,22 @@ addonTable.SafeScript(NewsCombatWatcher, "OnEvent", "update.lua:news", function(
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     local pending = newsPending
     newsPending = nil
-    if pending then ShowAndMark(pending.version, pending.festive) end
+    if pending then ShowAndMark(pending) end
 end)
--- The festive show the first time this account runs a version of a festive line (1.0.x, also on a fresh
--- install), otherwise the regular notes of this version (after an update or a fresh install alike). Exactly
--- once: core.lua calls it only while whatsNewSeen is not this version, and it is marked when shown.
+-- The regular notes of this version, after every update and on a fresh install alike. Exactly once: core.lua
+-- calls it only while whatsNewSeen is not this version, and it is marked when shown.
+-- 1.1.0: the festive show is never automatic any more (it was a one-off for 1.0.x, user's decision
+-- 2026-11-17); the show itself stays for later use (Update.ShowWhatsNew(version, true), Monitoring > Fireworks).
 -- Returns false when there is nothing to show (core.lua then writes its chat line and marks the version).
 function Update.ShowWhatsNewOnce(version)
-    local minor = MinorOf(version)
     _G.JagodkiChatDB = _G.JagodkiChatDB or {}
-    local db = _G.JagodkiChatDB
-    local festive = minor ~= nil and SPECIAL[minor] ~= nil and not (db.festiveSeen and db.festiveSeen[minor])
-    if not festive and not NotesFor(version) then return false end
+    if not NotesFor(version) then return false end
     if InCombatLockdown() then
-        newsPending = { version = version, festive = festive }
+        newsPending = version
         NewsCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
         return true
     end
-    return ShowAndMark(version, festive)
+    return ShowAndMark(version)
 end
 
 -- Monitoring: the newest notes as a regular window (temporary test button), and the festive show with the

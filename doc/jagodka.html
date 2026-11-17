@@ -83,14 +83,14 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <div class="empty" id="empty">Nic nie pasuje.</div>
 
 <section id="przeglad"><h2>1. Przegląd</h2>
-<p>Jagodka łączy gildie społeczności <b>Jagódki Nadina</b> (JN, JN2, JN3 = „IIl”, JN4; na liście są też V i VI, jeszcze niezałożone) w jedną sieć: wspólny czat (General, Trade, LFG), czat oficerów, wspólną listę członków wszystkich gildii, wydarzenia z zapisami, LFG, profesje, notatki, nazwy Discord i narzędzia oficerskie (Monitoring, ogłoszenia, wyciszenia).</p>
+<p>Jagodka łączy gildie społeczności <b>Jagódki Nadina</b> (JN, JN2, JN3 = „IIl”, JN4, JN6 – widoczna od 1.1.0; na liście jest też V, jeszcze niezałożona i ukryta przez <code>GuildsNotShown</code>) w jedną sieć: wspólny czat (General, Trade, LFG), czat oficerów, wspólną listę członków wszystkich gildii, wydarzenia z zapisami, LFG, profesje, notatki, nazwy Discord i narzędzia oficerskie (Monitoring, duże napisy, wyciszenia) oraz zakładkę ogłoszeń oficerów (Announcements, od 1.1.0).</p>
 <p>Gra pokazuje każdemu tylko <b>jego własną gildię</b>, a wiadomości addonów nie da się wysłać na kanał gracza (w Classic <code>SendAddonMessage(…,"CHANNEL")</code> zwraca 4 = InvalidChatType). Dlatego całość stoi na trzech drogach:</p>
 <ul>
 <li><b>GUILD</b> – pakiet do wszystkich z addonem w mojej gildii,</li>
 <li><b>WHISPER addonu</b> między <b>relayami</b> gildii – relay przepakowuje pakiet gildii jako <code>FW</code> i szepcze relayom innych gildii, a oni wrzucają go do swojej gildii,</li>
 <li><b>zwykłe kanały czatu</b> – publiczny (szukanie innych gildii) i kanał czatu z sekretnego klucza (tekst czatu wpisany przez graczy), plus osobny kanał oficerów.</li>
 </ul>
-<p class="muted">Klient: WoW Forever (interface 16001, retail/Mainline 12.1.5 z ograniczeniami Midnight; szczegóły API w <a href="index.html">Forever API</a>) i Classic Era 11509. Ten dokument opisuje kod z wersji 1.0.3. Liczby w tabelach to stałe z kodu – przy zmianie warto je tu poprawić.</p>
+<p class="muted">Klient: WoW Forever (interface 16001, retail/Mainline 12.1.5 z ograniczeniami Midnight; szczegóły API w <a href="index.html">Forever API</a>) i Classic Era 11509. Ten dokument opisuje kod z wersji 1.1.0 (ogłoszenia oficerów, linki questów, linki z Questie, widoczna gildia VI, relay w instancji oddaje rolę). Liczby w tabelach to stałe z kodu – przy zmianie warto je tu poprawić.</p>
 </section>
 
 <section id="moduly"><h2>2. Moduły (pliki)</h2>
@@ -114,6 +114,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <tr><td><code>chattab.lua</code></td><td>Zakladka</td><td>Zakładka „Jagodki Nadina - General” w czacie gry, pisanie z niej na kanał.</td></tr>
 <tr><td><code>instances.lua</code></td><td>Instances</td><td>Lista instancji (Era / Forever, daty otwarcia).</td></tr>
 <tr><td><code>events.lua</code></td><td>Events</td><td>Wydarzenia: dane, reguły, synchronizacja (EH/ED/ES/EK/EX, EQ/EC), przypomnienia.</td></tr>
+<tr><td><code>announcements.lua</code></td><td>Announcements</td><td>Zakładka Announcements (od 1.1.0): ogłoszenia oficerów jak mały blog, dane, reguły i sync (AH/AB/AX, AQ/AC), edytor, licznik nieprzeczytanych.</td></tr>
 <tr><td><code>releasenotes.lua</code>, <code>update.lua</code></td><td>ReleaseNotes, Update</td><td>Zakładka Release Notes, okno „co nowego”, notka o starej wersji (UPD).</td></tr>
 <tr><td><code>core.lua</code></td><td>EventSync</td><td>Okno i zakładki, lista dozwolonych gildii, status graczy (PING/PONG, <code>activePlayers</code>), odbiornik <code>CHAT_MSG_ADDON</code> i rozdzielanie pakietów, sync po logowaniu, CANN/CTEST/UPD, komendy, minimapa.</td></tr>
 </table></div>
@@ -173,7 +174,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 
 <section id="relay"><h2>5. Relay – łącznik gildii</h2>
 <ul>
-<li><b>Kto jest relayem:</b> alfabetycznie pierwsze imię wśród graczy z addonem online w danej gildii (<code>Most.GetRelayName</code>). Każdy liczy to samo, więc wszyscy zgadzają się bez głosowania. Online = sygnał w ciągu <code>ONLINE_TIMEOUT</code> 150 s; we własnej gildii gracz, którego roster gry pokazuje offline, odpada od razu.</li>
+<li><b>Kto jest relayem:</b> alfabetycznie pierwsze imię wśród graczy z addonem online w danej gildii (<code>Most.GetRelayName</code>). Każdy liczy to samo, więc wszyscy zgadzają się bez głosowania. Online = sygnał w ciągu <code>ONLINE_TIMEOUT</code> 150 s; we własnej gildii gracz, którego roster gry pokazuje offline, odpada od razu. <b>Od 1.1.0 gracz w instancji</b> (dungeon, raid, BG; <code>IsInInstance()</code>) nie liczy siebie i nie wysyła regularnego PONG (<code>Most.ShouldSendPong</code>), więc po 150 s gildia wybiera następnego relaya (działa też u starszych wersji). Po wyjściu sync wysyła jego status i znów jest relayem. Powód: 16.11 relay JN2 był „cichy”, a dalej liczony jako relay – JN2 była odcięta od reszty 14 min.</li>
 <li>Przez pierwsze <b>5 s</b> po logowaniu (<code>RELAY_READY_DELAY</code>) nie przekazujemy niczego – świeży gracz jeszcze nikogo nie zna i uważałby się za relaya.</li>
 <li><b>Przekazywanie (<code>Most.Route</code>):</b> relay dostaje pakiet z GUILD → owija go w <code>FW:nadawca:PAKIET</code> → szepcze do relaya każdej innej znanej gildii. Odbiorca wrzuca <code>FW:…</code> bez zmian do swojej GUILD; wszyscy w tej gildii rozpakowują go i obsługują jako pakiet od <i>nadawcy</i>. FW nie jest przekazywane dalej.</li>
 <li><b>Nie wychodzą poza gildię</b> (<code>OWN_GUILD_ONLY</code>), chyba że wysłał je sam relay: PING, PONG, KREQ, HREQ/HCLAIM, EQ/EC, LQ/LC, MREQ/MCLAIM, PREQ/PREQN/PCLAIM, DQ/DC (i stare EV_REQ/EV_CLAIM). Statusy wszystkich graczy zapchałyby relaya; inne gildie znają naszych graczy z rostera, a potrzebują tylko statusu samego relaya.</li>
@@ -196,7 +197,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <pre>PING|PONG : poziom : KLASA : gildia : ranga : wersja : indeksRangi : strefa(enc)</pre>
 <ul>
 <li><b>PING</b> – „jestem, odpowiedzcie”: po logowaniu (gdy gra zna już gildię), przy otwarciu okna, przy zmianie gildii, w <code>/jagodka sync</code>. Odpowiada tylko <b>relay</b> (PONG + profesje szeptem, po 0,2–1,5 s).</li>
-<li><b>PONG</b> – „nadal jestem” co 60 s. <b>Ciche sygnały</b> (0.15.3): gdy ≤10% graczy z addonem w gildii ma wersję starszą niż 0.15.3, co minutę mówi tylko 5 pierwszych alfabetycznie (kandydaci na relaya), reszta co 10 min; nowsi trzymają takiego gracza 720 s (<code>QUIET_KEEP</code>).</li>
+<li><b>PONG</b> – „nadal jestem” co 60 s. <b>Ciche sygnały</b> (0.15.3): gdy ≤10% graczy z addonem w gildii ma wersję starszą niż 0.15.3, co minutę mówi tylko 5 pierwszych alfabetycznie (kandydaci na relaya), reszta co 10 min; nowsi trzymają takiego gracza 720 s (<code>QUIET_KEEP</code>). <b>W instancji</b> (od 1.1.0) PONG co minutę nie idzie wcale (<code>Most.ShouldSendPong</code>), żeby gildia wybrała innego relaya; odpowiedź PONG na czyjś PING zostaje.</li>
 <li><b>activePlayers</b> (core.lua): lista graczy z addonem online: name, level, class, guild, rank, rankIndex, version, zone, lastSeen. Sygnał bez zmian aktualizuje tylko czas (bez przerysowania tabel).</li>
 <li><b>Usuwanie (<code>PruneOfflinePlayers</code>, co 60 s i przy zmianie rostera):</b> gracz mojej gildii offline w rosterze gry (i bez sygnału od 30 s); gracz innej gildii, którego roster jego gildii mówi offline (i bez sygnału od 30 s); moja inna postać; brak sygnału dłużej niż 150 s (inne gildie) albo 150/720 s (moja).</li>
 <li><b>Ochrona przed podszywaniem:</b> gildia musi być na liście; kto podaje moją gildię, musi być w rosterze gry; kto podaje inną naszą gildię, nie może być nieobecny w jej świeżym rosterze. Sygnał gracza innej gildii oznacza go online w jej rosterze (<code>Roster.MarkOnline</code>, 1.0.2).</li>
@@ -218,11 +219,12 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <text x="40" y="160" class="small">Klucz czatu: KREQ zaraz po logowaniu; bez odpowiedzi po 120 s (+0–90 s) klucz tworzy oficer albo relay.</text>
 <text x="40" y="180" class="small">Profesje: własne PROF po 6 s; PREQ po 10 s, ponowienia po 25 s (max 2). Discord: DQ po 90 s, własne DI po 2–5 min.</text>
 <text x="40" y="200" class="small">Czasy syncu liczone od pierwszego PING (TryAnnounce). Kanały: dołączenie 8 s po PLAYER_LOGIN, żeby nie zająć /1 przed General.</text>
+<text x="40" y="220" class="small">Ogłoszenia (od 1.1.0): AQ 8 s po starcie syncu, razem z resztą (powtórka po 14 s u relaya).</text>
 </svg>
 <ul>
-<li><b>Jedna odpowiedź na prośbę</b> (<code>Most.ShouldAnswer</code> + <code>Most.ClaimAndAnswer</code>): odpowiadać próbuje tylko ok. <b>4</b> losowych graczy gildii (nigdy relay, jeśli może ktoś inny). Każdy czeka losowo 0,5–2,5 s, wysyła <b>CLAIM</b> (HCLAIM/EC/LC/MCLAIM/PCLAIM/DC), czeka jeszcze 1,5 s – czyjś wcześniejszy claim (albo równoczesny z imieniem wcześniej w alfabecie) anuluje jego odpowiedź. Odpowiedź idzie szeptem, zwykle low.</li>
+<li><b>Jedna odpowiedź na prośbę</b> (<code>Most.ShouldAnswer</code> + <code>Most.ClaimAndAnswer</code>): odpowiadać próbuje tylko ok. <b>4</b> losowych graczy gildii (nigdy relay, jeśli może ktoś inny). Każdy czeka losowo 0,5–2,5 s, wysyła <b>CLAIM</b> (HCLAIM/EC/LC/MCLAIM/PCLAIM/DC/AC), czeka jeszcze 1,5 s – czyjś wcześniejszy claim (albo równoczesny z imieniem wcześniej w alfabecie) anuluje jego odpowiedź. Odpowiedź idzie szeptem, zwykle low.</li>
 <li><b>Prośby syncu zostają w gildii</b> – każda gildia ma te same dane, więc odpowiada własna.</li>
-<li><b><code>/jagodka sync</code></b> (i przycisk Sync now): PING, HREQ, MREQ, +2 EQ, +4 RQ, +6 PREQ, +8 KREQ, +10 OKREQ, +12 LQ; najwyżej raz na minutę.</li>
+<li><b><code>/jagodka sync</code></b> (i przycisk Sync now): PING, HREQ, MREQ, +2 EQ, +4 RQ, +6 PREQ, +8 KREQ, +10 OKREQ, +12 LQ, +14 AQ; najwyżej raz na minutę.</li>
 <li><b>Po wyjściu z instancji</b> (PLAYER_ENTERING_WORLD poza instancją): po 5 s dołączenie do kanałów i to samo co <code>/jagodka sync</code> – w środku gra blokowała wiadomości (kod 11) i dawała sekrety.</li>
 </ul>
 </section>
@@ -230,7 +232,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <section id="czat"><h2>9. Wspólny czat</h2>
 <h3 id="czat-wysylanie">Wysyłanie</h3>
 <ol>
-<li>Gracz pisze w oknie addonu albo w zakładce czatu gry → <code>Most.SayOnChannel</code>: zwykły <code>SendChatMessage(…,"CHANNEL")</code> na <b>kanał z klucza</b> (bez klucza – publiczny). Trade i LFG mają tag <code>[Trade] </code> / <code>[LFG] </code>. Gra wymaga przy tym naciśnięcia klawisza, dlatego to musi iść prosto z pola wpisywania.</li>
+<li>Gracz pisze w oknie addonu albo w zakładce czatu gry → <code>Most.SayOnChannel</code>: zwykły <code>SendChatMessage(…,"CHANNEL")</code> na <b>kanał z klucza</b> (bez klucza – publiczny). Trade i LFG mają tag <code>[Trade] </code> / <code>[LFG] </code>. Gra wymaga przy tym naciśnięcia klawisza, dlatego to musi iść prosto z pola wpisywania.<br>Linki (Shift + klik na przedmiot, quest, zaklęcie…) gra wstawia tylko do swojego okna czatu, więc <code>core.lua</code> podpina <code>ChatFrameUtil.InsertLink</code> (Forever: log i tracker questów, torby wołają tylko tę) i stary alias <code>ChatEdit_InsertLink</code> (Classic, inne addony); gdy pole Jagodki ma fokus, link trafia do niego (ten sam link w tej samej chwili tylko raz). Do 1.0.3 był podpięty tylko alias, przez co questy się nie wstawiały.<br>Questie przy Shift + klik (ikony na mapie, jego tracker, dziennik) wstawia zwykły tekst <code>[[40] Nazwa (94533)]</code> i robi z niego link tylko w oknach czatu gry (filtr <code>CHAT_MSG_*</code>), których nasz czat nie przechodzi. Dlatego <code>Most.FormatEntry</code> (<code>QuestieTextToLinks</code>, od 1.1.0) zamienia taki tekst poza prawdziwymi linkami na link gry <code>quest:ID:poziom</code>; budowany u odbiorcy, nic nie jest wysyłane inaczej.</li>
 <li><b>Zawsze też przez gildie</b> (0.15.4, <code>AlsoThroughGuilds</code>): ta sama wiadomość jako <code>GMSG</code> do GUILD i przez relaye – kanał gracza działa tylko w obrębie pod-realmu Forever.</li>
 <li>Kontrola echa: serwer odsyła naszą wiadomość z kanału; brak w 8 s → wpis w Monitoringu, a gdy w tej sesji nie wróciła żadna – czat idzie tylko przez gildie do /reload.</li>
 </ol>
@@ -278,6 +280,10 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 <tr><td><code>EQ</code> / <code>EC</code></td><td>events</td><td>G tylko gildia</td><td><code>od</code> / <code>proszący</code></td><td>Sync wydarzeń: tylko zmiany nowsze niż „od” (−10 min).</td></tr>
 <tr><td><code>LF</code> / <code>LX</code></td><td>lfg</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>imię:ts:klasa:poziom:role:typNazwa;…:notka</code> / <code>imię:ts</code></td><td>Ogłoszenie LFG (co 10 min, wygasa po 3 h) / zdjęcie.</td></tr>
 <tr><td><code>LQ</code> / <code>LC</code></td><td>lfg</td><td>G tylko gildia</td><td><code>1</code> / <code>proszący</code></td><td>Sync LFG po logowaniu.</td></tr>
+<tr><td><code>AH</code></td><td>announcements</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>id:rev:edytor:autor:gildia:utworzone:tag:przypięte:tytuł:części</code></td><td>Nagłówek ogłoszenia (nowe, edycja, przypięcie). Tag N/I/R/E.</td></tr>
+<tr><td><code>AB</code></td><td>announcements</td><td>jw.</td><td><code>id:rev:część:tekst</code></td><td>Treść ogłoszenia (do 1200 B, części po 170).</td></tr>
+<tr><td><code>AX</code></td><td>announcements</td><td>jw.</td><td><code>id:czas:kto</code></td><td>Usunięcie ogłoszenia.</td></tr>
+<tr><td><code>AQ</code> / <code>AC</code></td><td>announcements</td><td>G tylko gildia</td><td><code>od</code> / <code>proszący</code></td><td>Sync ogłoszeń: tylko zmiany nowsze niż „od” (−10 min); odpowiadają wersje od 1.1.0.</td></tr>
 <tr><td><code>MUTE</code></td><td>mute</td><td>G <span class="pill hi">high</span> / W sync</td><td><code>imię:1|0:ts:przez:powód</code></td><td>Wyciszenie / odciszenie (nowsze wygrywa).</td></tr>
 <tr><td><code>MREQ</code> / <code>MCLAIM</code></td><td>mute</td><td>G tylko gildia</td><td><code>od</code> / <code>proszący</code></td><td>Sync wyciszeń.</td></tr>
 <tr><td><code>PROF</code></td><td>professions</td><td>G <span class="pill lo">low</span> / W</td><td><code>A=300/300,H=285/300</code> (kody profesji)</td><td>Po logowaniu i przy zmianie (najwyżej co 10 min); odpowiedź relaya na PING.</td></tr>
@@ -343,6 +349,20 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 </ul>
 </section>
 
+<section id="ogloszenia"><h2>15a. Ogłoszenia oficerów (Announcements, od 1.1.0)</h2>
+<ul>
+<li><b>Zakładka</b> (tab 11, zaraz po Community Chat, ikona zwoju): karty jak w małym blogu – kolorowy tag (General / Important / Raid / Event, kody N/I/R/E), tytuł, autor w kolorze klasy, tag gildii, pełna data z „x h ago”, treść. Przypięte (złota ramka) na górze, reszta od najnowszych; filtr tagów; po <b>10</b> na stronę (pasek stron tylko przy więcej niż jednej). Pusta lista: jagódka i „No announcements yet”. Przycisk „?” otwiera temat Help.</li>
+<li><b>Kto:</b> piszą oficerowie (wg rosterów, <code>IsKnownOfficer</code>); edytuje, przypina i usuwa <b>wyłącznie oficer</b> (sprawdzany w chwili zmiany): autor albo oficer gildii ogłoszenia; autor bez rangi już nie może (<code>MayManage</code>). Reguły sprawdza autor i każdy odbiorca; pakiet na żywo musi przyjść od edytora / usuwającego. Najwyżej <b>6</b> nowych ogłoszeń jednego autora na 24 h (<code>PER_DAY</code>).</li>
+<li><b>Limity:</b> tytuł 60 B, treść 1200 B (części po 170 B zakodowane, max 10), ogłoszenie znika <b>60 dni</b> po napisaniu (<code>KEEP</code>), trzymamy max <b>40</b> (najstarsze nieprzypięte wypadają), usunięte ID pamiętane 70 dni.</li>
+<li><b>Pakiety:</b> <code>AH</code> + <code>AB</code> przy dodaniu, edycji i przypięciu, <code>AX</code> przy usunięciu – do GUILD, przez relaye high (<code>LIVE_PACKETS</code>). Sync jak w wydarzeniach: <code>AQ:od</code> (najnowsza znana zmiana − 10 min, tylko gildia) → jeden gracz <code>AC</code> i szeptem tylko nowsze zmiany (low); odpowiadają tylko wersje od 1.1.0 (<code>ShouldAnswer("1.1.0")</code>), ten sam proszący najwyżej co 120 s. Etap „Announcements” na pasku syncu.</li>
+<li><b>Nieprzeczytane:</b> zielona liczba na przycisku zakładki (ogłoszenia nowsze niż <code>seen</code>, bez moich); znaczek NEW do następnego otwarcia.</li>
+<li><b>Notka na czacie:</b> po kliknięciu Publish (nowe ogłoszenie, nie edycja) autor wysyła na czat General (<code>Most.PublishTyped("Ogolny", …)</code>, kanał z klucza + GMSG) zwykły tekst <code>New announcement: Tytuł [Tag] (Announcements tab)</code>. Wersje od 1.1.0 rozpoznają go w <code>Most.FormatEntry</code> (<code>AnnouncementNote</code>) i pokazują kompaktowo: złota etykieta, biały tytuł, tag i link <code>garrmission:jagodkaann</code> „[Open announcement]” (otwiera zakładkę, <code>addonTable.OpenAnnouncements</code>). Starsze wersje widzą czytelny tekst. Wyciszony oficer nie wysyła notki.</li>
+<li><b>Odporność syncu:</b> <code>AQ</code>/<code>AC</code> przyjmowane tylko prosto z GUILD (relaye 1.0.3 nie wiedzą, że zostają w gildii, i by je przekazały); ogłoszenie z niepełną treścią obniża „od” w <code>AQ</code>, więc brakujące części przychodzą znowu; tytuł liczony też po zakodowaniu (≤ 80 B), żeby nagłówek zmieścił się po przekazaniu.</li>
+<li><b>Starsze wersje</b> ignorują nowe pakiety; ich relaye nadal przekazują AH/AB/AX (jako low), więc gildie z mieszanymi wersjami dostają ogłoszenia, tylko wolniej.</li>
+<li>Nie mylić z <code>CANN</code> (Monitoring &gt; Announcement): to krótki duży napis na ekranie, nic nie jest zapisywane.</li>
+</ul>
+</section>
+
 <section id="inne"><h2>16. Wyciszenia, profesje, notatki, Discord</h2>
 <h3 id="mute">Wyciszenia</h3>
 <p><code>JagodkiChatDB.mutes[imię] = { m, ts, by, r }</code>; odciszenie też jest wpisem (żeby stare wyciszenie nie wróciło), usuwane po 30 dniach. Oficer wycisza (nie innego oficera ani siebie), GM każdego poza sobą; odcisza każdy oficer. Uprawnienia sprawdza każdy odbiorca, z rang w rosterach. Powód obowiązkowy (≤60 liter).</p>
@@ -356,7 +376,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 
 <section id="bezpieczenstwo"><h2>17. Bezpieczeństwo i zaufanie</h2>
 <ul>
-<li><b>Lista gildii</b> (<code>AllowedGuilds</code> w core.lua): tylko „Jagódki Nadina”, „… II”, „… IIl”, „… IV”, „… V”, „… VI”. Każdy pakiet ze statusem innej gildii jest ignorowany.</li>
+<li><b>Lista gildii</b> (<code>AllowedGuilds</code> w core.lua): tylko „Jagódki Nadina”, „… II”, „… IIl”, „… IV”, „… V”, „… VI” (tagi JN…JN6 w <code>GUILD_TAGS</code>, bridge.lua). Każdy pakiet ze statusem innej gildii jest ignorowany. Gildie jeszcze niezałożone są na liście, ale ukryte w zakładce Guilds i panelu gildii (<code>GuildsNotShown</code>; od 1.1.0 tylko V).</li>
 <li><b>Kto jest kim:</b> gracz znany = status (PING/PONG) albo wpis w rosterze; gildia z naszej wiedzy, nie z treści pakietu. Oficer = <b>ranga z rostera</b> gildii, nigdy z rangi, którą ktoś wysyła o sobie.</li>
 <li><b>Autor = nadawca</b> dla pakietów na żywo (czat, wydarzenia, LFG, Discord); FW tylko od znanego relaya i dla gracza z jego gildii.</li>
 <li><b>Treść:</b> <code>Most.Plain</code> (bez <code>|</code>) dla wszystkiego, <code>SanitizeChat</code> dla czatu, limity długości (tytuł 50, opis 400, notka LFG 60, ogłoszenie 180 B).</li>
@@ -368,7 +388,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 
 <section id="instancje"><h2>18. Instancje, walka i blokady gry</h2>
 <ul>
-<li>W dungeonach/BG gra zwraca <b>11 (AddOnMessageLockdown)</b> – kolejka ponawia do 30 razy, potem pakiet przepada; po wyjściu robimy pełny sync.</li>
+<li>W dungeonach/BG gra zwraca <b>11 (AddOnMessageLockdown)</b> – kolejka ponawia do 30 razy, potem pakiet przepada; po wyjściu robimy pełny sync. Od 1.1.0 gracz w instancji nie jest relayem i nie wysyła regularnego sygnału online (patrz Relay).</li>
 <li>Teksty czatu w instancji mogą być <b>sekretami</b> – pomijane.</li>
 <li><code>ListChannelByName</code> blokowane w dungeonie (ADDON_ACTION_BLOCKED) → od 1.0.3 nie wołamy go w walce ani w instancji.</li>
 <li>Combat log zamknięty dla addonów (próba Stats, 13.11). Nieznany event w <code>RegisterEvent</code> przerywa ładowanie pliku – nowe eventy w <code>pcall</code>.</li>
@@ -385,7 +405,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 <tr><td>Odkrywanie (relay czyta listy kanałów)</td><td>30 s</td><td>bridge</td></tr>
 <tr><td>Odświeżenie rostera gry</td><td>20 s</td><td>core</td></tr>
 <tr><td>Porównanie rostera / RD / pełny co godzinę</td><td>20 s (od 65 s po logowaniu)</td><td>roster</td></tr>
-<tr><td>PONG, sprzątanie listy, powrót na kanały (1, 2, 4, 8 min, potem co 30)</td><td>60 s</td><td>core</td></tr>
+<tr><td>PONG (nie w instancji, od 1.1.0), sprzątanie listy, powrót na kanały (1, 2, 4, 8 min, potem co 30)</td><td>60 s</td><td>core</td></tr>
 <tr><td>Lista wersji (zmiany / całość)</td><td>180 s / 900 s</td><td>roster</td></tr>
 <tr><td>Klucz: rozsyłanie przez relaya / bez klucza ponowienie / oficer czyta kanał</td><td>600 s / 60 s / 60 s</td><td>key</td></tr>
 <tr><td>Czat oficerów: kontrola / lista kanału</td><td>60 s / 120 s</td><td>officers</td></tr>
@@ -400,7 +420,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 <section id="dane"><h2>20. Dane zapisywane (SavedVariables)</h2>
 <div class="tw"><table>
 <tr><th>Zmienna</th><th>Zakres</th><th>Zawartość</th></tr>
-<tr><td><code>JagodkiChatDB</code></td><td>konto</td><td><code>log</code> (czat, 300), <code>key</code>, <code>officerKey</code>, <code>officerLog</code>, <code>mutes</code>, <code>professions</code>, <code>publicNotes</code>, <code>discord</code>, <code>chars["Imię Nazwisko"]</code> (ustawienia per postać, LFG), <code>myCharacters</code>, <code>helpLang</code>, <code>whatsNewSeen</code>, <code>festiveSeen</code></td></tr>
+<tr><td><code>JagodkiChatDB</code></td><td>konto</td><td><code>log</code> (czat, 300), <code>key</code>, <code>officerKey</code>, <code>officerLog</code>, <code>mutes</code>, <code>professions</code>, <code>publicNotes</code>, <code>discord</code>, <code>chars["Imię Nazwisko"]</code> (ustawienia per postać, LFG), <code>myCharacters</code>, <code>helpLang</code>, <code>whatsNewSeen</code>, <code>festiveSeen</code>, <code>announcements</code> (od 1.1.0: <code>posts</code>, <code>removed</code>, <code>seen</code>)</td></tr>
 <tr><td><code>JagodkiRosterDB</code></td><td>konto</td><td>Rostery wszystkich gildii (członkowie, rangi, czasy)</td></tr>
 <tr><td><code>JagodkiEventsDB</code></td><td>konto</td><td>Wydarzenia, zapisy, odwołane ID</td></tr>
 <tr><td><code>JagodkiMinimapDB</code></td><td>konto</td><td>Pozycja przycisku minimapy, rozmiar i miejsce okna</td></tr>
@@ -417,6 +437,51 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 <li>Kategorie w zapisanym logu: <code>[session] [state] [network] [presence] [rosters] [events] [chat] [channel] [mutes] [relay] [sync] [system] [error]</code>.</li>
 <li>Przyciski: Sync now, Outdated test, New chat key, New officers key, Officer actions (Announcement, Chat test, Remind outdated).</li>
 </ul>
+<h3 id="logi">Logi do analizy: <code>tools\logs.bat</code>, <code>logs\</code>, <code>analysis\</code></h3>
+<p>Nagrany log trzeba przenieść z gry do projektu. Robi to <code>tools\logs.bat</code> (uruchamia <code>tools\logs.ps1</code>, PowerShell 5.1 z okienkiem; nic nie trzeba instalować):</p>
+<ol>
+<li>W grze <code>/reload</code>: gra zapisuje SavedVariables tylko przy /reload i wylogowaniu.</li>
+<li>Dwuklik <code>tools\logs.bat</code>.
+  <ul>
+  <li>Folder WoW Forever (<code>_forever_</code>) skrypt znajduje sam:
+    <ul>
+    <li>wpisy „World of Warcraft…” Battle.net w rejestrze (Uninstall, <code>InstallLocation</code>);</li>
+    <li>klucz <code>Blizzard Entertainment\World of Warcraft</code>;</li>
+    <li>typowe foldery na każdym dysku.</li>
+    </ul>
+    Inaczej: <b>Wybierz…</b> (wystarczy też sam folder <code>World of Warcraft</code>).</li>
+  <li>Lista pokazuje każdy <code>SavedVariables\jagodka.lua</code> z <code>WTF\Account</code>, z rozmiarem i czasem zapisu:
+    <ul>
+    <li>pliki postaci (log Monitoringu, <code>JagodkiMonitorDB</code>);</li>
+    <li>plik konta (treść czatu, <code>JagodkiChatDB</code>).</li>
+    </ul></li>
+  </ul></li>
+<li>Zaznacz pozycje i kliknij <b>Kopiuj do logs</b>.</li>
+</ol>
+<div class="tw"><table>
+<tr><th>Co</th><th>Gdzie / nazwa</th></tr>
+<tr><td>Log postaci</td><td><code>logs\jagodka-RRRR.MM.DD_N.lua</code></td></tr>
+<tr><td>Plik konta (czat)</td><td><code>logs\chat-RRRR.MM.DD_N.lua</code></td></tr>
+<tr><td>Data i numer</td><td>Data = chwila zapisu pliku przez grę; N = kolejny wolny numer w tym dniu.</td></tr>
+<tr><td>Duplikaty</td><td>Plik identyczny (SHA1) z już skopiowanym jest pomijany („bez zmian”).</td></tr>
+<tr><td>Skąd jest plik</td><td><code>logs\logs.txt</code>: linia na każdą kopię (konto\serwer\postać, rozmiar, czas zapisu w grze).</td></tr>
+<tr><td>Zapamiętany wybór</td><td><code>tools\logs.config.json</code> (folder gry i zaznaczone pozycje, każdy ma własny). Potem <code>tools\logs.bat -Quick</code> kopiuje bez okienka.</td></tr>
+<tr><td>Analizy</td><td><code>analysis\index.html</code>:
+  <ul>
+  <li>po prawej lista analiz;</li>
+  <li>po lewej pomysł (przeredagowany prompt, co mierzymy, dane) i wyniki;</li>
+  <li>każda analiza to <code>analysis\data\&lt;RRRR.MM.DD-nazwa&gt;.js</code> wpisany do <code>analysis\data\list.js</code> (instrukcja w <code>analysis\README.md</code>).</li>
+  </ul></td></tr>
+<tr><td>Eksport dla oficerów</td><td><code>tools\export-analysis.bat</code>:
+  <ul>
+  <li>tworzy <code>analysis\exports\jagodka-analizy-RRRR.MM.DD_N.zip</code>;</li>
+  <li>w środku jeden plik <code>jagodka-analizy.html</code>, w którym strona i wszystkie analizy z <code>list.js</code> są sklejone razem;</li>
+  <li>otwiera się dwuklikiem, nawet prosto z zipa i bez internetu;</li>
+  <li>linki do dokumentacji projektu są usunięte, a w nagłówku jest data eksportu i liczba analiz.</li>
+  </ul>
+  Zawiera nazwy graczy i cytaty z czatu, więc tylko dla oficerów.</td></tr>
+</table></div>
+<p class="muted"><code>logs\</code>, <code>analysis\</code> i <code>tools\logs.config.json</code> są w <code>.gitignore</code>: zawierają treść czatu i nazwy graczy, więc nigdy nie trafiają do repo. Do repo trafia tylko sam skrypt (<code>tools\logs.ps1</code>, <code>tools\logs.bat</code>).</p>
 </section>
 
 <section id="komendy"><h2>22. Komendy</h2>

@@ -57,7 +57,7 @@ for _, suffix in ipairs({ "", " II", " IIl", " IV", " V", " VI" }) do
 end
 -- Listed but not created yet: hidden in the Guilds tab and the guilds panel only (still on the list above,
 -- so they work at once when founded). Remove a name here once that guild exists.
-local GuildsNotShown = { ["Jagódki Nadina V"] = true, ["Jagódki Nadina VI"] = true }
+local GuildsNotShown = { ["Jagódki Nadina V"] = true }
 
 local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end
@@ -181,7 +181,7 @@ addonTable.Sync.Attach(MainFrame, OnlineText)
 
 local Panels = {}
 -- Tab numbers are used everywhere; Help (7) is shown before Monitoring (TAB_ORDER)
-local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help", "Settings", "LFG", "Release Notes"}
+local tabNames = {"Community Chat", "Roster", "Guilds", "Events", "Calendar", "Monitoring", "Help", "Settings", "LFG", "Release Notes", "Announcements"}
 
 -- Column order; x and width are starting values, membersView.LayoutColumns fits them to the content.
 -- field = the row element placed at the column's position
@@ -315,8 +315,9 @@ end
 
 -- Buttons left to right in this order: Help before Monitoring (officers only, last, so hiding it leaves no gap)
 -- LFG (9) right after Calendar, Release Notes (10, 1.0.0) at the end, after Monitoring (it moves into
--- Monitoring's place when that is hidden: EventSync.UpdateMonitoringTab)
-for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6, 10 }) do
+-- Monitoring's place when that is hidden: EventSync.UpdateMonitoringTab). Announcements (11, 1.1.0, announcements.lua)
+-- right after the community chat.
+for _, i in ipairs({ 1, 11, 2, 3, 4, 5, 9, 7, 8, 6, 10 }) do
     local name = tabNames[i]
     local btn = CreateFrame("Button", nil, MainFrame, "BackdropTemplate")
     btn:SetSize(115, 32)
@@ -360,6 +361,7 @@ for _, i in ipairs({ 1, 2, 3, 4, 5, 9, 7, 8, 6, 10 }) do
         "Interface\\Icons\\INV_Misc_Gear_01",
         "Interface\\GroupFrame\\UI-Group-LeaderIcon",
         "Interface\\Icons\\INV_Misc_Book_09",
+        "Interface\\Icons\\INV_Scroll_03",
     }
     if i == 7 then
         -- Help: the same round badge as the "?" buttons next to the features (help.lua)
@@ -618,9 +620,22 @@ chatInput:SetAutoFocus(false)
 chatInput:SetFontObject(ChatFontNormal)
 -- The game's own chat limit; bridge.lua splits a message into parts that fit a packet
 chatInput:SetMaxBytes(Most.MAX_CHAT_BYTES)
--- Shift + click on an item / spell / profession inserts a link into the field when it is active
--- (the game only inserts links into its own chat window)
-hooksecurefunc("ChatEdit_InsertLink", function(link) if link and chatInput:HasFocus() then chatInput:Insert(link) end end)
+-- Shift + click on an item / spell / profession / quest inserts a link into the field when it is active
+-- (the game only inserts links into its own chat window). Newer clients (WoW Forever) call
+-- ChatFrameUtil.InsertLink directly (quest log, quest tracker, bags) and keep ChatEdit_InsertLink only as an
+-- old alias that other addons may still call, so both are hooked; the same link at the same moment is
+-- inserted once (in case a client's alias calls the new function)
+do
+local lastLink, lastLinkAt
+local function InsertLinkIntoChat(link)
+if not link or not chatInput:HasFocus() then return end
+if link == lastLink and lastLinkAt == GetTime() then return end
+lastLink, lastLinkAt = link, GetTime()
+chatInput:Insert(link)
+end
+if _G.ChatFrameUtil and _G.ChatFrameUtil.InsertLink then hooksecurefunc(_G.ChatFrameUtil, "InsertLink", InsertLinkIntoChat) end
+if _G.ChatEdit_InsertLink then hooksecurefunc("ChatEdit_InsertLink", InsertLinkIntoChat) end
+end
 local sendButton = CreateFrame("Button", nil, ChatPanel, "GameMenuButtonTemplate")
 sendButton:SetSize(75, 26)
 sendButton:SetPoint("LEFT", chatInput, "RIGHT", 8, 0)
@@ -662,6 +677,11 @@ currentChatTab = "Ogolny"
 UpdateChatTabVisuals()
 MainFrame:Show()
 ShowTab(1)
+end
+-- 1.1.0: [Open announcement] in the chat (announcements.lua): the addon window on the Announcements tab
+function addonTable.OpenAnnouncements()
+MainFrame:Show()
+ShowTab(11)
 end
 local function OriginalSubmitMessage()
 local msg = chatInput:GetText()
@@ -779,7 +799,7 @@ do
 local help = addonTable.Help.Button(ChatPanel, "chat", nil, "Community Chat")
 help:SetPoint("BOTTOMRIGHT", ChatPanel, "TOPRIGHT", -4, 4)
 help.onClick = function()
-if currentChatTab == addonTable.Officers.TAB then addonTable.Help.Open("officer", 3) else addonTable.Help.Open("chat") end
+if currentChatTab == addonTable.Officers.TAB then addonTable.Help.Open("officer", 4) else addonTable.Help.Open("chat") end
 end
 end
 if chatTabButtons.Oficerowie then chatTabButtons.Oficerowie:Hide() end
@@ -2664,6 +2684,37 @@ addonTable.Monitor.Attach(Panels[6], { activePlayers = activePlayers, applyStyle
 addonTable.Help.Attach(Panels[7], { isOfficer = IsPlayerOfficer, applyStyle = ApplyModernStyle, showTab = function() ShowTab(7) end })
 -- Release Notes tab (1.0.0, releasenotes.lua): every version's notes, newest first
 addonTable.ReleaseNotes.Attach(Panels[10], { applyStyle = ApplyModernStyle })
+-- Announcements tab (1.1.0, announcements.lua): officers post, everyone reads; the tab shows a green count of unread ones
+addonTable.Announcements.Init({
+isMeOfficer = function() return IsPlayerOfficer() end,
+isKnownOfficer = function(name) return IsKnownOfficer(name) end,
+colorName = function(name, class)
+if class and RAID_CLASS_COLORS[class] then return RAID_CLASS_COLORS[class]:WrapTextInColorCode(name) end
+return GetColoredName(name)
+end,
+setBadge = function(n)
+local btn = menuButtons[11]
+if not btn then return end
+if not btn.badge then
+btn.badge = CreateFrame("Frame", nil, btn)
+btn.badge:SetSize(16, 16)
+btn.badge:SetPoint("CENTER", btn, "TOPRIGHT", -3, -3)
+btn.badge:SetFrameLevel(btn:GetFrameLevel() + 5)
+btn.badge.bg = btn.badge:CreateTexture(nil, "ARTWORK")
+btn.badge.bg:SetAllPoints()
+btn.badge.bg:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+btn.badge.bg:SetVertexColor(0.15, 0.75, 0.3, 1)
+btn.badge.text = btn.badge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+btn.badge.text:SetPoint("CENTER", btn.badge, "CENTER", 0, 0)
+end
+btn.badge.text:SetText(n > 9 and "9+" or tostring(n))
+btn.badge:SetShown(n > 0)
+end,
+})
+addonTable.Announcements.Attach(Panels[11], { applyStyle = ApplyModernStyle, colorName = function(name, class)
+if class and RAID_CLASS_COLORS[class] then return RAID_CLASS_COLORS[class]:WrapTextInColorCode(name) end
+return GetColoredName(name)
+end })
 -- Settings tab (settings.lua)
 addonTable.Settings.Attach(Panels[8], { applyStyle = ApplyModernStyle, isOfficer = IsPlayerOfficer })
 -- Opens an event in the Events tab by its id ([Open event] links in whispers, lfg.lua); false when unknown here
@@ -3612,6 +3663,7 @@ Mute.Request()
 C_Timer.After(2, function() EventSync.Request(true) end)
 C_Timer.After(4, Roster.RequestStale)
 C_Timer.After(6, function() addonTable.LFG.Request(true) end)
+C_Timer.After(8, function() addonTable.Announcements.Request(true) end)
 end
 C_Timer.After(2, SyncAll)
 C_Timer.After(14, function()
@@ -3634,6 +3686,7 @@ C_Timer.After(6, addonTable.Professions.Resync)
 C_Timer.After(8, addonTable.Key.Request)
 C_Timer.After(10, addonTable.Officers.Request)
 C_Timer.After(12, function() addonTable.LFG.Request(true) end)
+C_Timer.After(14, function() addonTable.Announcements.Request(true) end)
 return true
 end
 -- 0.15.5: once per new version (per account), one line in the chat about what is new, so new features get used;
@@ -3778,6 +3831,8 @@ addonTable.SafeScript(NetworkListener, "OnEvent", "core.lua:3342", function(self
 if event == "ADDON_LOADED" and prefix == addonName then
 -- Events from events.lua (old ones from before 0.14.0 are dropped there)
 eventsList = addonTable.Events.Load()
+-- Announcements (announcements.lua, 1.1.0)
+addonTable.Announcements.Load()
 return
 end
 if event == "PLAYER_LOGIN" then
@@ -3926,7 +3981,9 @@ elseif pType == "UPD" then
 if senderName ~= myName and senderIsOfficer and CompareVersions(ADDON_VERSION, payload) < 0 then addonTable.Update.Remind(payload) end
 else
 -- Events (EH/ED/ES/EK/EX, sync EQ/EC): events.lua. Old EV_* packets (before 0.14.0) are ignored.
-if not addonTable.LFG.HandlePacket(pType, payload, senderName, channel)
+-- Announcements (AH/AB/AX, sync AQ/AC): announcements.lua
+if not addonTable.Announcements.HandlePacket(pType, payload, senderName, channel)
+and not addonTable.LFG.HandlePacket(pType, payload, senderName, channel)
 and not addonTable.Discord.HandlePacket(pType, payload, senderName, channel)
 and not Most.HandleRefusal(pType, payload, senderName) then
 addonTable.Events.HandlePacket(pType, payload, senderName, channel)

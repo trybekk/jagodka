@@ -1,6 +1,6 @@
 # Jagodka – Community Addon for WoW Classic Era / Forever
 
-Jagodka connects several allied guilds into **one community**. Members share chats, a member list, events, a calendar and a looking-for-group board, whichever guild they are in and even when they are not online together.
+Jagodka connects several allied guilds into **one community**. Members share chats, officers' announcements, a member list, events, a calendar and a looking-for-group board, whichever guild they are in and even when they are not online together.
 
 ## Shared chat
 - **General, Trade and LFG** chats shared across all community guilds, and an **Officers chat** for the officers of all guilds
@@ -8,9 +8,15 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - Each chat tab shows **how many players read it**, e.g. "General (287)"
 - The community chat as a tab in your **game chat window**, which can be your only chat tab: choose in Settings what else shows there (whispers, guild, party, raid, system messages, game channels, and the community Trade, LFG and officers chats)
 - Chat commands **/jnglobal, /jntrade, /jnlfg, /jnofficers** switch what you write to, or send one message from any chat tab
-- Clickable item, spell and profession links
+- Clickable item, spell, profession and **quest** links (Shift + click a quest in your quest log or tracker); quests linked with **Questie** show as clickable links too
 - Recent chat history is delivered when you log in
 - Works alongside other chat addons
+
+## Announcements
+- An **Announcements** tab with announcements from the officers of all community guilds, like a small blog
+- Each one with a coloured tag (General, Important, Raid, Event), the author, the guild and the date; pinned ones stay on top, ten on a page, filter by tag
+- A green number on the tab shows how many you have not read yet, and each new one is announced on the community General chat with an [Open announcement] link
+- Announcements you missed while offline arrive when you log in
 
 ## Looking for group
 - List yourself with your **roles**, up to **4 activities** (dungeons, raids, PvP, questing in any zone, or anything) and a short note
@@ -41,7 +47,8 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - Side column: your events and LFG listing, officers online, guilds (with how many have the addon) and classes at a glance
 
 ## For officers
-- **Announcements:** write a message that everyone with the addon sees as a big text on screen, with a sound
+- **Post announcements** for all guilds in the Announcements tab: tag, title, text, pin to the top; edit, pin or delete later
+- **Big messages:** write a short message that everyone with the addon sees as a big text on screen, with a sound
 - Mute players on the community chat (synced across all guilds)
 - Monitoring tab: the state of the community, the connections between guilds, who has an outdated addon, who cannot get onto the chat channel, and a recorded log for finding problems
 - One **Officer actions** menu: announcements, chat test requests, update reminders and new chat keys

@@ -8,9 +8,10 @@
 - relay i synchronizację po logowaniu,
 - czat i słownik wszystkich pakietów (format payloadu),
 - klucze, rostery, wydarzenia i LFG,
-- bezpieczeństwo, timery, SavedVariables i komendy.
+- bezpieczeństwo, timery, SavedVariables i komendy,
+- logi do analizy: `tools\logs.bat` kopiuje je z gry do `logs\`, a analizy są w `analysis\` (sekcja 21, „Logi do analizy”).
 
-Jest pisana ręcznie z kodu wersji 1.0.3. Przy zmianie protokołu poprawić ją razem z CHANGELOG.
+Jest pisana ręcznie z kodu wersji 1.1.0. Przy zmianie protokołu poprawić ją razem z CHANGELOG.
 
 **Dla Claude (jak z tego korzystać przy pracy nad addonem):**
 

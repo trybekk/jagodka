@@ -21,6 +21,21 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.1.0", {
+        "! Everyone should update to see the officers' announcements.",
+        "# New",
+        "Announcements: a new tab right after the community chat with announcements from the officers of all our guilds. Each one has a coloured tag (General, Important, Raid, Event), the author, the guild and the date. Pinned ones stay on top, ten on a page, and you can show only one tag.",
+        "A green number on the Announcements tab shows how many you have not read yet, and each new one is announced on the community General chat with an [Open announcement] link.",
+        "Jagódki Nadina VI (tag [JN6]) now shows in the Guilds tab and the guilds panel.",
+        "# Officers",
+        "Post announcements for every guild with + New announcement in the Announcements tab: pick a tag, write a title and the text, pin it to the top if you want. Only officers can edit, pin or delete announcements later: the author or an officer of the author's guild.",
+        "# Fixes",
+        "Quest links work in the community chat: Shift + click a quest in your quest log or on the quest list by the screen's edge and its link goes into the message (put the cursor in the message field first). Items from your bags link the same way.",
+        "Quests linked with Questie (like [[40] Snargl's Snout (94533)]) now show as clickable quest links in the community chat, also in older messages.",
+        "# Under the hood",
+        "A guild no longer drops out of the community while the player linking it is in a dungeon: someone else from that guild takes over within a few minutes, and the chat and member lists keep flowing.",
+        "Announcements reach every guild within seconds; if you were offline, you get the ones you missed after logging in. Every addon checks that an announcement really comes from an officer.",
+    }, "officers' announcements, quest links in the chat" },
     { "1.0.3", {
         "# Fixes",
         "No more \"Jagodka has been blocked from an action only available to the Blizzard UI\" in dungeons: the addon no longer reads the channel's player list in combat or in an instance. The counts catch up when you leave.",

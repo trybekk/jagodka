@@ -26,6 +26,7 @@ local STAGES = {
     { key = "events", label = "Events" },
     { key = "rosters", label = "Rosters" },
     { key = "lfg", label = "LFG" },
+    { key = "announcements", label = "Announcements" },
 }
 -- first = how long to wait for the first answer (responders pick a random 0.5-2.5 s), quiet = silence after the last
 -- packet, max = hard limit
@@ -35,6 +36,7 @@ local TIMING = {
     events = { first = 7, quiet = 3, max = 30 },
     rosters = { first = 8, quiet = 4, max = 40 },
     lfg = { first = 7, quiet = 3, max = 25 },
+    announcements = { first = 7, quiet = 3, max = 25 },
 }
 local SHOW_DONE_FOR = 4 -- seconds showing "Synced"
 
@@ -170,7 +172,7 @@ end
 -- ============================================================================
 function Sync.Attach(parent, rightOf)
     bar = CreateFrame("StatusBar", nil, parent)
-    bar:SetSize(350, 16)   -- room for five stages (Channel, Chat, Events, Rosters, LFG)
+    bar:SetSize(450, 16)   -- room for six stages (Channel, Chat, Events, Rosters, LFG, Announcements)
     bar:SetPoint("RIGHT", rightOf, "LEFT", -20, 0)
     bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
