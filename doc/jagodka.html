@@ -83,7 +83,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <div class="empty" id="empty">Nic nie pasuje.</div>
 
 <section id="przeglad"><h2>1. Przegląd</h2>
-<p>Jagodka łączy gildie społeczności <b>Jagódki Nadina</b> (JN, JN2, JN3 = „IIl”, JN4, JN6 – widoczna od 1.1.0; na liście jest też V, jeszcze niezałożona i ukryta przez <code>GuildsNotShown</code>) w jedną sieć: wspólny czat (General, Trade, LFG), czat oficerów, wspólną listę członków wszystkich gildii, wydarzenia z zapisami, LFG, profesje, notatki, nazwy Discord i narzędzia oficerskie (Monitoring, duże napisy, wyciszenia) oraz zakładkę ogłoszeń oficerów (Announcements, od 1.1.0).</p>
+<p>Jagodka łączy gildie społeczności <b>Jagódki Nadina</b> (JN, JN2, JN3 = „IIl”, JN4; na liście są też V i VI, ukryte przez <code>GuildsNotShown</code> – VI była przez pomyłkę widoczna w 1.1.0–1.1.1) w jedną sieć: wspólny czat (General, Trade, LFG), czat oficerów, wspólną listę członków wszystkich gildii, wydarzenia z zapisami, LFG, profesje, notatki, nazwy Discord i narzędzia oficerskie (Monitoring, duże napisy, wyciszenia) oraz zakładkę ogłoszeń oficerów (Announcements, od 1.1.0).</p>
 <p>Gra pokazuje każdemu tylko <b>jego własną gildię</b>, a wiadomości addonów nie da się wysłać na kanał gracza (w Classic <code>SendAddonMessage(…,"CHANNEL")</code> zwraca 4 = InvalidChatType). Dlatego całość stoi na trzech drogach:</p>
 <ul>
 <li><b>GUILD</b> – pakiet do wszystkich z addonem w mojej gildii,</li>
@@ -380,7 +380,7 @@ id = "Imię Nazwisko.hexCzas.hexNr"   (części: id#1/3)</pre>
 
 <section id="bezpieczenstwo"><h2>17. Bezpieczeństwo i zaufanie</h2>
 <ul>
-<li><b>Lista gildii</b> (<code>AllowedGuilds</code> w core.lua): tylko „Jagódki Nadina”, „… II”, „… IIl”, „… IV”, „… V”, „… VI” (tagi JN…JN6 w <code>GUILD_TAGS</code>, bridge.lua). Każdy pakiet ze statusem innej gildii jest ignorowany. Gildie jeszcze niezałożone są na liście, ale ukryte w zakładce Guilds i panelu gildii (<code>GuildsNotShown</code>; od 1.1.0 tylko V).</li>
+<li><b>Lista gildii</b> (<code>AllowedGuilds</code> w core.lua): tylko „Jagódki Nadina”, „… II”, „… IIl”, „… IV”, „… V”, „… VI” (tagi JN…JN6 w <code>GUILD_TAGS</code>, bridge.lua). Każdy pakiet ze statusem innej gildii jest ignorowany. Gildie jeszcze niezałożone są na liście, ale ukryte w zakładce Guilds i panelu gildii (<code>GuildsNotShown</code>: V i VI; VI pokazana przez pomyłkę w 1.1.0–1.1.1, od 1.1.2 znów ukryta).</li>
 <li><b>Kto jest kim:</b> gracz znany = status (PING/PONG) albo wpis w rosterze; gildia z naszej wiedzy, nie z treści pakietu. Oficer = <b>ranga z rostera</b> gildii, nigdy z rangi, którą ktoś wysyła o sobie.</li>
 <li><b>Autor = nadawca</b> dla pakietów na żywo (czat, wydarzenia, LFG, Discord); FW tylko od znanego relaya i dla gracza z jego gildii.</li>
 <li><b>Treść:</b> <code>Most.Plain</code> (bez <code>|</code>) dla wszystkiego, <code>SanitizeChat</code> dla czatu, limity długości (tytuł 50, opis 400, notka LFG 60, ogłoszenie 180 B).</li>

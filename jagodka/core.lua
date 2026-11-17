@@ -57,7 +57,7 @@ for _, suffix in ipairs({ "", " II", " IIl", " IV", " V", " VI" }) do
 end
 -- Listed but not created yet: hidden in the Guilds tab and the guilds panel only (still on the list above,
 -- so they work at once when founded). Remove a name here once that guild exists.
-local GuildsNotShown = { ["Jagódki Nadina V"] = true }
+local GuildsNotShown = { ["Jagódki Nadina V"] = true, ["Jagódki Nadina VI"] = true }   -- VI hidden again in 1.1.2 (shown by mistake in 1.1.0)
 
 local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end

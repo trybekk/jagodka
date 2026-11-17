@@ -22,6 +22,8 @@ addonTable.ReleaseNotes = ReleaseNotes
 -- Newest first: { version, lines, title }
 local LIST = {
     { "1.1.2", {
+        "# Changes",
+        "Jagódki Nadina VI no longer shows in the Guilds tab and the guilds panel: it was shown by mistake, the guild is not founded yet.",
         "# Officers",
         "Everything officers send now reaches all our guilds within seconds: big messages, chat test requests, update reminders, chat mutes and a new chat key go straight to every guild.",
         "Monitoring shows how many guilds got your message, and on the players' side whether an update reminder arrived and why it was not shown.",
