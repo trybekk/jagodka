@@ -50,6 +50,7 @@ local TYPES = {
     EX = { "events", "event cancelled" }, EQ = { "events", "events sync request" }, EC = { "events", "events sync taken" },
     AH = { "events", "announcement" }, AB = { "events", "announcement text" }, AX = { "events", "announcement deleted" },
     AQ = { "events", "announcements sync request" }, AC = { "events", "announcements sync taken" },
+    AO = { "events", "announcements sync request to other guilds" },
     LF = { "events", "LFG listing" }, LX = { "events", "LFG listing removed" }, LQ = { "events", "LFG sync request" }, LC = { "events", "LFG sync taken" },
     RF = { "rosters", "full roster" }, RD = { "rosters", "roster change" }, RQ = { "rosters", "roster request" },
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },
@@ -201,7 +202,8 @@ function Monitor.TX(msg, kind, target, ok, result, waited, tries)
         local origin, inner = strsplit(":", payload, 2)
         pType, payload = strsplit(":", inner or "", 2)
         isForward = true
-        if origin == addonTable.Most.MyName() then route = "greeting -> " .. tostring(target)
+        -- My own wrapped packet: a greeting (PING), or (1.1.1) one sent straight to another guild's relay
+        if origin == addonTable.Most.MyName() then route = ((pType == "PING") and "greeting -> " or "straight to the relay -> ") .. tostring(target)
         elseif target then route = "relay -> " .. target .. " |cff808080(from " .. tostring(origin) .. ")|r"
         else route = "repost to my guild |cff808080(from " .. tostring(origin) .. ")|r" end
     end

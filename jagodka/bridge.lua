@@ -287,8 +287,24 @@ local function Count(t, key)
 end
 
 local highQueue, lowQueue = {}, {}  -- high: current messages, low: history
-local tokens, MAX_TOKENS, TOKENS_PER_SEC = 10, 10, 1
 local whisperedAt = {}              -- name -> time of the last addon whisper (to recognize "player offline")
+-- 1.1.1: one rate limit per channel. The server's addon message pool (per prefix: 10 at once, 1 more per
+-- second) is for GUILD; whispers outside instances are not part of it (doc/: Forever API notes). Before, one
+-- shared 1/s limit made a relay's whispers to other guilds (rosters, announcements, everything it passes on)
+-- wait behind its own guild's packets, so other guilds got them minutes late or not at all. Whispers start at
+-- 2/s, go 0.25/s faster after every WHISPER_STEP sent ones (up to maxRate) and half as fast after a refusal.
+local buckets = {
+    GUILD = { tokens = 10, cap = 10, rate = 1 },
+    WHISPER = { tokens = 5, cap = 5, rate = 2, minRate = 0.5, maxRate = 4, successes = 0 },
+}
+local WHISPER_STEP = 20
+local TARGET_GAP = 0.2       -- seconds between two whispers to the same player
+local LOCKDOWN_WAIT = 3      -- the game blocks addon messages (result 11): the queue waits, then tries again
+local MAX_LOCKS = 600        -- a packet blocked this many times (about 30 min) is given up
+local MAX_TRIES = 30         -- refusals (server limit) before a packet is given up
+local pausedUntil = 0
+local nextToTarget = {}      -- player key -> earliest time of the next whisper to them
+local lockNotedAt = -60      -- the last "blocked by the game" note in Monitoring (at most one a minute)
 
 function Most.Send(pType, payload, priority)
     local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
@@ -304,10 +320,11 @@ function Most.GetLowQueueSize() return #lowQueue end
 -- Older API returns a bool, newer a code from Enum.SendAddonMessageResult (0 = success)
 local function IsOk(result) return result == nil or result == true or result == 0 end
 -- Temporary limit (3 = AddonMessageThrottle, 8 = ChannelThrottle; false = older API): worth retrying.
--- 9 (GeneralError) and 11 (AddOnMessageLockdown) are temporary too: in the 0.15.0 log single GUILD packets got
--- 11 for a moment (7 times in 2 h; the next packet a second later went fine), and were lost.
+-- 9 (GeneralError) is temporary too. 11 (AddOnMessageLockdown: instance, boss fight) and 12 (TargetOffline) are
+-- handled apart (SendOne): before 1.1.1 a packet blocked by 11 was tried 30 times and lost.
 -- Other codes (e.g. 4 = InvalidChatType) are permanent: retrying would only block the queue.
-local function IsThrottle(result) return result == false or result == 3 or result == 8 or result == 9 or result == 11 end
+local function IsThrottle(result) return result == false or result == 3 or result == 8 or result == 9 end
+local R_LOCKDOWN, R_OFFLINE = 11, 12
 
 -- Returns the API result and the channel kind (for diagnostics)
 local function SendRaw(item)
@@ -322,24 +339,99 @@ local function SendRaw(item)
     return true, "NONE"
 end
 
-local function PumpAddonQueue()
-    tokens = math.min(MAX_TOKENS, tokens + TOKENS_PER_SEC * 0.2)
-    if tokens < 1 then return end
-    local queue = (#highQueue > 0) and highQueue or lowQueue
-    local item = queue[1]
+local function Remove(queue, item)
+    for i, v in ipairs(queue) do if v == item then table.remove(queue, i) return end end
+end
+
+-- The player went offline (result 12): every whisper still queued for them goes too, none could arrive
+local function DropTarget(key)
+    for _, queue in ipairs({ highQueue, lowQueue }) do
+        for i = #queue, 1, -1 do
+            local item = queue[i]
+            if item.target and Most.PlayerKey(item.target) == key then
+                if addonTable.Monitor then addonTable.Monitor.TX(item.msg, "WHISPER", item.target, false, R_OFFLINE, GetTime() - item.queued, item.tries) end
+                table.remove(queue, i)
+            end
+        end
+    end
+end
+
+-- The first packet of this channel that may go now: high queue first, then low. A packet that waits (after a
+-- refusal, or for the gap to its player) holds back the later ones of the same player (GUILD: of the channel),
+-- so parts (event texts, roster parts) never change their order.
+local function NextItem(channel, now)
+    local held = {}
+    for _, queue in ipairs({ highQueue, lowQueue }) do
+        for _, item in ipairs(queue) do
+            if (item.target and "WHISPER" or "GUILD") == channel then
+                local key = item.target and Most.PlayerKey(item.target) or "GUILD"
+                if not held[key] then
+                    if (item.retryAt or 0) <= now and (not item.target or (nextToTarget[key] or 0) <= now) then return queue, item, key end
+                    held[key] = true
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function SendOne(channel, now)
+    local bucket = buckets[channel]
+    if bucket.tokens < 1 then return end
+    local queue, item, key = NextItem(channel, now)
     if not item then return end
+    if item.target then nextToTarget[key] = now + TARGET_GAP end
     local result, kind = SendRaw(item)
     local ok = IsOk(result)
-    -- On a temporary server limit we retry for a long time (about 30 s) so the message is not lost
-    if ok or not IsThrottle(result) or item.tries >= 30 then
-        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result, GetTime() - item.queued, item.tries) end
-        table.remove(queue, 1)
-        tokens = tokens - 1
-    else
+    if ok then
+        bucket.tokens = bucket.tokens - 1
+        if bucket.successes then
+            bucket.successes = bucket.successes + 1
+            if bucket.successes >= WHISPER_STEP and bucket.rate < bucket.maxRate then
+                bucket.rate = math.min(bucket.maxRate, bucket.rate + 0.25)
+                bucket.successes = 0
+            end
+        end
+    elseif result == R_LOCKDOWN and (item.locks or 0) < MAX_LOCKS then
+        -- Blocked by the game: the packet stays and the whole queue waits (not counted as a try)
+        item.locks = (item.locks or 0) + 1
+        if now - lockNotedAt > 60 and addonTable.Monitor then
+            lockNotedAt = now
+            addonTable.Monitor.Note("Addon messages blocked by the game (instance?): the queue waits and sends later")
+        end
+        pausedUntil = now + LOCKDOWN_WAIT
+        return
+    elseif result == R_OFFLINE and item.target then
+        Remove(queue, item)
+        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, false, result, now - item.queued, item.tries) end
+        DropTarget(key)
+        return
+    elseif IsThrottle(result) and item.tries < MAX_TRIES then
+        -- A server limit: this channel waits and whispers slow down; the packet is retried, not lost
         if item.tries == 0 and addonTable.Monitor then addonTable.Monitor.Throttled(item.msg) end
         item.tries = item.tries + 1
-        tokens = 0
+        item.retryAt = now + ((result == 8) and 3 or 1.5)
+        bucket.tokens = 0
+        if bucket.minRate then
+            bucket.rate = math.max(bucket.minRate, bucket.rate / 2)
+            bucket.successes = 0
+        end
+        return
     end
+    if addonTable.Monitor then addonTable.Monitor.TX(item.msg, kind, item.target, ok, result, now - item.queued, item.tries) end
+    Remove(queue, item)
+end
+
+local lastPump = nil
+local function PumpAddonQueue()
+    local now = GetTime()
+    local elapsed = now - (lastPump or now)
+    lastPump = now
+    for _, bucket in pairs(buckets) do bucket.tokens = math.min(bucket.cap, bucket.tokens + bucket.rate * elapsed) end
+    if (#highQueue == 0 and #lowQueue == 0) or now < pausedUntil then return end
+    -- At most one packet of each channel per tick (5 ticks a second)
+    SendOne("GUILD", now)
+    if now >= pausedUntil then SendOne("WHISPER", now) end
 end
 
 -- ============================================================================
@@ -1081,6 +1173,27 @@ local function OtherGuildRelays()
 end
 -- For roster.lua: full rosters go straight to the other guilds' relays (guild -> relay name)
 Most.OtherGuildRelays = OtherGuildRelays
+
+-- 1.1.1: my own packet straight to the relay of every other guild, as "FW:me:packet" (the form a greeting has),
+-- besides the usual GUILD send. Any relay, also 1.0.3, reposts a player's own wrapped packet to its guild, so
+-- it no longer waits in my guild's relay queue. For rare things everyone should get fast (announcements and
+-- their sync request); receivers drop a second copy (applied by revision). Returns how many guilds it went to.
+function Most.ToOtherGuilds(pType, payload, always)
+    if not ctx or not Most.IsGuildAllowed(MyGuild()) then return 0 end
+    local text = MyName() .. ":" .. pType .. ":" .. payload
+    if #text + #"FW:" > 255 then return 0 end
+    -- As my guild's relay I already pass my own GUILD packets on to the same relays (Route): no second copy.
+    -- always: a packet that never goes to GUILD (it must be whispered either way)
+    local amRelay = Most.IsRelay() and not always
+    local n = 0
+    for _, relay in pairs(OtherGuildRelays()) do
+        if relay ~= MyName() then
+            if not amRelay then Most.Whisper(relay, "FW", text, "high") end
+            n = n + 1
+        end
+    end
+    return n
+end
 
 local function ForwardToOtherGuilds(origin, text)
     local payload = origin .. ":" .. text

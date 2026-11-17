@@ -64,6 +64,8 @@ function Announcements.Init(c) ctx = c end
 local db = { posts = {}, removed = {}, seen = 0 }
 local pending, answeredAt = {}, {}
 local lastRequest = -REQUEST_COOLDOWN
+local lastAnswerAt = -1        -- when a sync answer (whisper) last arrived
+local OTHERS_AFTER = 9         -- seconds without an answer from my guild before the other guilds are asked (AO)
 
 local function Monitor() return addonTable.Monitor end
 local function MyName() return Most.MyName() end
@@ -188,7 +190,11 @@ end
 -- ============================================================================
 local function Out(pType, payload, target, priority)
     if target then Most.Whisper(target, pType, payload, priority or "low")
-    elseif InListedGuild() then Most.Send(pType, payload, priority or "high") end
+    elseif InListedGuild() then
+        Most.Send(pType, payload, priority or "high")
+        -- 1.1.1: also straight to the other guilds' relays, not only through my guild's relay (bridge.lua)
+        if Most.ToOtherGuilds then Most.ToOtherGuilds(pType, payload) end
+    end
 end
 
 local function SendPost(p, target)
@@ -290,6 +296,16 @@ function Announcements.Request(force)
     end
     Most.Send("AQ", tostring(since), "high")
     if addonTable.Sync then addonTable.Sync.Start("announcements") end
+    -- 1.1.1: nobody of my guild answered within OTHERS_AFTER (nobody here has them yet, e.g. few have updated):
+    -- the same request straight to the other guilds' relays, as AO (1.1.0 and older ignore that type, so only
+    -- players who can answer across guilds see it). Their answer comes by whisper.
+    local askedAt = GetTime()
+    C_Timer.After(OTHERS_AFTER, function()
+        if lastAnswerAt >= askedAt or not Most.ToOtherGuilds then return end
+        local n = Most.ToOtherGuilds("AO", tostring(since), true)
+        if n > 0 and Monitor() then Monitor().Note("Announcements: no answer from my guild, asked " .. n .. " other guild" .. (n == 1 and "" or "s")) end
+        if n > 0 and addonTable.Sync then addonTable.Sync.Start("announcements") end
+    end)
 end
 
 local function Answer(asker, since)
@@ -307,10 +323,10 @@ local function Answer(asker, since)
     if Monitor() then Monitor().Note("Announcements: answered " .. asker .. " with " .. sent .. " changes") end
 end
 
-local function HandleRequest(asker, since)
+local function HandleRequest(asker, since, minVersion)
     if asker == MyName() or pending[asker] then return end
     if GetTime() - (answeredAt[asker] or -ANSWER_COOLDOWN) < ANSWER_COOLDOWN then return end
-    if not Most.ShouldAnswer(MIN_VERSION) then return end
+    if not Most.ShouldAnswer(minVersion or MIN_VERSION) then return end
     if Newest() <= since then return end
     Most.ClaimAndAnswer(pending, asker, 0.5 + math.random() * 2, function() Most.Send("AC", Enc(asker), "high") end,
         function() Answer(asker, since) end)
@@ -412,6 +428,11 @@ function Announcements.HandlePacket(pType, payload, senderName, channel)
     if pType == "AQ" then
         HandleRequest(senderName, tonumber(payload) or 0)
         return true
+    elseif pType == "AO" then
+        -- 1.1.1: a player of another guild whose own guild could not answer (sent straight to our relay, which
+        -- reposted it here); answered like AQ, the claim (AC) in my guild keeps it to one of us
+        if senderName ~= MyName() and channel ~= "WHISPER" and Most.FindKnownPlayer(senderName) then HandleRequest(senderName, tonumber(payload) or 0, "1.1.1") end
+        return true
     elseif pType == "AC" then
         Activity()
         local asker = Dec(payload)
@@ -422,6 +443,7 @@ function Announcements.HandlePacket(pType, payload, senderName, channel)
     Activity()
     if senderName == MyName() then return true end
     local live = channel ~= "WHISPER"
+    if not live then lastAnswerAt = GetTime() end
     if pType == "AH" then HandleHeader(payload, senderName, live)
     elseif pType == "AB" then HandleBody(payload)
     else HandleDelete(payload, senderName, live) end
@@ -506,8 +528,26 @@ function Announcements.Attach(panel, c)
     sub:SetText("announcements from the officers of all our guilds")
     if addonTable.Help then addonTable.Help.Button(panel, "announcements", nil, "Announcements"):SetPoint("LEFT", sub, "RIGHT", 8, 0) end
 
+    -- 1.1.1: Sync asks for the announcements again (as after login; the other guilds too when mine has none),
+    -- then grays out for a minute, like the Sync buttons of Events and LFG
+    local syncBtn = CreateFrame("Button", nil, panel, "GameMenuButtonTemplate")
+    syncBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -8)
+    syncBtn:SetText("Sync")
+    syncBtn:SetSize(math.ceil(syncBtn:GetFontString():GetStringWidth()) + 20, 24)
+    syncBtn:SetScript("OnClick", function(self)
+        Announcements.Request(true)
+        self:Disable()
+        C_Timer.After(REQUEST_COOLDOWN, function() self:Enable() end)
+    end)
+    syncBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Ask again for announcements you may have missed (once a minute).", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    syncBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+
     local newBtn = CreateFrame("Button", nil, panel, "GameMenuButtonTemplate")
-    newBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -8)
+    newBtn:SetPoint("RIGHT", syncBtn, "LEFT", -6, 0)
     newBtn:SetText("+ New announcement")
     -- As wide as its text with 10 px on each side
     newBtn:SetSize(math.ceil(newBtn:GetFontString():GetStringWidth()) + 20, 24)

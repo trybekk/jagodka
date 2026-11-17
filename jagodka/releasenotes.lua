@@ -21,6 +21,17 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.1.1", {
+        "! Everyone should update: the more players have this version, the faster everything reaches the other guilds.",
+        "# New",
+        "A Sync button in the Announcements tab: asks again for announcements you may have missed.",
+        "# Fixes",
+        "Announcements reach the other guilds much faster: they go straight from the officer to every guild instead of waiting in one queue.",
+        "If nobody in your guild has the announcements yet (few updated), the addon asks the other guilds for them.",
+        "# Under the hood",
+        "Member lists, events and everything else passed between guilds go out faster: messages to other guilds no longer wait behind your own guild's.",
+        "Nothing gets lost in dungeons any more: what could not be sent there waits and goes out when you leave.",
+    }, "faster between guilds" },
     { "1.1.0", {
         "! Everyone should update to see the officers' announcements.",
         "# New",
