@@ -16,7 +16,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - An **Announcements** tab with announcements from the officers of all community guilds, like a small blog
 - Each one with a coloured tag (General, Important, Raid, Event), the author, the guild and the date; pinned ones stay on top, ten on a page, filter by tag
 - A green number on the tab shows how many you have not read yet, and each new one is announced on the community General chat with an [Open announcement] link
-- Announcements you missed while offline arrive when you log in
+- Announcements you missed while offline arrive when you log in, and the addon checks every few minutes that nobody misses one
 
 ## Looking for group
 - List yourself with your **roles**, up to **4 activities** (dungeons, raids, PvP, questing in any zone, or anything) and a short note
