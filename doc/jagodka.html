@@ -111,7 +111,7 @@ svg .lane { stroke: var(--line); stroke-width: 1; }
 <tr><td><code>armory.lua</code>, <code>charcard.lua</code></td><td>Armory, CharCard</td><td>Link do armory (Sixty Upgrades), karta postaci. Nic nie wysyłają.</td></tr>
 <tr><td><code>help.lua</code>, <code>settings.lua</code></td><td>Help, Settings</td><td>Pomoc EN/PL, ustawienia (per postać w <code>JagodkiChatDB.chars</code>).</td></tr>
 <tr><td><code>lfg.lua</code></td><td>LFG</td><td>Ogłoszenia LFG (LF/LX/LQ/LC).</td></tr>
-<tr><td><code>chattab.lua</code></td><td>Zakladka</td><td>Zakładka „Jagodki Nadina - General” w czacie gry, pisanie z niej na kanał.</td></tr>
+<tr><td><code>chattab.lua</code></td><td>Zakladka</td><td>Zakładka „Jagodki Nadina - General” w czacie gry, pisanie z niej na kanał. Od 1.1.5 (w przygotowaniu) kanały i typy wiadomości z Settings &gt; Chats dodawane metodami okna (<code>frame:AddChannel</code>, <code>:AddMessageGroup</code>, <code>:RemoveChannel</code>…), bo klient Forever nie ma <code>ChatFrame_AddChannel</code> (pozostałe <code>ChatFrame_*</code> to tylko aliasy z Blizzard_DeprecatedChatInfo); wcześniej zaznaczone kanały gry (General, Trade…) nigdy się nie pokazywały.</td></tr>
 <tr><td><code>instances.lua</code></td><td>Instances</td><td>Lista instancji (Era / Forever, daty otwarcia).</td></tr>
 <tr><td><code>events.lua</code></td><td>Events</td><td>Wydarzenia: dane, reguły, synchronizacja (EH/ED/ES/EK/EX, EQ/EC), przypomnienia.</td></tr>
 <tr><td><code>announcements.lua</code></td><td>Announcements</td><td>Zakładka Announcements (od 1.1.0): ogłoszenia oficerów jak mały blog, dane, reguły i sync (AH/AB/AX, AQ/AC), edytor, licznik nieprzeczytanych.</td></tr>

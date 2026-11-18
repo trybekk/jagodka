@@ -21,12 +21,17 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.1.4", {
+        "! Everyone on 1.1.3 must update: 1.1.3 did not load at all.",
+        "# Fixes",
+        "The addon loads again (a mistake in 1.1.3 stopped it from starting). Everything from 1.1.3 is in this version.",
+    }, "the addon starts again" },
     { "1.1.3", {
         "! Everyone should update: the more players have this version, the more reliably events reach all our guilds.",
         "# Fixes",
         "Events reach all our guilds again: a new event, its changes, sign-ups and cancellations now go straight from you to every guild, not only through your own (some never arrived when one guild's helper had an old addon).",
         "# Changes",
-        "The Version column in the Members tab tells "not installed" (we are sure the player has no addon) from "no info" (we simply do not know yet), instead of a dash for both.",
+        "The Version column in the Members tab tells 'not installed' (we are sure the player has no addon) from 'no info' (we simply do not know yet), instead of a dash for both.",
         "The addon filter has the same choices: With addon, Not installed, No info, Outdated.",
         "# Officers",
         "The window header shows how much CPU and memory the addon itself uses, before the online counter (only officers see it).",
