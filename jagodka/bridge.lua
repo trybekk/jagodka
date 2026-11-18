@@ -1050,6 +1050,17 @@ function Most.ShouldAnswer(minVersion)
     return n <= ANSWERERS or math.random() < ANSWERERS / n
 end
 
+-- 1.1.2: am I the first-named guildmate online with minVersion or newer (me included)? One of the guild does
+-- a regular job (like the version list, roster.lua), even when the relay has an older version
+function Most.IsFirstWith(minVersion)
+    if not ctx then return false end
+    local me, myGuild = MyName(), MyGuild()
+    for _, p in ipairs(ctx.activePlayers) do
+        if p.guild == myGuild and p.name ~= me and p.name < me and AtLeast(p.version, minVersion) then return false end
+    end
+    return true
+end
+
 local function HandleHistoryRequest(sender, rawSender, since)
     if not Most.ShouldAnswer() then return end
     since = tonumber(since) or 0
@@ -1131,7 +1142,7 @@ local LIVE_PACKETS = {
     -- LFG listings (lfg.lua)
     LF = true, LX = true,
     -- Announcements (announcements.lua, 1.1.0)
-    AH = true, AB = true, AX = true,
+    AH = true, AB = true, AX = true, AV = true,
     -- Officers' big messages for everyone (core.lua): announcements and chat test requests
     CANN = true, CTEST = true,
     -- 1.1.2: everything else officers do, so it is real time too (rare): update reminders, chat mutes, new chat
@@ -1142,6 +1153,8 @@ local LIVE_PACKETS = {
     -- Roster changes (who logged in or out): small and rare, but behind a big guild's full roster they
     -- waited minutes, so a logged-out player of another guild still showed online
     RD = true,
+    -- 1.1.2: addon versions of a guild's players (roster.lua), sent straight to the relays: mostly small changes
+    VLIST = true,
 }
 local function ForwardPriority(text)
     return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"

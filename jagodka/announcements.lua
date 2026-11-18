@@ -66,6 +66,11 @@ local pending, answeredAt = {}, {}
 local lastRequest = -REQUEST_COOLDOWN
 local lastAnswerAt = -1        -- when a sync answer (whisper) last arrived
 local OTHERS_AFTER = 9         -- seconds without an answer from my guild before the other guilds are asked (AO)
+-- 1.1.2: every BEACON_EVERY one player of each guild (the first-named with 1.1.2) tells all guilds the newest
+-- change it knows (AV, one small packet); whoever has less asks for the rest. So a post reaches players who were
+-- offline when it was posted within minutes, even where few have the addon version that knows announcements.
+local BEACON_EVERY = 600
+local BEACON_MIN = "1.1.2"
 
 local function Monitor() return addonTable.Monitor end
 local function MyName() return Most.MyName() end
@@ -430,8 +435,21 @@ function Announcements.HandlePacket(pType, payload, senderName, channel)
         return true
     elseif pType == "AO" then
         -- 1.1.1: a player of another guild whose own guild could not answer (sent straight to our relay, which
-        -- reposted it here); answered like AQ, the claim (AC) in my guild keeps it to one of us
-        if senderName ~= MyName() and channel ~= "WHISPER" and Most.FindKnownPlayer(senderName) then HandleRequest(senderName, tonumber(payload) or 0, "1.1.1") end
+        -- reposted it here); answered like AQ, the claim (AC) in my guild keeps it to one of us.
+        -- 1.1.2: also a player not known yet (not in our copy of their guild's roster, core.lua lets AO through):
+        -- announcements are public, and each asker is answered at most every ANSWER_COOLDOWN. Only 1.1.2 does
+        -- that, so the answer chance counts only 1.1.2 guildmates then.
+        if senderName ~= MyName() and channel ~= "WHISPER" then
+            HandleRequest(senderName, tonumber(payload) or 0, Most.FindKnownPlayer(senderName) and "1.1.1" or BEACON_MIN)
+        end
+        return true
+    elseif pType == "AV" then
+        -- 1.1.2: someone has newer announcements than me: ask (my guild first, then the others, Request)
+        local newest = tonumber(payload) or 0
+        if senderName ~= MyName() and newest > Newest() and InListedGuild() then
+            if Monitor() then Monitor().Note("Announcements: " .. senderName .. " has newer ones, asking") end
+            Announcements.Request()
+        end
         return true
     elseif pType == "AC" then
         Activity()
@@ -462,6 +480,11 @@ local Ticker = CreateFrame("Frame")
 Ticker:RegisterEvent("PLAYER_LOGIN")
 addonTable.SafeScript(Ticker, "OnEvent", "announcements.lua:Ticker", function()
     C_Timer.NewTicker(300, function() Announcements.Prune() Announcements.UpdateBadge() if Announcements.Refresh then Announcements.Refresh() end end)
+    -- 1.1.2: the newest change I know, to all guilds (AV, see BEACON_EVERY); nothing when I know none
+    C_Timer.NewTicker(BEACON_EVERY, function()
+        local newest = Newest()
+        if newest > 0 and InListedGuild() and Most.IsFirstWith(BEACON_MIN) then Out("AV", tostring(newest)) end
+    end)
 end)
 
 -- ============================================================================

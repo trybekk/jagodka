@@ -51,6 +51,7 @@ local TYPES = {
     AH = { "events", "announcement" }, AB = { "events", "announcement text" }, AX = { "events", "announcement deleted" },
     AQ = { "events", "announcements sync request" }, AC = { "events", "announcements sync taken" },
     AO = { "events", "announcements sync request to other guilds" },
+    AV = { "events", "newest announcement change (every 10 min)" },
     LF = { "events", "LFG listing" }, LX = { "events", "LFG listing removed" }, LQ = { "events", "LFG sync request" }, LC = { "events", "LFG sync taken" },
     RF = { "rosters", "full roster" }, RD = { "rosters", "roster change" }, RQ = { "rosters", "roster request" },
     MUTE = { "mutes", "mute" }, MREQ = { "mutes", "mutes request" }, MCLAIM = { "mutes", "mutes request taken" },

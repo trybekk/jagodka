@@ -22,6 +22,10 @@ addonTable.ReleaseNotes = ReleaseNotes
 -- Newest first: { version, lines, title }
 local LIST = {
     { "1.1.2", {
+        "# Fixes",
+        "Announcements reach everyone like events do: every 10 minutes the addon checks with all our guilds whether you miss one and fetches it, also if you were offline when it was posted.",
+        "Players of other guilds get the announcements even when your copy of their guild's member list does not have them yet.",
+        "The addon versions of other guilds' players in the Members tab arrive within a minute or two (they often showed none).",
         "# Changes",
         "Jagódki Nadina VI no longer shows in the Guilds tab and the guilds panel: it was shown by mistake, the guild is not founded yet.",
         "# Officers",

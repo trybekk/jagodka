@@ -3974,7 +3974,9 @@ end
 else
 -- Sender from their status packet or, for most players of other guilds, from the guild rosters
 local senderInfo = Most.FindKnownPlayer(senderName)
-if not senderInfo and senderName ~= myName then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
+-- 1.1.2: except asking for announcements and telling there are newer ones (AO/AV, announcements.lua): public
+-- data, so a player missing from our copy of their guild's roster still gets the announcements
+if not senderInfo and senderName ~= myName and pType ~= "AO" and pType ~= "AV" then addonTable.Monitor.Note("Ignored " .. pType .. " from " .. senderName .. ": sender not known yet") return end
 -- Officer by the guild's roster, not by the rank they send
 local senderGuild = senderInfo and senderInfo.guild or GetGuildInfo("player")
 local senderIsOfficer

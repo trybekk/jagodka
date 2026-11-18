@@ -720,7 +720,9 @@ end
 -- 0.15.6: every VERSION_LIST_EVERY only the changes (new players, changed versions), the whole list every
 -- VERSION_FULL_EVERY. The whole JN list is ~37 packets; sent every 3 minutes ahead of everything it held the
 -- sender's chat up to 30 s (11.11 log), so it also goes as low priority now.
-local VERSION_LIST_EVERY = 180      -- s; beta: often, so new versions show across guilds soon
+-- 1.1.2: straight to the other guilds' relays as a live packet (it went to GUILD with low priority and waited
+-- behind everything at both relays: on 17.11 other guilds' players showed no version at all), changes every 60 s
+local VERSION_LIST_EVERY = 60       -- s; only the changes (small), the whole list every VERSION_FULL_EVERY
 local VERSION_FULL_EVERY = 900      -- s; beta
 local VERSION_KEEP = 2 * VERSION_FULL_EVERY + 60
 local versionSent, versionFullAt = {}, nil   -- name -> version as last sent; when the whole list last went
@@ -745,6 +747,8 @@ local function SendVersionList()
         versionFullAt = nil
         return
     end
+    -- No other guild linked yet: nothing to send to; the whole list goes once there is
+    if not Most.HasLinkedGuilds() then versionFullAt = nil return end
     local full = not versionFullAt or GetTime() - versionFullAt >= VERSION_FULL_EVERY
     if full then wipe(versionSent) versionFullAt = GetTime() end
     local entries, all = {}, {}
@@ -782,7 +786,9 @@ local function SendVersionList()
     end
     table.insert(parts, cur)
     for i, part in ipairs(parts) do
-        Most.Send("VLIST", table.concat({ Enc(guild), i, #parts, table.concat(part.versions, ","), table.concat(part.items, ";") }, ":"), "low")
+        -- 1.1.2: only straight to the other guilds' relays (they repost it to their guild, also 1.0.3 relays);
+        -- my guild ignores its own list (HandleVersionList), so no GUILD copy and no second one from my relay
+        Most.ToOtherGuilds("VLIST", table.concat({ Enc(guild), i, #parts, table.concat(part.versions, ","), table.concat(part.items, ";") }, ":"), true)
     end
     if addonTable.Monitor and addonTable.Monitor.Note then
         local counts = {}
