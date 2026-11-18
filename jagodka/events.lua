@@ -196,7 +196,12 @@ end
 -- ============================================================================
 local function Out(pType, payload, target, priority)
     if target then Most.Whisper(target, pType, payload, priority or "low")
-    elseif InListedGuild() then Most.Send(pType, payload, priority or "high") end
+    elseif InListedGuild() then
+        Most.Send(pType, payload, priority or "high")
+        -- 1.1.3: also straight to the other guilds' relays (as announcements), so an event does not depend on my
+        -- guild's relay (18.11: a JN3 event never reached the other guilds). A second copy is dropped by revision.
+        if Most.ToOtherGuilds then Most.ToOtherGuilds(pType, payload) end
+    end
 end
 
 local function SendHeader(ev, target)

@@ -34,7 +34,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - A reminder 15 minutes before the start
 - Monthly calendar view with filters and search
 - Invite everyone who signed up to a group with one click
-- Events and sign-ups stay in sync, even if you were offline when they changed
+- Events and sign-ups reach every guild straight away and stay in sync, even if you were offline when they changed
 
 ## Members and guilds
 - Browse the members of every community guild, including those without the addon

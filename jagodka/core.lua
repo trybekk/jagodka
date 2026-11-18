@@ -983,7 +983,7 @@ table.sort(names)
 for _, l in ipairs(names) do table.insert(list, { value = l, text = l .. " |cff808080(" .. count[l] .. ")|r" }) end
 return list
 end,
-addon = function() return { { text = "Addon" }, { value = "yes", text = "With addon" }, { value = "no", text = "No addon" }, { value = "old", text = "Outdated" } } end,
+addon = function() return { { text = "Addon" }, { value = "yes", text = "With addon" }, { value = "no", text = "Not installed" }, { value = "unknown", text = "No info" }, { value = "old", text = "Outdated" } } end,
 }
 -- Widths fit the narrowest window (the panel is 610 px wide at 1000 px); the default texts are short
 -- Filters where several can be ticked: filters[key] = { value = true }
@@ -1068,7 +1068,8 @@ if f.rank and p.rank ~= f.rank then return false end
 if f.location and p.location ~= f.location then return false end
 if f.profs and not addonTable.Professions.HasAny(p.name, f.profs) then return false end
 if f.addon == "yes" and not p.version then return false end
-if f.addon == "no" and p.version then return false end
+if f.addon == "no" and not p.noAddon then return false end
+if f.addon == "unknown" and (p.version or p.noAddon) then return false end
 if f.addon == "old" and not (p.version and latest and CompareVersions(p.version, latest) < 0) then return false end
 if text == "" then return true end
 local function Has(v) return v ~= nil and tostring(v):lower():find(text, 1, true) ~= nil end
@@ -1293,7 +1294,7 @@ Fit("class", LOCALIZED_CLASS_NAMES_MALE[p.class] or p.class or "Unknown", 18) --
 Fit("location", p.location or "-")
 Fit("guild", p.guild or "No guild")
 Fit("rank", GetColoredRank(p.rank))
-Fit("version", p.version or "-")
+Fit("version", p.version or (p.noAddon and "not installed" or "no info"))
 end
 local content = 0
 for _, col in ipairs(columns) do content = content + widths[col.key] end
@@ -1386,12 +1387,13 @@ addonTable.Notes.UpdateRow(row, data)
 addonTable.Professions.UpdateRow(row, data)
 addonTable.Armory.UpdateRow(row, data)
 -- Green = same version, red = older, yellow = newer than mine
--- No version = player without the addon (known only from a guild roster)
+-- No version: "not installed" when it is sure they have no addon (Roster.KnownWithoutAddon), else "no info" (1.1.3)
 if data.version then
 local vCmp = CompareVersions(data.version, ADDON_VERSION)
 local vColor = (vCmp == 0) and "|cff00ff00" or ((vCmp < 0) and "|cffff5555" or "|cffffd100")
 row.versionText:SetText(vColor .. data.version .. "|r")
-else row.versionText:SetText("|cff808080-|r") end
+elseif data.noAddon then row.versionText:SetText("|cffb06060not installed|r")
+else row.versionText:SetText("|cff808080no info|r") end
 -- Offline is grayed out
 row:SetAlpha(data.online and 1 or 0.45)
 row.guildText:SetText((data.guild and data.guild ~= "Brak") and ("|cffbf40ff" .. data.guild .. "|r") or "|cff808080No guild|r")
@@ -3579,7 +3581,7 @@ local onlineList, onlineListPending = {}, false
 local function RenderScrollList()
 HeaderText:SetText("Officers online (" .. #onlineList .. ")")
 -- The counter in the window header = everyone online from all listed guilds (RightPanel.onlineTotal)
-OnlineText:SetText("Online: |cff00ff00" .. (RightPanel.onlineTotal or 0) .. "|r")
+OnlineText:SetText((MainFrame.perfText or "") .. "Online: |cff00ff00" .. (RightPanel.onlineTotal or 0) .. "|r")
 -- 1.0.2: at most 6 rows (the panel's height), no slider: the header still counts everyone
 local visible = math.min(RightPanel.visibleRows or 6, 6)
 scrollFrame:Hide()
@@ -3628,6 +3630,36 @@ SideGuilds.Render()
 EventSync.Side.Render()
 end)
 end
+-- 1.1.3: officers see the addon's own CPU and memory left of the online counter, every 5 s with the window open.
+-- CPU = the addon's share of the frame time (the game's AddOn profiler; left out when the client has none).
+-- A function, not a do-block: its locals do not count toward the main chunk's 200.
+;(function()
+local perfTicker
+local function PerfText()
+if not IsPlayerOfficer() then return "" end
+local parts = {}
+local P, M = _G.C_AddOnProfiler, _G.Enum and _G.Enum.AddOnProfilerMetric
+if P and P.GetAddOnMetric and P.GetApplicationMetric and M and M.RecentAverageTime then
+local ok, mine, app = pcall(function() return P.GetAddOnMetric(addonName, M.RecentAverageTime), P.GetApplicationMetric(M.RecentAverageTime) end)
+if ok and mine and app and app > 0 then table.insert(parts, string.format("CPU %.1f%%", mine / app * 100)) end
+end
+if _G.UpdateAddOnMemoryUsage and _G.GetAddOnMemoryUsage then
+_G.UpdateAddOnMemoryUsage()
+table.insert(parts, string.format("RAM %.1f MB", (_G.GetAddOnMemoryUsage(addonName) or 0) / 1024))
+end
+if #parts == 0 then return "" end
+return "|cffa0a0a0" .. table.concat(parts, "  ") .. "|r   "
+end
+local function RefreshPerf() MainFrame.perfText = PerfText() RenderScrollList() end
+local function StartPerf()
+if perfTicker then return end
+RefreshPerf()
+perfTicker = C_Timer.NewTicker(5, RefreshPerf)
+end
+MainFrame:HookScript("OnShow", StartPerf)
+MainFrame:HookScript("OnHide", function() if perfTicker then perfTicker:Cancel() perfTicker = nil end end)
+if MainFrame:IsShown() then StartPerf() end
+end)()
 -- The same clicks as in the Members table (right = menu, Shift + left = whisper)
 for _, row in ipairs(rows) do
 row:RegisterForClicks("LeftButtonUp", "RightButtonUp")

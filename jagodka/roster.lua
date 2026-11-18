@@ -727,6 +727,9 @@ local VERSION_FULL_EVERY = 900      -- s; beta
 local VERSION_KEEP = 2 * VERSION_FULL_EVERY + 60
 local versionSent, versionFullAt = {}, nil   -- name -> version as last sent; when the whole list last went
 local otherVersions = {}            -- name -> { v = "0.15.4", at = GetTime() }
+-- 1.1.2: since when a guild's version lists keep coming without a gap (guild -> { first, last }), so the
+-- Roster can tell "not installed" (we have that guild's whole list) from "no info"
+local versionListsFrom = {}
 
 -- 0.15.6: the sender is the first-named guildmate online with 0.15.6 or newer (me included), not the relay:
 -- in the 10.11 log two guilds' relays still had 0.15.4 (no list at all) and the lists of the 0.15.5 relays
@@ -813,6 +816,10 @@ function Roster.HandleVersionList(payload, senderName)
         end
     end
     local now = GetTime()
+    -- A gap longer than a whole-list interval: a whole list may have been missed, so start counting again
+    local from = versionListsFrom[guild]
+    if not from or now - from.last > VERSION_FULL_EVERY + 120 then from = { first = now } versionListsFrom[guild] = from end
+    from.last = now
     local counts, total = {}, 0
     for e in list:gmatch("[^;]+") do
         local name, i = e:match("^(.-)~(%d+)$")
@@ -840,6 +847,18 @@ function Roster.OtherVersion(name)
     local e = otherVersions[name]
     if e and GetTime() - e.at <= VERSION_KEEP then return e.v end
     return nil
+end
+
+-- 1.1.2: is it sure that this ONLINE player has no addon? My guild: everyone with the addon sends their status
+-- every minute, so a guildmate online without one a while after my login has none. Another guild: its version
+-- lists have kept coming for longer than a whole-list interval (so a whole list arrived) and the player is not
+-- in them. Otherwise (offline, lists missing or too new) nobody knows: "no info".
+function Roster.KnownWithoutAddon(name, guild)
+    local now = GetTime()
+    if guild == MyGuild() then return now - readyAt >= 60 end
+    local from = versionListsFrom[guild]
+    return from ~= nil and now - from.first >= VERSION_FULL_EVERY + 60 and now - from.last <= VERSION_FULL_EVERY + 120
+        and Roster.OtherVersion(name) == nil
 end
 
 -- Addon players of a guild with their versions (0.15.5): mine from the status packets, others from their relay's
@@ -926,9 +945,12 @@ function Roster.BuildList(showOffline)
                 online = online or byWhisper
                 if not seen[name] and (online or showOffline) then
                     seen[name] = true
+                    local version = (online and guild ~= myGuild) and Roster.OtherVersion(name) or nil
                     table.insert(list, { name = name, class = m.c, level = m.l, guild = guild, rank = g.ranks[(m.r or 0) + 1] or ("Rank " .. tostring(m.r)), rankIndex = m.r, location = byWhisper and "(whisper)" or ((online and guild == myGuild and m.z ~= "") and m.z or nil), online = online,
                         -- Another guild's player with the addon (their relay's version list, 0.15.5)
-                        version = (online and guild ~= myGuild) and Roster.OtherVersion(name) or nil })
+                        version = version,
+                        -- 1.1.2: without a version: sure they have no addon ("not installed") or nobody knows ("no info")
+                        noAddon = not version and online and not byWhisper and Roster.KnownWithoutAddon(name, guild) or nil })
                 end
             end
         end
