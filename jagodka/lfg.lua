@@ -184,7 +184,12 @@ local function InGuild() local M = Most() return M.IsGuildAllowed(M.MyGuild()) e
 
 local function SendMine(target)
     if not mine or not InGuild() then return end
-    if target then Most().Whisper(target, "LF", Encode(mine), "low") else Most().Send("LF", Encode(mine), "high") end
+    if target then Most().Whisper(target, "LF", Encode(mine), "low") else
+        Most().Send("LF", Encode(mine), "high")
+        -- 1.1.5: also straight to the other guilds' relays (like events), so it does not wait in my relay's queue;
+        -- a listing too long for the "FW:name:" header just goes the old way
+        if Most().ToOtherGuilds then Most().ToOtherGuilds("LF", Encode(mine)) end
+    end
 end
 
 local function SaveMineToDB()
@@ -475,7 +480,11 @@ function LFG.Open(name)
 end
 
 function LFG.RemoveMine()
-    if mine and InGuild() then Most().Send("LX", Most().EncodeField(mine.name) .. ":" .. GetServerTime(), "high") end
+    if mine and InGuild() then
+        local payload = Most().EncodeField(mine.name) .. ":" .. GetServerTime()
+        Most().Send("LX", payload, "high")
+        if Most().ToOtherGuilds then Most().ToOtherGuilds("LX", payload) end -- 1.1.5: straight to the other relays too
+    end
     for i, l in ipairs(listings) do if l == mine then table.remove(listings, i) break end end
     mine = nil
     SaveMineToDB()

@@ -59,6 +59,7 @@ local TYPES = {
     NREQ = { "presence", "note request" }, NOTE = { "presence", "public note" },
     UPD = { "presence", "officer's update reminder" }, CTEST = { "presence", "officer's chat test request" }, CANN = { "presence", "officer's announcement" }, CREF = { "channel", "chat channel refused / back" }, VLIST = { "presence", "addon versions of a guild" },
     DI = { "presence", "Discord name" }, DQ = { "presence", "Discord names request" }, DC = { "presence", "Discord names request taken" }, DL = { "presence", "Discord names" },
+    BI = { "presence", "BattleTag" }, BQ = { "presence", "BattleTags request" }, BC = { "presence", "BattleTags request taken" }, BL = { "presence", "BattleTags" },
     PREQ = { "presence", "professions request" }, PREQN = { "presence", "professions request for a page" }, PCLAIM = { "presence", "professions request taken" }, PSYNC = { "presence", "professions of others" },
 }
 local FILTERS = {
@@ -149,7 +150,14 @@ end
 local function Detail(pType, payload)
     if not payload or payload == "" then return nil end
     local a, b, c, d, e, f = strsplit(":", payload, 7)
-    if pType == "GMSG" or pType == "HIST" then return Field(d) .. ", " .. Field(c) .. ", tab " .. Field(e) end
+    if pType == "GMSG" or pType == "HIST" then
+        local text = Field(d) .. ", " .. Field(c) .. ", tab " .. Field(e)
+        -- 1.1.5: how old a live message is when it goes out / arrives (the author's server time), so logs show
+        -- the relay delay between guilds (the 19.11 log could not measure it)
+        local ts = tonumber(b)
+        if pType == "GMSG" and ts and _G.GetServerTime then text = text .. ", written " .. math.max(0, _G.GetServerTime() - ts) .. " s ago" end
+        return text
+    end
     if pType == "RF" then return Field(a) .. ", part " .. Field(c) .. "/" .. Field(d) end
     if pType == "RD" then return Field(a) end
     if pType == "RQ" then return Field(a) end
@@ -1044,8 +1052,12 @@ function Monitor.Attach(panel, c)
         { header = "Updates" },
         { btn = remind, text = "Remind outdated", tip = "A note by the minimap for everyone with an older addon than yours, in all guilds." },
         { header = "Chat keys" },
-        { btn = newKey, text = "New chat key", tip = "Everyone moves to a new chat channel within moments (the same as /jagodka key)." },
-        { btn = officersKey, text = "New officers key", tip = "All officers move to a new officers channel within moments." },
+        { btn = newKey, text = "New chat key", tip = "Everyone moves to a new chat channel within moments (the same as /jagodka key).\nUse it only when the chat channel is broken or leaked (e.g. someone set a password on it or outsiders got in)." },
+        { btn = officersKey, text = "New officers key", tip = "All officers move to a new officers channel within moments.\nUse it only when someone lost the officer rank or the channel leaked (the addon also does it by itself when it sees a non-officer there)." },
+        -- 1.1.5: guild cleanup (guildcleanup.lua), only the guild you are logged in on, nothing is sent
+        { header = "Guild" },
+        { func = function() if addonTable.GuildCleanup then addonTable.GuildCleanup.Toggle(c.applyStyle) end end,
+          text = "Guild cleanup...", tip = "Members of the guild you are logged in on, the longest offline first, with a Kick button. For another guild, log in there." },
     }
     for _, a in ipairs(actions) do if a.btn then a.btn:Hide() end end
     local actionsMenu = CreateFrame("Frame", "JagodkaOfficerActionsMenu", _G.UIParent, "UIDropDownMenuTemplate")
@@ -1059,7 +1071,7 @@ function Monitor.Attach(panel, c)
                 local b = a.btn
                 info.text = a.text
                 info.tooltipTitle, info.tooltipText, info.tooltipOnButton = a.text, a.tip, true
-                info.func = function()
+                info.func = a.func or function()
                     local fn = b:GetScript("OnClick")
                     if fn then fn(b, "LeftButton") end
                 end
@@ -1078,7 +1090,7 @@ function Monitor.Attach(panel, c)
     actionsBtn:SetScript("OnClick", function(self) _G.ToggleDropDownMenu(1, nil, actionsMenu, self, 0, 0) end)
     actionsBtn:SetScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:SetText("Announcement, chat test request, promoting the addon to officers, reminding outdated players, new chat keys.", 1, 1, 1, 1, true)
+        _G.GameTooltip:SetText("Announcement, chat test request, promoting the addon to officers, reminding outdated players, new chat keys, guild cleanup.", 1, 1, 1, 1, true)
         _G.GameTooltip:Show()
     end)
     actionsBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)

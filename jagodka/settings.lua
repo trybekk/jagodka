@@ -87,24 +87,33 @@ local function GameChannels()
     return list
 end
 
+-- 1.1.5: the chat window's own method (frame:AddChannel...), else the old global (ChatFrame_AddChannel(frame...)).
+-- The Forever client has no ChatFrame_AddChannel at all, so the ticked game channels (General, Trade...) never
+-- showed in the tab; the other old globals exist there only as deprecated aliases (Blizzard_DeprecatedChatInfo).
+local function ChatCall(frame, method, ...)
+    if type(frame[method]) == "function" then return frame[method](frame, ...) end
+    local old = _G["ChatFrame_" .. method]
+    if type(old) == "function" then return old(frame, ...) end
+end
+
 -- Applies the choices to the community tab of the game's chat. frame: that tab (chattab.lua).
+-- Only the game's own message types and channels: the community chat itself is printed by the addon
+-- (chattab.lua), and our channels are never offered here (IsOurChannel), so it is never touched.
 function Settings.ApplyChatTab(frame)
     local cfg = DB()
     if not frame or not cfg.set then return end
-    if _G.ChatFrame_RemoveAllMessageGroups then _G.ChatFrame_RemoveAllMessageGroups(frame) end
+    ChatCall(frame, "RemoveAllMessageGroups")
     for _, g in ipairs(CHAT_GROUPS) do
-        if cfg.groups[g.key] and _G.ChatFrame_AddMessageGroup then
+        if cfg.groups[g.key] then
             for _, group in ipairs(g.groups) do
-                if _G.ChatTypeGroup and _G.ChatTypeGroup[group] then _G.ChatFrame_AddMessageGroup(frame, group) end
+                if _G.ChatTypeGroup and _G.ChatTypeGroup[group] then ChatCall(frame, "AddMessageGroup", group) end
             end
         end
     end
     for _, name in ipairs(GameChannels()) do
-        if cfg.channels[name] then
-            if _G.ChatFrame_AddChannel then _G.ChatFrame_AddChannel(frame, name) end
-        elseif _G.ChatFrame_RemoveChannel then
-            _G.ChatFrame_RemoveChannel(frame, name)
-        end
+        if not cfg.channels[name] then ChatCall(frame, "RemoveChannel", name)
+        -- Already there (applied again after login): adding twice would list it twice
+        elseif not ChatCall(frame, "ContainsChannel", name) then ChatCall(frame, "AddChannel", name) end
     end
 end
 
@@ -148,6 +157,8 @@ local function Render()
     if profile then
         profile:SetShown(selected == "profile")
         if selected == "profile" and not profile.box:HasFocus() then profile.box:SetText(addonTable.Discord and addonTable.Discord.Mine() or "") end
+        if selected == "profile" and not profile.btag:HasFocus() then profile.btag:SetText(addonTable.Discord and addonTable.Discord.MineBTag() or "") end
+        if selected == "profile" then profile.UpdatePreview() end
     end
     for _, c in ipairs(checks) do c:SetChecked(cfg.groups[c.key] and true or false) end
     -- The officers chat only for officers
@@ -278,36 +289,78 @@ function Settings.Attach(p, c)
     profile.intro:SetPoint("TOPLEFT", profile, "TOPLEFT", 16, -48)
     profile.intro:SetPoint("RIGHT", profile, "RIGHT", -16, 0)
     profile.intro:SetJustifyH("LEFT")
-    profile.intro:SetText("Share your Discord name with the community, if you like: players of our guilds see it in one small line when they hover any of your characters, and can copy it from the Roster menu. It reaches everyone within minutes and stays. Saved for your account (all your characters). Leave it empty and save to stop sharing it.")
-    profile.label = profile:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    profile.label:SetPoint("TOPLEFT", profile.intro, "BOTTOMLEFT", 0, -18)
-    profile.label:SetText("Discord name")
-    profile.box = CreateFrame("EditBox", nil, profile, "InputBoxTemplate")
-    profile.box:SetSize(220, 26)
-    profile.box:SetPoint("TOPLEFT", profile.label, "BOTTOMLEFT", 6, -6)
-    profile.box:SetAutoFocus(false)
-    profile.box:SetMaxLetters(37)
+    profile.intro:SetText("Share your Discord name and your BattleTag with the community, if you like. Both are optional. Players of our guilds see them in one small line when they hover any of your characters, and can copy them from the Roster menu. They reach everyone within minutes and stay. Saved for your account (all your characters). Leave a field empty and save to stop sharing it.")
+    -- 1.1.5: two optional fields (Discord name, BattleTag), each with its icon and a hint, one Save for both
+    local function Field(labelText, icon, hint, maxLetters, anchor, gap)
+        local label = profile:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
+        label:SetText("|T" .. icon .. ":16:16:0:0|t " .. labelText .. " |cff808080(optional)|r")
+        local box = CreateFrame("EditBox", nil, profile, "InputBoxTemplate")
+        box:SetSize(240, 26)
+        box:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 6, -6)
+        box:SetAutoFocus(false)
+        box:SetMaxLetters(maxLetters)
+        local tip = profile:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        tip:SetPoint("LEFT", box, "RIGHT", 12, 0)
+        tip:SetText(hint)
+        return label, box
+    end
+    profile.label, profile.box = Field("Discord name", "Interface\\FriendsFrame\\UI-Toast-ChatInviteIcon",
+        "e.g. jagodka_fan", 37, profile.intro, -18)
+    profile.btagLabel, profile.btag = Field("BattleTag", "Interface\\FriendsFrame\\Battlenet-Battleneticon",
+        "e.g. Jagodka#2137", 40, profile.box, -14)
+    profile.btagLabel:ClearAllPoints()
+    profile.btagLabel:SetPoint("TOPLEFT", profile.box, "BOTTOMLEFT", -6, -14)
+    profile.save = CreateFrame("Button", nil, profile, "GameMenuButtonTemplate")
+    profile.save:SetSize(110, 26)
+    profile.save:SetPoint("TOPLEFT", profile.btag, "BOTTOMLEFT", -6, -14)
+    profile.save:SetText("Save")
+    -- What others see: the same compact line as in their tooltips
+    profile.previewLabel = profile:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    profile.previewLabel:SetPoint("TOPLEFT", profile.save, "BOTTOMLEFT", 0, -18)
+    profile.previewLabel:SetText("Others see when they hover you")
+    profile.preview = CreateFrame("Frame", nil, profile, "BackdropTemplate")
+    profile.preview:SetPoint("TOPLEFT", profile.previewLabel, "BOTTOMLEFT", 0, -6)
+    profile.preview:SetSize(420, 46)
+    profile.preview:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    profile.preview:SetBackdropColor(0, 0, 0, 0.6)
+    profile.preview:SetBackdropBorderColor(0.4, 0.4, 0.45, 0.8)
+    profile.preview.name = profile.preview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    profile.preview.name:SetPoint("TOPLEFT", profile.preview, "TOPLEFT", 8, -7)
+    profile.preview.line = profile.preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    profile.preview.line:SetPoint("TOPLEFT", profile.preview.name, "BOTTOMLEFT", 0, -4)
     profile.status = profile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    profile.status:SetPoint("TOPLEFT", profile.box, "BOTTOMLEFT", -6, -10)
+    profile.status:SetPoint("TOPLEFT", profile.preview, "BOTTOMLEFT", 0, -10)
     profile.status:SetPoint("RIGHT", profile, "RIGHT", -16, 0)
     profile.status:SetJustifyH("LEFT")
-    local function SaveDiscord()
+    function profile.UpdatePreview()
+        local me = addonTable.Most and addonTable.Most.MyName() or "You"
+        local line = addonTable.Discord and addonTable.Discord.Line(me)
+        profile.preview.name:SetText(me)
+        profile.preview.line:SetText(line or "|cff808080Nothing: you are not sharing either.|r")
+    end
+    local function SaveProfile()
         if not addonTable.Discord then return end
-        local ok, why = addonTable.Discord.SetMine(profile.box:GetText())
+        local okD, whyD = addonTable.Discord.SetMine(profile.box:GetText())
+        local okB, whyB = addonTable.Discord.SetMineBTag(profile.btag:GetText())
         profile.box:ClearFocus()
-        if ok then
-            local mine = addonTable.Discord.Mine()
-            profile.status:SetText(mine ~= "" and ("|cff00ff00Saved.|r Others see: |cffa0a0a0Discord:|r |cff7289da" .. mine .. "|r")
-                or "|cff00ff00Saved.|r You are not sharing a Discord name.")
+        profile.btag:ClearFocus()
+        profile.UpdatePreview()
+        if okD and okB then
+            profile.status:SetText("|cff00ff00Saved.|r")
         else
-            profile.status:SetText("|cffff5555" .. why .. "|r")
+            local errors = {}
+            if not okD then table.insert(errors, whyD) end
+            if not okB then table.insert(errors, whyB) end
+            profile.status:SetText("|cffff5555" .. table.concat(errors, " ") .. "|r" .. ((okD or okB) and " |cff00ff00The other field was saved.|r" or ""))
         end
     end
-    profile.save = CreateFrame("Button", nil, profile, "GameMenuButtonTemplate")
-    profile.save:SetSize(90, 26)
-    profile.save:SetPoint("LEFT", profile.box, "RIGHT", 10, 0)
-    profile.save:SetText("Save")
-    profile.save:SetScript("OnClick", SaveDiscord)
-    profile.box:SetScript("OnEnterPressed", SaveDiscord)
-    profile.box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    profile.save:SetScript("OnClick", SaveProfile)
+    for _, box in ipairs({ profile.box, profile.btag }) do
+        box:SetScript("OnEnterPressed", SaveProfile)
+        box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    end
+    -- Tab moves between the two fields
+    profile.box:SetScript("OnTabPressed", function() profile.btag:SetFocus() end)
+    profile.btag:SetScript("OnTabPressed", function() profile.box:SetFocus() end)
 end

@@ -5,7 +5,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 ## Shared chat
 - **General, Trade and LFG** chats shared across all community guilds, and an **Officers chat** for the officers of all guilds
 - Messages reach everyone: on the community's own secret channel and through the guilds as well, so the chat keeps working even when the server splits players up or refuses the channel
-- Each chat tab shows **how many players read it**, e.g. "General (287)"
+- Each chat tab shows **how many players read it**, e.g. "General (287)", and a **green count of messages you have not seen yet**, also those from while you were offline
 - The community chat as a tab in your **game chat window**, which can be your only chat tab: choose in Settings what else shows there (whispers, guild, party, raid, system messages, game channels, and the community Trade, LFG and officers chats)
 - Chat commands **/jnglobal, /jntrade, /jnlfg, /jnofficers** switch what you write to, or send one message from any chat tab
 - Clickable item, spell, profession and **quest** links (Shift + click a quest in your quest log or tracker); quests linked with **Questie** show as clickable links too
@@ -41,7 +41,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - Search by name and **filter** by guild, rank, class, **professions**, location and addon version; sort; right-click to whisper, invite or **copy the name**
 - See who has the addon and **which version**, in all our guilds
 - Professions of members with the addon
-- **Discord names:** share yours in Settings > Profile, and see "Discord: name" when you hover a player anywhere (in the world, on the chat, in the lists)
+- **Discord names and BattleTags:** share them in Settings > Profile (both optional), and see "Discord: name   BattleTag: Name#1234" in one line when you hover a player anywhere (in the world, on the chat, in the lists)
 - **Armory links** (Sixty Upgrades) for every character, ready to copy
 - Your **character card**: level, guild, rank, professions, experience and an Armory link
 - Side column: your events and LFG listing, officers online, guilds (with how many have the addon) and classes at a glance
@@ -51,7 +51,7 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - **Big messages:** write a short message that everyone with the addon sees as a big text on screen, with a sound
 - Mute players on the community chat (synced across all guilds)
 - Monitoring tab: the state of the community, the connections between guilds, who has an outdated addon, who cannot get onto the chat channel, and a recorded log for finding problems
-- One **Officer actions** menu: announcements, chat test requests, update reminders and new chat keys
+- One **Officer actions** menu: announcements, chat test requests, update reminders, new chat keys and **Guild cleanup** (your guild's members, the longest offline first, with their notes and a Guild Kick button)
 
 ## Good to know
 - Only guilds on the community list can use the addon

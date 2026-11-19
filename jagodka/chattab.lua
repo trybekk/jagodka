@@ -62,8 +62,11 @@ local function CreateTab(def)
     local frame = FindTab(def)
     if not frame then return nil end -- chat window limit
     -- No regular channels or message types, only what the addon prints
-    if _G.ChatFrame_RemoveAllMessageGroups then _G.ChatFrame_RemoveAllMessageGroups(frame) end
-    if _G.ChatFrame_RemoveAllChannels then _G.ChatFrame_RemoveAllChannels(frame) end
+    -- 1.1.5: the window's own methods first (the ChatFrame_ globals are only deprecated aliases on Forever)
+    if frame.RemoveAllMessageGroups then frame:RemoveAllMessageGroups()
+    elseif _G.ChatFrame_RemoveAllMessageGroups then _G.ChatFrame_RemoveAllMessageGroups(frame) end
+    if frame.RemoveAllChannels then frame:RemoveAllChannels()
+    elseif _G.ChatFrame_RemoveAllChannels then _G.ChatFrame_RemoveAllChannels(frame) end
     -- A new window selects itself, so we go back to General
     if _G.FCF_SelectDockFrame and _G.DEFAULT_CHAT_FRAME then _G.FCF_SelectDockFrame(_G.DEFAULT_CHAT_FRAME) end
     return frame

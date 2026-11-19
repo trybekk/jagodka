@@ -158,8 +158,11 @@ DragBar:SetPoint("TOPLEFT", MainFrame, "TOPLEFT", 1, -1)
 DragBar:SetPoint("BOTTOMRIGHT", MainFrame, "TOPRIGHT", -40, -35)
 DragBar:EnableMouse(true)
 DragBar:RegisterForDrag("LeftButton")
-DragBar:SetScript("OnDragStart", function() MainFrame:StartMoving() end)
-DragBar:SetScript("OnDragStop", function() MainFrame:StopMovingOrSizing() MainFrame.SaveLayout() end)
+-- 1.1.5: half see-through while dragged by the title, so the player sees what is under it
+DragBar:SetScript("OnDragStart", function() MainFrame:SetAlpha(0.5) MainFrame:StartMoving() end)
+DragBar:SetScript("OnDragStop", function() MainFrame:StopMovingOrSizing() MainFrame:SetAlpha(1) MainFrame.SaveLayout() end)
+-- Closed while dragged (Esc): the drag stop may never come, so it opens solid next time
+MainFrame:HookScript("OnHide", function() MainFrame:SetAlpha(1) end)
 CloseBtn:SetFrameLevel(DragBar:GetFrameLevel() + 2)
 -- Resize handle: the window gets bigger (fonts unchanged), tabs show more content
 local Grip = CreateFrame("Button", nil, MainFrame)
@@ -1202,6 +1205,13 @@ if addonTable.Discord.Get(target) then
 info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.notCheckable = "Copy Discord name (" .. addonTable.Discord.Get(target) .. ")", true
 info.func = function() addonTable.Discord.Copy(target) end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+-- 1.1.5: their BattleTag, when they shared one
+if addonTable.Discord.GetBTag(target) then
+info = _G.UIDropDownMenu_CreateInfo()
+info.text, info.notCheckable = "Copy BattleTag (" .. addonTable.Discord.GetBTag(target) .. ")", true
+info.func = function() addonTable.Discord.CopyBTag(target) end
 _G.UIDropDownMenu_AddButton(info, level)
 end
 -- Mute / Unmute as in the chat menu (permissions: mute.lua)
@@ -2717,6 +2727,81 @@ addonTable.Announcements.Attach(Panels[11], { applyStyle = ApplyModernStyle, col
 if class and RAID_CLASS_COLORS[class] then return RAID_CLASS_COLORS[class]:WrapTextInColorCode(name) end
 return GetColoredName(name)
 end })
+-- 1.1.5: unread messages on the chat tabs (user: "zielone kółeczko przy tabach, że ktoś nie przeczytał, przy
+-- oficerskich chatach by się przydało"): the green count of the Announcements tab on each chat tab (General,
+-- Trade, LFG, Officers) for messages of others not yet seen in the addon window; the Community Chat tab button
+-- shows the officers' count (General is always busy, its count there would always say 9+). "Seen" = that chat
+-- tab shown in the open window. The time of the last look is kept per character, so messages that came while
+-- offline (history after login) count too; a message that arrives late with an older time counts by arrival.
+;(function()
+local pending = false
+local unreadByArrival = setmetatable({}, { __mode = "k" })   -- entry -> tab: arrived while its tab was not shown
+local function Seen()
+local store = addonTable.Settings.CharStore()
+store.chatSeen = type(store.chatSeen) == "table" and store.chatSeen or {}
+return store.chatSeen
+end
+local function Shown(tab) return MainFrame:IsShown() and Panels[1]:IsVisible() and currentChatTab == tab end
+local function Badge(btn, n, x, y)
+if not btn then return end
+if not btn.unreadBadge then
+local b = CreateFrame("Frame", nil, btn)
+b:SetSize(16, 16)
+b:SetPoint("CENTER", btn, "TOPRIGHT", x or -3, y or -3)
+b:SetFrameLevel(btn:GetFrameLevel() + 5)
+b.bg = b:CreateTexture(nil, "ARTWORK")
+b.bg:SetAllPoints()
+b.bg:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+b.bg:SetVertexColor(0.15, 0.75, 0.3, 1)
+b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+b.text:SetPoint("CENTER", b, "CENTER", 0, 0)
+btn.unreadBadge = b
+end
+btn.unreadBadge.text:SetText(n > 9 and "9+" or tostring(n))
+btn.unreadBadge:SetShown(n > 0)
+end
+local function LogOf(tab) return (tab == addonTable.Officers.TAB) and addonTable.Officers.GetLog() or Most.GetLog() end
+local function Count(tab, seenAt)
+local n, me = 0, Most.MyName()
+for _, e in ipairs(LogOf(tab)) do
+if (e.tab == tab or tab == addonTable.Officers.TAB) and e.author and e.author ~= me and e.src ~= "S" and not Mute.IsMuted(e.author)
+and ((e.ts or 0) > seenAt or unreadByArrival[e] == tab) then n = n + 1 end
+end
+return n
+end
+local function Recount()
+pending = false
+local seen, now = Seen(), GetServerTime()
+for _, tab in ipairs(chatTabs) do
+-- First run on this character: nothing old counts as unread
+if not seen[tab] then seen[tab] = now end
+if Shown(tab) then
+seen[tab] = now
+for e, t in pairs(unreadByArrival) do if t == tab then unreadByArrival[e] = nil end end
+end
+local n = Count(tab, seen[tab])
+Badge(chatTabButtons[tab], n)
+if tab == addonTable.Officers.TAB then Badge(menuButtons[1], IsPlayerOfficer() and n or 0) end
+end
+end
+local function RecountSoon()
+if pending then return end
+pending = true
+C_Timer.After(0.2, Recount)
+end
+EventSync.RecountUnread = RecountSoon
+local function OnNew(tab, e)
+if e and e.author ~= Most.MyName() and not Shown(tab) then unreadByArrival[e] = tab end
+RecountSoon()
+end
+Most.OnNewEntry(function(e) OnNew(e.tab, e) end)
+addonTable.Officers.OnNewMessage(function(e) OnNew(addonTable.Officers.TAB, e) end)
+for _, btn in pairs(chatTabButtons) do btn:HookScript("OnClick", RecountSoon) end
+Panels[1]:HookScript("OnShow", RecountSoon)
+MainFrame:HookScript("OnShow", RecountSoon)
+-- After login the character's name (and so its saved times) is known a moment later
+C_Timer.After(5, RecountSoon)
+end)()
 -- Settings tab (settings.lua)
 addonTable.Settings.Attach(Panels[8], { applyStyle = ApplyModernStyle, isOfficer = IsPlayerOfficer })
 -- Opens an event in the Events tab by its id ([Open event] links in whispers, lfg.lua); false when unknown here
@@ -4043,7 +4128,9 @@ end
 end
 end
 end)
-MainFrame:SetScript("OnShow", function()
+-- 1.1.5: HookScript, not SetScript: SetScript replaced the OnShow hooks made above (the officers' CPU and RAM in
+-- the header since 1.1.3, the calendar filters reset), so they never ran
+MainFrame:HookScript("OnShow", function()
 AddMyselfToActiveList()
 SendStatusPacket("PING")
 UpdateScrollList()

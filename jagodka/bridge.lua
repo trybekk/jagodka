@@ -215,11 +215,12 @@ function Most.GetChannelId()
 end
 
 -- Hide the channel from chat windows so it does not clutter the chat
+-- 1.1.5: the chat window's own RemoveChannel first; ChatFrame_RemoveChannel is only a deprecated alias on Forever
 local function HideFromChat(name)
-    if not _G.ChatFrame_RemoveChannel then return end
     for i = 1, (_G.NUM_CHAT_WINDOWS or 10) do
         local cf = _G["ChatFrame" .. i]
-        if cf then _G.ChatFrame_RemoveChannel(cf, name) end
+        if cf and type(cf.RemoveChannel) == "function" then cf:RemoveChannel(name)
+        elseif cf and _G.ChatFrame_RemoveChannel then _G.ChatFrame_RemoveChannel(cf, name) end
     end
 end
 Most.HideFromChat = HideFromChat
@@ -647,19 +648,47 @@ function Most.OnNewEntry(fn) table.insert(entryListeners, fn) end
 -- still counted as relay. Now I do not count myself while inside, and I do not send my regular online signal
 -- (ShouldSendPong), so my guildmates pick the next relay after ONLINE_TIMEOUT, also those with older versions.
 -- Leaving the instance runs the sync with my status (core.lua), and I am the relay again.
+-- 1.1.5: the relay is the player with the NEWEST addon version online in the guild, the first by name among
+-- those (when all have the same version: the first by name, the old rule, which older versions still use). So
+-- with nobody on the newest, the closest to it takes the role. The 19.11 log: the JN relay on 1.0.3 (first by
+-- name) passed everything on through its old 1/s limit, its own online signal came every ~3 min, so the relay
+-- changed 41 times in an evening. Mixed versions stay safe: an older first-named player still forwards too (a
+-- second copy, dropped by the readers), and any player reposts what is whispered to them. The choice is counted
+-- anew on every packet, so a change (login, logout, someone updating) takes effect at once.
+local myTocVersion = nil   -- my "## Version" (read once, on first use)
+-- "1.1.5" -> 1001005; a missing or odd version = 0 (the oldest)
+local function VersionNumber(v)
+    local a, b, c = tostring(v or ""):match("^(%d+)%.(%d+)%.(%d+)")
+    if not a then return 0 end
+    return tonumber(a) * 1000000 + tonumber(b) * 1000 + tonumber(c)
+end
+Most.VersionNumber = VersionNumber
+-- Whether player a comes before player b as the relay: the newer version, then the name
+local function RelayBefore(nameA, verA, nameB, verB)
+    if verA ~= verB then return verA > verB end
+    return nameA < nameB
+end
+Most.RelayBefore = RelayBefore
 function Most.GetRelayName(guild)
     guild = guild or MyGuild()
     if not guild or not ctx then return nil end
     local isMyGuild = (guild == MyGuild())
     local meInside = isMyGuild and _G.IsInInstance() and true or false
-    local best = (isMyGuild and not meInside) and MyName() or nil
+    -- Me by the version in my .toc, the one others see (a test copy marked older is counted as older)
+    if myTocVersion == nil then
+        local meta = (_G.C_AddOns and _G.C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+        myTocVersion = (meta and meta(addonName, "Version")) or "0"
+    end
+    local best, bestVer = nil, -1
+    if isMyGuild and not meInside then best, bestVer = MyName(), VersionNumber(myTocVersion) end
     local now = GetTime()
     for _, p in ipairs(ctx.activePlayers) do
         -- A guildmate logged out according to the roster cannot be relay, even before the timeout passes
         local offlineInRoster = isMyGuild and guildmateOnlineCheck ~= nil and guildmateOnlineCheck(p.name) == false
-        if p.guild == guild and not offlineInRoster and not (meInside and p.name == MyName())
-            and (now - (p.lastSeen or 0)) < ONLINE_TIMEOUT and (not best or p.name < best) then
-            best = p.name
+        if p.guild == guild and p.name ~= best and not offlineInRoster and not (meInside and p.name == MyName())
+            and (now - (p.lastSeen or 0)) < ONLINE_TIMEOUT then
+            local ver = VersionNumber(p.version)
+            if not best or RelayBefore(p.name, ver, best, bestVer) then best, bestVer = p.name, ver end
         end
     end
     return best
@@ -791,7 +820,13 @@ function Most.Publish(tab, text, src, author, guild, ts)
     ts = tonumber(ts) or GetServerTime()
     local e = { id = NewMessageId(), ts = ts, guild = guild, author = author, tab = tab, src = src, text = text }
     if Ingest(e, true) then
-        for _, packet in ipairs(EncodeParts(e)) do Most.Send("GMSG", packet, "high") end
+        for _, packet in ipairs(EncodeParts(e)) do
+            Most.Send("GMSG", packet, "high")
+            -- 1.1.5: my own message also straight to the relay of every other guild (like events since 1.1.3),
+            -- so it does not wait in my guild's relay queue. Any relay, also 1.0.3, reposts it; readers drop
+            -- the second copy by its ID. The packet fits: MAX_ADDON_BYTES leaves room for "FW:name:"
+            if author == MyName() and Most.ToOtherGuilds then Most.ToOtherGuilds("GMSG", packet) end
+        end
     end
 end
 
@@ -1026,13 +1061,20 @@ function Most.ShouldSendPong()
     local send = true
     if quiet and now - lastPongAt < QUIET_EVERY then
         -- Am I among the first QUIET_FAST names of my guild's online addon players?
-        local names, myGuild, me = {}, MyGuild(), MyName()
+        -- 1.1.5: also among the first QUIET_FAST in the relay order (the newest version, then the name, see
+        -- GetRelayName): the relay and its stand-ins must signal every minute, or they drop out after 150 s
+        local names, order, myGuild, me = {}, {}, MyGuild(), MyName()
         for _, p in ipairs(ctx.activePlayers) do
-            if p.guild == myGuild and (p.name == me or now - (p.lastSeen or 0) < Most.QUIET_KEEP) then table.insert(names, p.name) end
+            if p.guild == myGuild and (p.name == me or now - (p.lastSeen or 0) < Most.QUIET_KEEP) then
+                table.insert(names, p.name)
+                table.insert(order, { name = p.name, ver = Most.VersionNumber(p.version) })
+            end
         end
         table.sort(names)
+        table.sort(order, function(a, b) return Most.RelayBefore(a.name, a.ver, b.name, b.ver) end)
         send = false
         for i = 1, math.min(QUIET_FAST, #names) do if names[i] == me then send = true break end end
+        for i = 1, math.min(QUIET_FAST, #order) do if order[i].name == me then send = true break end end
     end
     if send then lastPongAt = now end
     return send
@@ -1227,10 +1269,13 @@ local OWN_GUILD_ONLY = {
     HREQ = true, HCLAIM = true, EV_REQ = true, EV_CLAIM = true, MREQ = true, MCLAIM = true, EQ = true, EC = true, LQ = true, LC = true,
     PREQ = true, PREQN = true, PCLAIM = true,
     DQ = true, DC = true,   -- Discord names (discord.lua)
+    BQ = true, BC = true,   -- BattleTags (discord.lua, 1.1.5)
     AQ = true, AC = true,   -- Announcements sync (announcements.lua)
 }
 
 local foreignRosterNoted = {} -- origin -> true: their foreign roster was noted in Monitoring
+-- 1.1.5: packets whispered to me for a repost lately (whole "FW:origin:packet" -> when), see Most.Route
+local recentReposts, recentRepostCount, REPOST_SAME_WINDOW = {}, 0, 20
 function Most.Route(text, channel, senderName)
     local pType, rest = strsplit(":", text, 2)
     if pType ~= "FW" then
@@ -1278,8 +1323,22 @@ function Most.Route(text, channel, senderName)
             end
             return nil
         end
-        if not ReplaceQueuedStatus(text, nil) then
-            table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = GetTime() })
+        -- 1.1.5: the same packet whispered again within REPOST_SAME_WINDOW (two players of a guild both acting as
+        -- its relay, e.g. an older first-named one and the new rule's relay, GetRelayName) is reposted once
+        -- Only a copy from ANOTHER sender counts: the same packet repeated by the same relay is a real repeat (e.g. a
+        -- roster change "logged out" twice within seconds) and is reposted as before
+        local now = GetTime()
+        local seen = recentReposts[text]
+        if seen and now - seen.at < REPOST_SAME_WINDOW and seen.from ~= senderName then
+            Count(debug.rejected, "duplicate repost (two relays)")
+        elseif not ReplaceQueuedStatus(text, nil) then
+            table.insert(ForwardPriority(inner) == "high" and highQueue or lowQueue, { msg = text, tries = 0, queued = now })
+        end
+        recentReposts[text] = { at = now, from = senderName }
+        recentRepostCount = recentRepostCount + 1
+        if recentRepostCount > 500 then
+            recentRepostCount = 0
+            for k, s in pairs(recentReposts) do if now - s.at >= REPOST_SAME_WINDOW then recentReposts[k] = nil else recentRepostCount = recentRepostCount + 1 end end
         end
     elseif channel ~= "GUILD" then
         return nil

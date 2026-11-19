@@ -21,6 +21,24 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.1.5", {
+        "! Everyone should update: the player with the newest addon now passes messages between the guilds, so the more of us have it, the faster everything gets there.",
+        "# New",
+        "A green number on each chat tab (General, Trade, LFG, Officers) shows the messages you have not seen there yet, also those from while you were offline. It goes away when you open the tab.",
+        "Settings > Profile: besides your Discord name you can share your BattleTag. Both are optional and show in one small line when others hover your name, e.g. 'Discord: name   BattleTag: Name#1234'. Copy BattleTag in the Roster menu.",
+        "The window turns half see-through while you drag it by the title bar, so you see what is under it.",
+        "# Faster",
+        "Your chat messages and your LFG listing go straight to every guild, not only through your own, so they arrive within seconds.",
+        "The player with the newest addon in each guild passes messages between the guilds (before it was simply the first by name, even with a very old addon). Fewer duplicates and delays.",
+        "# Fixes",
+        "Settings > Chats > Game channels work: the channels you tick (e.g. General) show in the community tab of your game chat.",
+        "The calendar's filters reset again each time you open the window.",
+        "# Officers",
+        "Guild cleanup (Monitoring > Officer actions): the members of the guild you are logged in on, the longest offline first, with their notes and a Guild Kick button (it asks first). For another guild, log in there.",
+        "The Community Chat tab shows how many Officers messages you have not read yet.",
+        "The CPU and memory use in the window header now really shows.",
+        "New chat key and New officers key say when to use them: only when the channel is broken or leaked.",
+    }, "unread counts, BattleTag, faster chat" },
     { "1.1.4", {
         "! Everyone on 1.1.3 must update: 1.1.3 did not load at all.",
         "# Fixes",
