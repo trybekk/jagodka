@@ -1109,7 +1109,8 @@ function LFG.Attach(p, c)
     reset:SetScript("OnClick", function() LFG.ResetView() end)
     -- The table
     panel.list = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-    panel.list:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -100)   -- 0.15.6: room for the filter row
+    -- 0.15.6: room for the filter row; 1.2.0: -105, not -100, the same 9 px from the filters' boxes as in Members
+    panel.list:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -105)
     panel.list:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 30)
     ctx.applyStyle(panel.list)
     empty = panel.list:CreateFontString(nil, "OVERLAY", "GameFontDisable")

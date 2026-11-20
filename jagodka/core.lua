@@ -99,6 +99,18 @@ MainFrame:SetToplevel(true)
 MainFrame:EnableMouse(true)
 MainFrame:SetMovable(true)
 MainFrame:SetClampedToScreen(true)
+-- 1.2.0 (user: "żeby można było główne okno przesuwać za krawędź lewo, prawo i dół"): the window may go off the
+-- screen's left, right and bottom edges, keeping 150 px of it on the screen sideways and 60 px (its header) at
+-- the bottom, so it can always be dragged back; up only until its top edge meets the screen's top. The insets
+-- shrink the clamped area, so they follow the window's size. (A field, not a local: this file's local limit.)
+function MainFrame.KeepOnScreen()
+    if not MainFrame.SetClampRectInsets then return end
+    local x = math.max(0, (MainFrame:GetWidth() or 0) - 150)
+    local y = math.max(0, (MainFrame:GetHeight() or 0) - 60)
+    MainFrame:SetClampRectInsets(x, -x, 0, y)
+end
+MainFrame:HookScript("OnSizeChanged", MainFrame.KeepOnScreen)
+MainFrame.KeepOnScreen()
 -- Window position and size: JagodkiMinimapDB.window (loaded after ADDON_LOADED, section 9).
 -- Moved only by the title bar, resized with the handle in the bottom right corner.
 -- Minimum size = default (the layout is built for it), a larger window = more content.
@@ -108,6 +120,22 @@ local WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H = 1000, 775, 1600, 1100
 MainFrame:SetResizable(true)
 if MainFrame.SetResizeBounds then MainFrame:SetResizeBounds(WIN_MIN_W, WIN_MIN_H, WIN_MAX_W, WIN_MAX_H)
 else MainFrame:SetMinResize(WIN_MIN_W, WIN_MIN_H) MainFrame:SetMaxResize(WIN_MAX_W, WIN_MAX_H) end
+-- 1.2.0: the window fits the screen (user: "na streamie u niektórych coś wystawało"): with the game's default
+-- UI scale the screen is about 768 px high for addons, less than the 775 px window, so its bottom was off the
+-- screen. When the window at its smallest does not fit the screen (with 20 px to spare), the whole window is
+-- scaled down until it does; nothing inside moves. Again when the UI scale or the screen size changes.
+function MainFrame.FitScreen()
+local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+if not sw or not sh or sw <= 0 or sh <= 0 then return end
+local s = math.min(1, (sw - 20) / WIN_MIN_W, (sh - 20) / WIN_MIN_H)
+s = math.max(0.5, math.floor(s * 100) / 100)
+if math.abs((MainFrame:GetScale() or 1) - s) > 0.005 then MainFrame:SetScale(s) end
+end
+MainFrame.fitWatcher = CreateFrame("Frame")
+MainFrame.fitWatcher:RegisterEvent("PLAYER_LOGIN")
+MainFrame.fitWatcher:RegisterEvent("UI_SCALE_CHANGED")
+MainFrame.fitWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+MainFrame.fitWatcher:SetScript("OnEvent", function() C_Timer.After(0, MainFrame.FitScreen) end)
 function MainFrame.SaveLayout()
 if not _G.JagodkiMinimapDB then return end
 _G.JagodkiMinimapDB.window = { w = MainFrame:GetWidth(), h = MainFrame:GetHeight(), left = MainFrame:GetLeft(), top = MainFrame:GetTop() }
@@ -217,6 +245,10 @@ local function ApplyModernStyle(frame)
     })
     frame:SetBackdropColor(0.07, 0.07, 0.09, 0.6)
     frame:SetBackdropBorderColor(0.15, 0.15, 0.2, 0.8)
+    -- 1.2.0: an optional look (themes.lua) restyles every panel styled here; the default look does nothing more
+    addonTable.styledFrames = addonTable.styledFrames or {}
+    table.insert(addonTable.styledFrames, frame)
+    if addonTable.ThemeStyle then addonTable.ThemeStyle(frame) end
 end
 
 local function CreatePhysicalIconAndText(parent, roleAtlas, xOffset)
@@ -316,11 +348,12 @@ local function ShowTab(tabIndex)
     end
 end
 
--- Buttons left to right in this order: Help before Monitoring (officers only, last, so hiding it leaves no gap)
+-- Buttons left to right in this order: Settings, then Help (1.2.0: Settings moved before Help), then Monitoring
+-- (officers only, last, so hiding it leaves no gap)
 -- LFG (9) right after Calendar, Release Notes (10, 1.0.0) at the end, after Monitoring (it moves into
 -- Monitoring's place when that is hidden: EventSync.UpdateMonitoringTab). Announcements (11, 1.1.0, announcements.lua)
 -- right after the community chat.
-for _, i in ipairs({ 1, 11, 2, 3, 4, 5, 9, 7, 8, 6, 10 }) do
+for _, i in ipairs({ 1, 11, 2, 3, 4, 5, 9, 8, 7, 6, 10 }) do
     local name = tabNames[i]
     local btn = CreateFrame("Button", nil, MainFrame, "BackdropTemplate")
     btn:SetSize(115, 32)
@@ -1563,7 +1596,9 @@ end)
 -- ============================================================================
 local ListContainer = CreateFrame("Frame", nil, Panels[4], "BackdropTemplate")
 -- List: a table across the whole tab. Details: a separate window opened by clicking a row.
-ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, -100)   -- 0.15.6: room for the filter row
+-- 0.15.6: room for the filter row; 1.2.0: -107, not -100, the same 9 px from the filters' boxes as in Members
+-- (user: "w Events i LFG nie ma takiego samego odstępu między filtrami a tabelką jak w Roster")
+ListContainer:SetPoint("TOPLEFT", Panels[4], "TOPLEFT", 0, -107)
 ListContainer:SetPoint("BOTTOMRIGHT", Panels[4], "BOTTOMRIGHT", 0, 30)
 ApplyModernStyle(ListContainer)
 local DetailsContainer = CreateFrame("Frame", "JagodkiEventDetails", Panels[4], "BackdropTemplate")
@@ -2718,6 +2753,8 @@ btn.badge.bg:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
 btn.badge.bg:SetVertexColor(0.15, 0.75, 0.3, 1)
 btn.badge.text = btn.badge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 btn.badge.text:SetPoint("CENTER", btn.badge, "CENTER", 0, 0)
+-- 1.2.0: an optional look may restyle the badge (themes.lua); the default look does nothing more
+if addonTable.ThemeBadge then addonTable.ThemeBadge(btn.badge) end
 end
 btn.badge.text:SetText(n > 9 and "9+" or tostring(n))
 btn.badge:SetShown(n > 0)
@@ -2730,7 +2767,7 @@ end })
 -- 1.1.5: unread messages on the chat tabs (user: "zielone kółeczko przy tabach, że ktoś nie przeczytał, przy
 -- oficerskich chatach by się przydało"): the green count of the Announcements tab on each chat tab (General,
 -- Trade, LFG, Officers) for messages of others not yet seen in the addon window; the Community Chat tab button
--- shows the officers' count (General is always busy, its count there would always say 9+). "Seen" = that chat
+-- shows the sum of them all since 1.2.0 (the officers' count alone before). "Seen" = that chat
 -- tab shown in the open window. The time of the last look is kept per character, so messages that came while
 -- offline (history after login) count too; a message that arrives late with an older time counts by arrival.
 ;(function()
@@ -2756,6 +2793,8 @@ b.bg:SetVertexColor(0.15, 0.75, 0.3, 1)
 b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 b.text:SetPoint("CENTER", b, "CENTER", 0, 0)
 btn.unreadBadge = b
+-- 1.2.0: an optional look may restyle the badge (themes.lua); the default look does nothing more
+if addonTable.ThemeBadge then addonTable.ThemeBadge(b) end
 end
 btn.unreadBadge.text:SetText(n > 9 and "9+" or tostring(n))
 btn.unreadBadge:SetShown(n > 0)
@@ -2769,9 +2808,13 @@ and ((e.ts or 0) > seenAt or unreadByArrival[e] == tab) then n = n + 1 end
 end
 return n
 end
+-- 1.2.0 (user: "kółko na głównym tabie zlicza ze wszystkich subtabów nieprzeczytane i odejmuje po wejściu na
+-- poszczególny tab"): the Community Chat tab shows the sum of all chat tabs' counts (Officers only for
+-- officers); a chat tab looked at drops out of the sum (it was the officers' count alone before)
 local function Recount()
 pending = false
 local seen, now = Seen(), GetServerTime()
+local total = 0
 for _, tab in ipairs(chatTabs) do
 -- First run on this character: nothing old counts as unread
 if not seen[tab] then seen[tab] = now end
@@ -2781,8 +2824,9 @@ for e, t in pairs(unreadByArrival) do if t == tab then unreadByArrival[e] = nil 
 end
 local n = Count(tab, seen[tab])
 Badge(chatTabButtons[tab], n)
-if tab == addonTable.Officers.TAB then Badge(menuButtons[1], IsPlayerOfficer() and n or 0) end
+if tab ~= addonTable.Officers.TAB or IsPlayerOfficer() then total = total + n end
 end
+Badge(menuButtons[1], total)
 end
 local function RecountSoon()
 if pending then return end
@@ -3716,6 +3760,7 @@ EventSync.Side.Render()
 end)
 end
 -- 1.1.3: officers see the addon's own CPU and memory left of the online counter, every 5 s with the window open.
+-- (1.2.0 tried showing them to everyone; the user went back to officers only, in both looks.)
 -- CPU = the addon's share of the frame time (the game's AddOn profiler; left out when the client has none).
 -- A function, not a do-block: its locals do not count toward the main chunk's 200.
 ;(function()
@@ -4190,6 +4235,11 @@ elseif word == "off" then P.stoppedAt = GetTime() P.Stop() if out then out:AddMe
 elseif out then for _, line in ipairs(P.Report()) do out:AddMessage("|cffbf40ff[Jagodka]|r " .. line) end end
 return
 end
+-- "/jagodka check" (1.2.0) = is anything sticking out of the window? Every tab in turn (layoutcheck.lua)
+if msg and msg:lower():match("^%s*check%s*$") then
+if addonTable.LayoutCheck then addonTable.LayoutCheck.Run() end
+return
+end
 -- "/jagodka tab" = recreate the "Jagodki Nadina" tab in the game chat (chattab.lua)
 if msg and msg:lower():match("^%s*tab%s*$") then
 if not addonTable.Zakladka.Recreate() and _G.DEFAULT_CHAT_FRAME then
@@ -4241,6 +4291,10 @@ _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
 addonTable.Safe("core.lua:minimap button", EventSync.EnsureMinimapButton)
 -- Saved position and scale of the main window
 local win = _G.JagodkiMinimapDB.window
+-- 1.2.0 (user: "z defaultu okno ma się otwierać na maksa zmniejszone"): once, the saved size goes back to the
+-- smallest (the default); the saved place stays. Resized again after that, it is kept as before.
+if win and not _G.JagodkiMinimapDB.windowSmallest then win.w, win.h = WIN_MIN_W, WIN_MIN_H end
+_G.JagodkiMinimapDB.windowSmallest = true
 if win and tonumber(win.w) then addonTable.Safe("core.lua:window layout", MainFrame.ApplyLayout, win.w, win.h, win.left, win.top) end
 -- Once more after login, when the minimap and other addons are ready; then every minute a light check: made again
 -- when missing, shown again when a saved "hide" hid it. A button another addon took into its own bar (minimap
@@ -4256,3 +4310,12 @@ end
 end)
 end)
 end)
+-- ============================================================================
+-- 1.2.0: what an optional look (themes.lua, loaded after this file) may restyle: the window's frames only.
+-- It draws them differently and never changes what they do (no data, no packets).
+-- ============================================================================
+addonTable.UI = {
+MainFrame = MainFrame, HeaderBar = HeaderBar, TitleText = TitleText, WindowLogo = WindowLogo, CloseBtn = CloseBtn,
+OnlineText = OnlineText, Panels = Panels, menuButtons = menuButtons, tabNames = tabNames, chatTabButtons = chatTabButtons,
+EventSync = EventSync, ShowTab = ShowTab, ApplyStyle = ApplyModernStyle, minW = WIN_MIN_W, minH = WIN_MIN_H, maxW = WIN_MAX_W, maxH = WIN_MAX_H,
+}

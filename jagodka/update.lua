@@ -543,6 +543,113 @@ local function MinorOf(version) return tostring(version or ""):match("^(%d+%.%d+
 
 -- version: whose notes (default: this addon's version); festive: the festive show of its minor version, with
 -- the notes of this version or, when it has none, of the line's first one ("1.0.0"). False = nothing to show.
+-- 1.2.0 (user: "na górze What's new button, który po kliknięciu włączy nowy theme i zrobi reload"): a card above
+-- the notes of the given version only: a picture of the new look, its name, one line, and "Try it now (reload)",
+-- which saves the look (themes.lua) and reloads (the window is already marked seen, so it does not come again).
+-- Already chosen: "In use" (or "Reload now" while the reload is still to come). In the new look's own art
+-- (Media\forest), whatever look is in use.
+-- Shown in the What's new of every version from TRY_LOOK_FROM on, while TRY_LOOK_ON is true (user: "niech na
+-- razie od 1.2.0 będzie to widoczne w What's new, dopóki nie wyłączę"): set it to false to stop showing it.
+local TRY_LOOK_ON, TRY_LOOK_FROM = true, "1.2.0"
+local TRY_LOOK = { key = "forest", name = "Forest Berry", line = "A painted frame with vines, berries and our leader. Back to the classic look any time in Settings.",
+    picture = "Interface\\AddOns\\jagodka\\Media\\forest\\preview_forest", pictureW = 387 }
+local TRY_H = 116   -- room for the line of text, 10 px, then the button
+-- Is version a the same as or newer than b ("1.2.0" style, any number of parts)
+local function AtLeast(a, b)
+    local pa, pb = {}, {}
+    for n in tostring(a or ""):gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
+    for n in tostring(b or ""):gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x > y end
+    end
+    return true
+end
+local function TryCard(version, width)
+    -- the officers' preview (Monitoring) shows it with any version's notes, to test it before the release
+    local t = TRY_LOOK_ON and (AtLeast(version, TRY_LOOK_FROM) or news.previewTry) and TRY_LOOK or nil
+    local T = addonTable.Theme
+    if not (t and T) then if news.try then news.try:Hide() end return 0 end
+    local c = news.try
+    if not c then
+        c = CreateFrame("Frame", nil, news, "BackdropTemplate")
+        c:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+        c:SetBackdropColor(0.12, 0.06, 0.16, 0.95)
+        c:SetBackdropBorderColor(0.59, 0.42, 0.22, 1)
+        c.pic = c:CreateTexture(nil, "ARTWORK")
+        c.pic:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -9)
+        c.frame = c:CreateTexture(nil, "BORDER")
+        c.frame:SetPoint("TOPLEFT", c.pic, "TOPLEFT", -1, 1)
+        c.frame:SetPoint("BOTTOMRIGHT", c.pic, "BOTTOMRIGHT", 1, -1)
+        c.frame:SetColorTexture(0.78, 0.63, 0.35, 1)
+        c.tag = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        c.tag:SetPoint("TOPLEFT", c.pic, "TOPRIGHT", 10, 0)
+        c.tag:SetTextColor(0.67, 0.47, 0.94)
+        c.tag:SetText("NEW LOOK")
+        c.name = c:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        c.name:SetPoint("TOPLEFT", c.tag, "BOTTOMLEFT", 0, -3)
+        c.name:SetTextColor(1, 0.86, 0.47)
+        c.line = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        c.line:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -4)
+        c.line:SetPoint("RIGHT", c, "RIGHT", -8, 0)
+        c.line:SetJustifyH("LEFT")
+        c.line:SetTextColor(0.85, 0.8, 0.88)
+        -- the button in the new look's button art (3 parts), lighter on hover
+        c.btn = CreateFrame("Button", nil, c)
+        c.btn:SetSize(150, 24)
+        -- 10 px under the line of text (user: "Try it now button daj padding top 10 px")
+        c.btn:SetPoint("TOPLEFT", c.line, "BOTTOMLEFT", 0, -10)
+        local function Parts(prefix)
+            local M = "Interface\\AddOns\\jagodka\\Media\\forest\\"
+            local l = c.btn:CreateTexture(nil, "BACKGROUND") l:SetTexture(M .. prefix .. "_l") l:SetTexCoord(0, 12 / 16, 0, 1)
+            l:SetPoint("TOPLEFT") l:SetPoint("BOTTOMLEFT") l:SetWidth(9)
+            local r = c.btn:CreateTexture(nil, "BACKGROUND") r:SetTexture(M .. prefix .. "_r") r:SetTexCoord(0, 12 / 16, 0, 1)
+            r:SetPoint("TOPRIGHT") r:SetPoint("BOTTOMRIGHT") r:SetWidth(9)
+            local m = c.btn:CreateTexture(nil, "BACKGROUND") m:SetTexture(M .. prefix .. "_m")
+            m:SetPoint("TOPLEFT", l, "TOPRIGHT") m:SetPoint("BOTTOMRIGHT", r, "BOTTOMLEFT")
+            return { l, m, r }
+        end
+        local normal, hover = Parts("button"), Parts("button_hover")
+        local function Paint(over)
+            for _, x in ipairs(normal) do x:SetShown(not over) end
+            for _, x in ipairs(hover) do x:SetShown(over) end
+        end
+        Paint(false)
+        c.btn.text = c.btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        c.btn.text:SetPoint("CENTER", c.btn, "CENTER", 0, 0)
+        c.btn.text:SetTextColor(1, 0.84, 0.35)
+        c.btn:SetScript("OnEnter", function() Paint(true) end)
+        c.btn:SetScript("OnLeave", function() Paint(false) end)
+        c.btn:SetScript("OnClick", function(self)
+            if addonTable.Theme then addonTable.Theme.Set(self.look) end
+            -- after the reload the addon window opens by itself, in the new look (themes.lua)
+            _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
+            _G.JagodkiMinimapDB.openAfterReload = "window"
+            if _G.C_UI and _G.C_UI.Reload then _G.C_UI.Reload() elseif _G.ReloadUI then _G.ReloadUI() end
+        end)
+        c.inUse = c:CreateFontString(nil, "OVERLAY", "GameFontGreen")
+        c.inUse:SetPoint("TOPLEFT", c.line, "BOTTOMLEFT", 0, -14)
+        c.inUse:SetText("In use")
+        news.try = c
+    end
+    c:SetSize(width - 48, TRY_H)
+    c.pic:SetTexture(t.picture)
+    c.pic:SetTexCoord(0, t.pictureW / 512, 0, 1)
+    c.pic:SetSize(math.floor(t.pictureW * (TRY_H - 18) / 256 + 0.5), TRY_H - 18)
+    c.name:SetText(t.name)
+    c.line:SetText(t.line)
+    c.btn.look = t.key
+    local saved, active = T.Saved(), T.Active()
+    local inUse = active == t.key
+    c.btn:SetShown(not inUse)
+    c.btn.text:SetText(saved == t.key and "Reload now" or "Try it now (reload)")
+    c.inUse:SetShown(inUse)
+    c:ClearAllPoints()
+    c:SetPoint("TOP", news.sub, "BOTTOM", 0, -10)
+    c:Show()
+    return TRY_H + 10
+end
+
 function Update.ShowWhatsNew(version, festive)
     version = version or GetAddOnMetadata(addonName, "Version") or "?"
     local special = festive and (SPECIAL[MinorOf(version) or ""] or SPECIAL["1.0"]) or nil
@@ -585,6 +692,7 @@ function Update.ShowWhatsNew(version, festive)
     RN.HideRows(news.rows)
     local y
     if special then
+        if news.try then news.try:Hide() end
         -- Festive: the thank-you, signed by the authors in the game's standard yellow, a bigger font
         news.intro:SetWidth(width - 56)
         news.intro:SetText((special.intro:gsub("%%VERSION%%", version)))
@@ -602,6 +710,8 @@ function Update.ShowWhatsNew(version, festive)
         -- The notes, drawn by releasenotes.lua the same way as the Release Notes tab: a berry before each point,
         -- its lines indented, gold section headings (24 px from the edge)
         local above = 20 + news.title:GetStringHeight() + 4 + news.sub:GetStringHeight()
+        -- 1.2.0: the "try the new look" card above the notes (only for its version; 0 px otherwise)
+        above = above + TryCard(version, width)
         y = RN.Draw(news, news.rows, lines, 24, above, width - 48, 12)
         news.help:SetText("More in Help (the ? buttons in the addon window)")
     end
@@ -655,7 +765,10 @@ end
 -- The regular window of the installed version (0.15.6 now), as players will see it after this update
 function Update.PreviewWhatsNew()
     local version = GetAddOnMetadata(addonName, "Version") or "?"
-    if not Update.ShowWhatsNew(version) and _G.UIErrorsFrame then
+    news.previewTry = true
+    local ok = Update.ShowWhatsNew(version)
+    news.previewTry = nil
+    if not ok and _G.UIErrorsFrame then
         _G.UIErrorsFrame:AddMessage("No what's new notes for " .. version .. " in update.lua", 1, 0.3, 0.3, 1, 3)
     end
 end

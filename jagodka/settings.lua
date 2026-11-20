@@ -128,10 +128,12 @@ end
 local SECTIONS = {
     { key = "chats", title = "Chats", icon = "Interface\\GossipFrame\\GossipGossipIcon" },
     { key = "profile", title = "Profile", icon = "Interface\\FriendsFrame\\UI-Toast-ChatInviteIcon" },
+    { key = "look", title = "Appearance", icon = "Interface\\Icons\\INV_Misc_Gem_Amethyst_02" },
 }
 
 local panel, ctx, nav, content, selected = nil, nil, nil, nil, "chats"
 local profile = nil   -- the Profile section (Discord name, discord.lua)
+local look = nil      -- the Appearance section (1.2.0, themes.lua)
 local checks, channelChecks = {}, {}
 
 local function NewCheck(parent, label, onClick)
@@ -159,6 +161,10 @@ local function Render()
         if selected == "profile" and not profile.box:HasFocus() then profile.box:SetText(addonTable.Discord and addonTable.Discord.Mine() or "") end
         if selected == "profile" and not profile.btag:HasFocus() then profile.btag:SetText(addonTable.Discord and addonTable.Discord.MineBTag() or "") end
         if selected == "profile" then profile.UpdatePreview() end
+    end
+    if look then
+        look:SetShown(selected == "look")
+        if selected == "look" then look.Refresh() end
     end
     for _, c in ipairs(checks) do c:SetChecked(cfg.groups[c.key] and true or false) end
     -- The officers chat only for officers
@@ -188,6 +194,12 @@ local function Render()
         c:Show()
     end
     content.noChannels:SetShown(#channels == 0)
+end
+
+-- 1.2.0: opens a section (its key in SECTIONS), e.g. Appearance after a look's reload (themes.lua)
+function Settings.Open(section)
+    selected = section
+    if panel then Render() end
 end
 
 -- core.lua: c = { applyStyle = function(frame) }
@@ -363,4 +375,141 @@ function Settings.Attach(p, c)
     -- Tab moves between the two fields
     profile.box:SetScript("OnTabPressed", function() profile.btag:SetFocus() end)
     profile.btag:SetScript("OnTabPressed", function() profile.box:SetFocus() end)
+
+    -- APPEARANCE (1.2.0): the window's look (themes.lua); a card per look, it changes after a reload
+    look = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    look:SetPoint("TOPLEFT", nav, "TOPRIGHT", 8, 0)
+    look:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    ctx.applyStyle(look)
+    look:Hide()
+    look.title = look:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    look.title:SetPoint("TOPLEFT", look, "TOPLEFT", 16, -14)
+    look.title:SetText("Appearance")
+    look.line = look:CreateTexture(nil, "ARTWORK")
+    look.line:SetHeight(1)
+    look.line:SetPoint("TOPLEFT", look, "TOPLEFT", 16, -38) look.line:SetPoint("TOPRIGHT", look, "TOPRIGHT", -16, -38)
+    look.line:SetColorTexture(0.75, 0.25, 1, 0.5)
+    look.intro = look:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    look.intro:SetPoint("TOPLEFT", look, "TOPLEFT", 16, -48)
+    look.intro:SetPoint("RIGHT", look, "RIGHT", -16, 0)
+    look.intro:SetJustifyH("LEFT")
+    look.intro:SetText("Choose how the addon's window looks. Only the look changes: the tabs, the layout and everything they do stay the same. Saved for your account; the new look shows after a reload.")
+    -- A small picture of each look: a screenshot of the window in that look, scaled to the card's height
+    -- (Media\preview_classic.tga 440x256, Media\forest\preview_forest.tga 387x256, both on 512x256)
+    local PREVIEWS = {
+        classic = { file = "Interface\\AddOns\\jagodka\\Media\\preview_classic", w = 440 },
+        forest = { file = "Interface\\AddOns\\jagodka\\Media\\forest\\preview_forest", w = 387 },
+    }
+    local function Preview(card, key)
+        local p = CreateFrame("Frame", nil, card)
+        p:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -8)
+        p:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -8)
+        p:SetHeight(160)
+        local bg = p:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.6)
+        p.info = PREVIEWS[key]
+        if p.info then
+            p.img = p:CreateTexture(nil, "ARTWORK")
+            p.img:SetTexture(p.info.file)
+            p.img:SetTexCoord(0, p.info.w / 512, 0, 1)
+            p.img:SetPoint("CENTER", p, "CENTER", 0, 0)
+        end
+        return p
+    end
+    -- The cards fit the section's width (user: "nic nie może wystawać"; two 292 px cards did not fit the
+    -- smallest window, 400 px here, and reached into the right column): up to 292 px each, 16 px apart; the
+    -- picture as high as the widest screenshot (440 x 256) allows, up to 160; the card as tall as its text
+    function look.Layout()
+        local n = #look.cards
+        local w = look:GetWidth()
+        if n == 0 or not w or w <= 0 then return end
+        local cardW = math.min(292, math.floor((w - 32 - 16 * (n - 1)) / n))
+        local ph = math.min(160, math.floor((cardW - 16) * 256 / 440))
+        local descH = 0
+        for i, card in ipairs(look.cards) do
+            card:SetWidth(cardW)
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", look.intro, "BOTTOMLEFT", (i - 1) * (cardW + 16), -16)
+            card.preview:SetHeight(ph)
+            if card.preview.img then card.preview.img:SetSize(math.floor(card.preview.info.w * ph / 256 + 0.5), ph) end
+            descH = math.max(descH, card.desc:GetStringHeight() or 0)
+        end
+        local cardH = math.ceil(8 + ph + 8 + 14 + 4 + descH + 12)
+        for _, card in ipairs(look.cards) do card:SetHeight(cardH) end
+        look.status:ClearAllPoints()
+        look.status:SetPoint("TOPLEFT", look.intro, "BOTTOMLEFT", 0, -16 - cardH - 18)
+        look.status:SetPoint("RIGHT", look, "RIGHT", -16, 0)
+    end
+    look:SetScript("OnSizeChanged", function() if look:IsShown() then look.Layout() end end)
+    look.cards = {}
+    -- Made on the first look at the section: themes.lua is loaded after this file (and after core.lua, which
+    -- builds the Settings tab), so the list of looks does not exist yet when Attach runs
+    local function BuildCards()
+    for i, t in ipairs(addonTable.Theme and addonTable.Theme.LIST or {}) do
+        local card = CreateFrame("Button", nil, look, "BackdropTemplate")
+        card:SetSize(292, 234)   -- until look.Layout fits it to the section's width
+        card:SetPoint("TOPLEFT", look.intro, "BOTTOMLEFT", (i - 1) * 308, -16)
+        card:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+        card:SetBackdropColor(0.06, 0.05, 0.08, 0.9)
+        card.key = t.key
+        card.preview = Preview(card, t.key)
+        card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        card.name:SetPoint("TOPLEFT", card.preview, "BOTTOMLEFT", 2, -8)
+        card.name:SetText(t.name)
+        card.desc = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        card.desc:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -4)
+        card.desc:SetPoint("RIGHT", card, "RIGHT", -10, 0)
+        card.desc:SetJustifyH("LEFT")
+        card.desc:SetText(t.desc)
+        card.check = card:CreateTexture(nil, "OVERLAY")
+        card.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        card.check:SetSize(26, 26)
+        card.check:SetPoint("TOPRIGHT", card, "TOPRIGHT", -2, 2)
+        card.inUse = card:CreateFontString(nil, "OVERLAY", "GameFontGreenSmall")
+        card.inUse:SetPoint("TOPRIGHT", card.preview, "BOTTOMRIGHT", -2, -9)
+        card.inUse:SetText("in use")
+        card:SetScript("OnClick", function(self)
+            if addonTable.Theme then addonTable.Theme.Set(self.key) end
+            look.Refresh()
+        end)
+        card:SetScript("OnEnter", function(self) if self.key ~= (addonTable.Theme and addonTable.Theme.Saved()) then self:SetBackdropBorderColor(0.75, 0.55, 1, 0.8) end end)
+        card:SetScript("OnLeave", function() look.Refresh() end)
+        look.cards[i] = card
+    end
+    end
+    look.status = look:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    look.status:SetPoint("TOPLEFT", look.intro, "BOTTOMLEFT", 0, -16 - 234 - 18)   -- under the cards (234 high)
+    look.status:SetPoint("RIGHT", look, "RIGHT", -16, 0)
+    look.status:SetJustifyH("LEFT")
+    look.reload = CreateFrame("Button", nil, look, "GameMenuButtonTemplate")
+    look.reload:SetSize(150, 26)
+    look.reload:SetPoint("TOPLEFT", look.status, "BOTTOMLEFT", 0, -30)
+    look.reload:SetText("Reload now")
+    look.reload:SetScript("OnClick", function()
+        -- after the reload the window opens on Settings > Appearance by itself (themes.lua)
+        _G.JagodkiMinimapDB = _G.JagodkiMinimapDB or {}
+        _G.JagodkiMinimapDB.openAfterReload = "look"
+        if _G.C_UI and _G.C_UI.Reload then _G.C_UI.Reload() elseif _G.ReloadUI then _G.ReloadUI() end
+    end)
+    function look.Refresh()
+        local T = addonTable.Theme
+        if not T then return end
+        if #look.cards == 0 then BuildCards() end
+        look.Layout()
+        local saved, active = T.Saved(), T.Active()
+        for _, card in ipairs(look.cards) do
+            local chosen = card.key == saved
+            if chosen then card:SetBackdropBorderColor(0.56, 0.27, 0.93, 1) else card:SetBackdropBorderColor(0.25, 0.22, 0.3, 0.8) end
+            card.check:SetShown(chosen)
+            card.inUse:SetShown(card.key == active)
+        end
+        if saved == active then
+            look.status:SetText("In use: |cffffd100" .. T.Name(active) .. "|r.")
+            look.reload:Hide()
+        else
+            look.status:SetText("Chosen: |cffffd100" .. T.Name(saved) .. "|r. It shows after a reload (now: " .. T.Name(active) .. ").")
+            look.reload:Show()
+        end
+    end
 end

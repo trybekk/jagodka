@@ -1051,6 +1051,9 @@ function Monitor.Attach(panel, c)
         { btn = rallyBtn, text = "Officers: promote the addon", tip = "A big message for the officers online: get everyone to install the addon. At most every 5 minutes." },
         { header = "Updates" },
         { btn = remind, text = "Remind outdated", tip = "A note by the minimap for everyone with an older addon than yours, in all guilds." },
+        -- 1.2.0 (user: "button z testem pokazania, jak wygląda What's new"): only on this client, nothing is sent
+        { func = function() if addonTable.Update and addonTable.Update.PreviewWhatsNew then addonTable.Update.PreviewWhatsNew() end end,
+          text = "What's new preview", tip = "Shows the What's new window of your installed version, as players see it once after updating. Only you see it." },
         { header = "Chat keys" },
         { btn = newKey, text = "New chat key", tip = "Everyone moves to a new chat channel within moments (the same as /jagodka key).\nUse it only when the chat channel is broken or leaked (e.g. someone set a password on it or outsiders got in)." },
         { btn = officersKey, text = "New officers key", tip = "All officers move to a new officers channel within moments.\nUse it only when someone lost the officer rank or the channel leaked (the addon also does it by itself when it sees a non-officer there)." },
@@ -1090,7 +1093,7 @@ function Monitor.Attach(panel, c)
     actionsBtn:SetScript("OnClick", function(self) _G.ToggleDropDownMenu(1, nil, actionsMenu, self, 0, 0) end)
     actionsBtn:SetScript("OnEnter", function(self)
         _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:SetText("Announcement, chat test request, promoting the addon to officers, reminding outdated players, new chat keys, guild cleanup.", 1, 1, 1, 1, true)
+        _G.GameTooltip:SetText("Announcement, chat test request, promoting the addon to officers, reminding outdated players, the What's new preview, new chat keys, guild cleanup.", 1, 1, 1, 1, true)
         _G.GameTooltip:Show()
     end)
     actionsBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)

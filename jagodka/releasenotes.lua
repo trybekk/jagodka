@@ -21,6 +21,23 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.2.0", {
+        "! New: an optional look for the window, Forest Berry. Try it with the button above or in Settings > Appearance. The classic look stays the default.",
+        "# Forest Berry",
+        "A painted wooden frame with vines and berries, our leader on the crest and your guild's name under him. The same tabs and layout as before.",
+        "Its own tabs, buttons, dropdowns, text fields and close buttons, berry-style unread counts, and the announcements as cards.",
+        "The sync progress and the Online count sit in the header, left and right of the crest.",
+        "Settings > Appearance shows a picture of each look. After the reload the window opens again by itself. Back to the classic look any time.",
+        "# For everyone",
+        "The window fits your screen: when it is too big for it, it shrinks to fit. It opens at its smallest size (once, a bigger saved size goes back to the smallest).",
+        "You can push the window partly off the left, right and bottom edges of the screen.",
+        "The green number on Community Chat adds up the unread messages of all chats (General, Trade, LFG, and Officers for officers).",
+        "Settings comes before Help in the tabs.",
+        "Events and LFG have the same space under the filters as Roster.",
+        "/jagodka check tells you if anything sticks out of the window on your screen. If it finds something, let us know.",
+        "# Officers",
+        "Monitoring > Officer actions > What's new preview shows this window as players see it.",
+    }, "a new look: Forest Berry" },
     { "1.1.5", {
         "! Everyone should update: the player with the newest addon now passes messages between the guilds, so the more of us have it, the faster everything gets there.",
         "# New",

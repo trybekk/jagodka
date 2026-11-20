@@ -46,6 +46,11 @@ Jagodka connects several allied guilds into **one community**. Members share cha
 - Your **character card**: level, guild, rank, professions, experience and an Armory link
 - Side column: your events and LFG listing, officers online, guilds (with how many have the addon) and classes at a glance
 
+## Two looks
+- **Classic:** the dark, plain window you know (the default)
+- **Forest Berry:** a painted wooden frame with vines and berries, our leader on the crest with your guild's name, and its own tabs, buttons and fields; the same layout. Switch in Settings > Appearance, any time
+- The window fits your screen, opens at its smallest size and can be pushed partly off the screen's edges
+
 ## For officers
 - **Post announcements** for all guilds in the Announcements tab: tag, title, text, pin to the top; edit, pin or delete later
 - **Big messages:** write a short message that everyone with the addon sees as a big text on screen, with a sound
