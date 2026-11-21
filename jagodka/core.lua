@@ -792,13 +792,27 @@ end
 -- 0.15.5: the number of readers next to each chat tab's name: players with the addon online (they get the chat,
 -- on the channel or through the guilds), for Officers the officers among them. The tooltip adds how many are on
 -- the chat channel on my part of the server (its member list, read at most once a minute while this chat shows).
+-- 1.2.3 (user: "guild master JN3 nie pojawia się na czacie oficerów", "a 60 osób z addonem jest"): status packets
+-- stay in their guild (0.11.0), so activePlayers holds my guild and only the RELAY of each other guild. Counting
+-- only them left out every other player of the other guilds (Officers showed my guild's officers only, General
+-- ~50 of ~60). Now also the other guilds' players online by their roster whose addon is known from their relay's
+-- version list (VLIST, Roster.OtherVersion) - the same data as the Roster's version column. name -> guild.
+function EventSync.AddonPlayersOnline()
+local set, myGuild = {}, Most.MyGuild()
+for _, p in ipairs(activePlayers) do set[p.name] = p.guild end
+for _, p in ipairs(Roster.BuildList(false)) do
+if p.online and not set[p.name] and p.guild ~= myGuild and Roster.OtherVersion(p.name) then set[p.name] = p.guild end
+end
+return set
+end
 function EventSync.ChatCounts()
 local all, officers = 0, 0
-for _, p in ipairs(activePlayers) do
+local set = EventSync.AddonPlayersOnline()
+for name, guild in pairs(set) do
 all = all + 1
-if IsKnownOfficer(p.name, p.guild) or (p.name == Most.MyName() and IsPlayerOfficer()) then officers = officers + 1 end
+if IsKnownOfficer(name, guild) or (name == Most.MyName() and IsPlayerOfficer()) then officers = officers + 1 end
 end
-return all, officers
+return all, officers, set
 end
 function EventSync.UpdateChatCounts()
 local all, officers = EventSync.ChatCounts()
@@ -807,7 +821,7 @@ btn.text:SetText(btn.label .. " |cff808080(" .. ((tab == "Oficerowie") and offic
 end
 end
 function EventSync.ChatCountTooltip(owner, tab)
-local all, officers = EventSync.ChatCounts()
+local all, officers, signal = EventSync.ChatCounts()
 local tip = _G.GameTooltip
 tip:SetOwner(owner, "ANCHOR_TOP")
 if tab == "Oficerowie" then
@@ -815,8 +829,8 @@ tip:SetText(officers .. " officers with the addon online", 1, 1, 1)
 -- 1.2.1 (user: "martwi mnie to... zapominam o tym": Officers online in the right column 4, here 1): the officers
 -- online in the game (the guild rosters) whose addon sends no signal: in a dungeon or raid (the game pauses
 -- addon messages there) or without the addon. Listed, so the two numbers explain themselves.
-local signal, quiet = {}, {}
-for _, p in ipairs(activePlayers) do signal[p.name] = true end
+-- 1.2.3: "signal" includes the other guilds' addon players (EventSync.AddonPlayersOnline), not only their relays
+local quiet = {}
 for _, p in ipairs(Roster.BuildList(false)) do
 if not signal[p.name] and p.name ~= Most.MyName() and IsKnownOfficer(p.name, p.guild) then
 table.insert(quiet, p.name .. " (" .. Most.GuildTag(p.guild) .. ")")

@@ -1,7 +1,8 @@
 -- ============================================================================
 -- GUILD CLEANUP (1.1.5): officers only, from Monitoring > Officer actions. A window with the members of the
 -- guild the officer is logged in on, the longest offline first, each with a Kick button (after a question).
--- Nothing is sent to anyone: it reads the game's guild roster and calls the game's own GuildUninvite.
+-- Nothing is sent to anyone: it reads the game's guild roster; Remove is a secure button running "/gremove Name"
+-- (1.2.3; the game does not let addon code call GuildUninvite).
 -- Another guild = log in there (the game can only remove members from your own guild).
 -- The list looks and works like the Roster tab: sortable headers, pages of PER_PAGE, scrolling within the
 -- page, striped rows with the hover highlight.
@@ -200,23 +201,95 @@ local function AskRoster()
     if _G.C_GuildInfo and _G.C_GuildInfo.GuildRoster then _G.C_GuildInfo.GuildRoster() elseif _G.GuildRoster then _G.GuildRoster() end
 end
 
-_G.StaticPopupDialogs["JAGODKA_GUILD_KICK"] = {
-    text = "Remove %s from the guild?\nLast online: %s.",
-    button1 = "Remove",
-    button2 = "Cancel",
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-    OnAccept = function(_, m)
-        if not m or not CanKick(m) or not _G.GuildUninvite then return end
-        _G.GuildUninvite(m.name)
-        if addonTable.Monitor then addonTable.Monitor.Note("Guild cleanup: removed " .. m.display .. " from the guild (last online: " .. (m.online and "online" or OfflineText(m)) .. ")") end
+-- 1.2.3 (user: "gkick nie może być akcją wykonaną z addona"): the game lets only its own (untainted) code remove a
+-- member (C_GuildInfo.RemoveFromGuild: AllowedWhenUntainted), so GuildUninvite from the old popup's Remove did
+-- nothing. The game's way for addons: a secure button (SecureActionButtonTemplate) whose click runs the macro
+-- "/gremove Name" as if typed (the game has no "/gkick": "Type /help") - every removal is still the officer's own click, nothing is automated.
+-- A frame holding a secure button is protected: it is shown, filled and hidden only out of combat (it hides
+-- itself when combat starts), it is a child of UIParent (not of the list window, which stays normal) and it is
+-- not closed by Escape (that would run in combat too); Cancel closes it.
+local confirm
+-- The name as the command wants it (user: "/gremove Billie Jagódka działa"): the roster gives "Billie-Jagódka"
+-- (the surname in the realm place, WoW: Forever); Most.PlayerKey makes it "Billie Jagódka"
+local function KickName(m)
+    local Most = addonTable.Most
+    return (Most and Most.PlayerKey and Most.PlayerKey(m.name)) or m.name
+end
+local function BuildConfirm()
+    confirm = CreateFrame("Frame", "JagodkaGuildKickConfirm", _G.UIParent, "BackdropTemplate")
+    confirm:SetSize(420, 120)
+    confirm:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 120)
+    confirm:SetFrameStrata("FULLSCREEN_DIALOG")
+    confirm:SetToplevel(true)
+    confirm:EnableMouse(true)
+    confirm:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+    confirm:SetBackdropColor(0.07, 0.07, 0.09, 1)
+    confirm:SetBackdropBorderColor(1, 0.82, 0.3, 0.9)
+    confirm.text = confirm:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    confirm.text:SetPoint("TOP", confirm, "TOP", 0, -18)
+    confirm.text:SetWidth(390)
+    confirm.remove = CreateFrame("Button", "JagodkaGuildKickRemove", confirm, "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    confirm.remove:SetSize(120, 24)
+    confirm.remove:SetPoint("BOTTOMRIGHT", confirm, "BOTTOM", -66, 14)
+    confirm.remove:SetText("Remove")
+    confirm.remove:RegisterForClicks("AnyUp", "AnyDown")
+    confirm.remove:SetAttribute("type", "macro")
+    -- After the game ran the macro (insecure hook, runs after the secure click): note it, close, read again.
+    -- Registered for down and up (newer clients run the action on the edge ActionButtonUseKeyDown says, once);
+    -- the hook waits for the release, so the window never closes between the press and the action.
+    confirm.remove:HookScript("OnClick", function(_, _, down)
+        local m = confirm.member
+        if down or not m or confirm.done then return end
+        confirm.done = true
+        if addonTable.Monitor then addonTable.Monitor.Note("Guild cleanup: ran \"" .. tostring(confirm.remove:GetAttribute("macrotext")) .. "\" for " .. m.display .. " (roster name \"" .. tostring(m.name) .. "\", last online: " .. (m.online and "online" or OfflineText(m)) .. ")") end
+        if not InCombatLockdown() then confirm:Hide() end
         AskRoster()
         -- The roster event may fall in the ignore window: read again a moment later anyway
         C_Timer.After(1.5, function() if win and win:IsShown() then Refresh() end end)
-    end,
-}
+    end)
+    -- The sure way (user: "musimy ten ficzer mieć"): "/gremove Name" typed into the game's chat input for the
+    -- officer to send with Enter - exactly the command typed by hand, which the game always accepts. The name is
+    -- visible there and can be corrected before Enter.
+    local typeIt = CreateFrame("Button", nil, confirm, "UIPanelButtonTemplate")
+    typeIt:SetSize(120, 24)
+    typeIt:SetPoint("BOTTOM", confirm, "BOTTOM", 0, 14)
+    typeIt:SetText("Type in chat")
+    typeIt:SetScript("OnClick", function()
+        local m = confirm.member
+        if not m or not _G.ChatFrame_OpenChat then return end
+        if not InCombatLockdown() then confirm:Hide() end
+        _G.ChatFrame_OpenChat("/gremove " .. KickName(m))
+        if addonTable.Monitor then addonTable.Monitor.Note("Guild cleanup: \"/gremove " .. KickName(m) .. "\" typed into the chat input for " .. m.display .. " (sent when you press Enter)") end
+    end)
+    typeIt:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:SetText("Puts /gremove with the name into your chat input: press Enter to remove.", 1, 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    typeIt:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    local cancel = CreateFrame("Button", nil, confirm, "UIPanelButtonTemplate")
+    cancel:SetSize(120, 24)
+    cancel:SetPoint("BOTTOMLEFT", confirm, "BOTTOM", 66, 14)
+    cancel:SetText("Cancel")
+    cancel:SetScript("OnClick", function() if not InCombatLockdown() then confirm:Hide() end end)
+    local combat = CreateFrame("Frame")
+    combat:RegisterEvent("PLAYER_REGEN_DISABLED")
+    combat:SetScript("OnEvent", function() if confirm:IsShown() then confirm:Hide() end end)
+    confirm:Hide()
+end
+
+local function AskKick(m)
+    if InCombatLockdown() then
+        if addonTable.Monitor then addonTable.Monitor.Note("Guild cleanup: not in combat - try again after the fight") end
+        if _G.UIErrorsFrame then _G.UIErrorsFrame:AddMessage("Guild Kick: not in combat.", 1, 0.3, 0.3) end
+        return
+    end
+    if not confirm then BuildConfirm() end
+    confirm.member, confirm.done = m, false
+    confirm.remove:SetAttribute("macrotext", "/gremove " .. KickName(m))
+    confirm.text:SetText("Remove |cffffffff" .. KickName(m) .. "|r from the guild?\nLast online: " .. (m.online and "online now" or OfflineText(m)) .. ".")
+    confirm:Show()
+end
 
 local function SetPage(page)
     view.page = page
@@ -337,8 +410,7 @@ local function Build(applyStyle)
         row.kick:SetScript("OnClick", function()
             local m = row.member
             if not m or not CanKick(m) then return end
-            local dialog = _G.StaticPopup_Show("JAGODKA_GUILD_KICK", m.display, m.online and "online now" or OfflineText(m))
-            if dialog then dialog.data = m end
+            AskKick(m)
         end)
         rows[i] = row
     end

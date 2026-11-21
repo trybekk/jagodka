@@ -21,6 +21,12 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.2.3", {
+        "# For everyone",
+        "The numbers on the chat tabs count the players with the addon in every guild, not only in yours: General shows everyone who gets the chat, Officers all officers with the addon.",
+        "# Officers",
+        "Guild cleanup: Guild Kick really removes the player now. Remove in its question runs the game's /gremove for you (not in combat); Type in chat puts the command into your chat input instead, Enter sends it.",
+    }, "Guild Kick works, right chat counts" },
     { "1.2.2", {
         "The right column shows all five guilds, JN5 too, without scrolling. Officers online above it shows up to 4 names; its header still counts everyone.",
     }, "all five guilds in view" },
