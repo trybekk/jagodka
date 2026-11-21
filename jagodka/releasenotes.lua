@@ -21,6 +21,13 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.2.1", {
+        "! Welcome, Jagódki Nadina V! The fifth guild joins the community: its tag in the chat is [JN5], and it shows in the guilds list and the side column.",
+        "# Officers",
+        "Hover Officers on the chat tab: besides who reads the officers chat, it lists the officers online in the game whose addon is quiet (in a dungeon or raid, or without the addon). The officers chat still reaches them, and what they miss comes after.",
+        "# Fixes",
+        "When /jnglobal, /jntrade, /jnlfg or /jnofficers does not switch the chat input, Monitoring now notes why, so we can fix it.",
+    }, "welcome, JN5" },
     { "1.2.0", {
         "! New: an optional look for the window, Forest Berry. Try it with the button above or in Settings > Appearance. The classic look stays the default.",
         "# Forest Berry",

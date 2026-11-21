@@ -57,7 +57,7 @@ for _, suffix in ipairs({ "", " II", " IIl", " IV", " V", " VI" }) do
 end
 -- Listed but not created yet: hidden in the Guilds tab and the guilds panel only (still on the list above,
 -- so they work at once when founded). Remove a name here once that guild exists.
-local GuildsNotShown = { ["Jagódki Nadina V"] = true, ["Jagódki Nadina VI"] = true }   -- VI hidden again in 1.1.2 (shown by mistake in 1.1.0)
+local GuildsNotShown = { ["Jagódki Nadina VI"] = true }   -- VI hidden again in 1.1.2 (shown by mistake in 1.1.0); V shown from 1.2.1 (being founded)
 
 local function IsPlayerGuildAllowed(guildName)
     if not guildName or guildName == "" or guildName == "Brak" then return false end
@@ -812,6 +812,22 @@ local tip = _G.GameTooltip
 tip:SetOwner(owner, "ANCHOR_TOP")
 if tab == "Oficerowie" then
 tip:SetText(officers .. " officers with the addon online", 1, 1, 1)
+-- 1.2.1 (user: "martwi mnie to... zapominam o tym": Officers online in the right column 4, here 1): the officers
+-- online in the game (the guild rosters) whose addon sends no signal: in a dungeon or raid (the game pauses
+-- addon messages there) or without the addon. Listed, so the two numbers explain themselves.
+local signal, quiet = {}, {}
+for _, p in ipairs(activePlayers) do signal[p.name] = true end
+for _, p in ipairs(Roster.BuildList(false)) do
+if not signal[p.name] and p.name ~= Most.MyName() and IsKnownOfficer(p.name, p.guild) then
+table.insert(quiet, p.name .. " (" .. Most.GuildTag(p.guild) .. ")")
+end
+end
+if #quiet > 0 then
+table.sort(quiet)
+tip:AddLine("Also online in the game, but their addon is quiet (in a dungeon or raid, or no addon):", 0.8, 0.8, 0.8, true)
+for _, line in ipairs(quiet) do tip:AddLine("  " .. line, 0.6, 0.6, 0.6) end
+tip:AddLine("Officers chat still reaches them in a dungeon; what they miss comes after they leave.", 0.6, 0.6, 0.6, true)
+end
 else
 tip:SetText(all .. " players with the addon online", 1, 1, 1)
 tip:AddLine("They all get this chat: on the channel or through the guilds.", 0.8, 0.8, 0.8, true)

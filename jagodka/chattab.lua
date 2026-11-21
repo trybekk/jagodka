@@ -248,18 +248,36 @@ end
 
 -- Sets the input to a mode; false when its channel is not there (the officers chat for a non-officer)
 local function ApplyMode(box, mode)
-    if not box then return false end
+    if not box then return false, "no input" end
     mode = MODES[mode] and mode or "Ogolny"
     local id = TargetFor(mode)
     if not id then
         if mode ~= "Ogolny" and _G.DEFAULT_CHAT_FRAME then
             _G.DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[Jagodka]: " .. MODES[mode].label .. " is not available right now.|r")
         end
-        return false
+        return false, "channel not joined"
     end
     modeOf[box] = mode
     SetChatType(box, "CHANNEL", "CHANNEL", id)
+    -- 1.2.1: did it stick? (the user: "/jnX" sometimes does not switch after opening the addon window)
+    if InputMode(box) ~= mode then
+        return false, "set, but the input reads " .. tostring(box:GetAttribute("chatType")) .. " " .. tostring(box:GetAttribute("channelTarget"))
+    end
     return true
+end
+
+-- 1.2.1: one line in Monitoring (System) for every "/jnX" switch, so a log shows why one did not work. Only on
+-- the player's own command, so it is a few lines at most.
+local function Trace(how, box, mode, ok, why)
+    if not addonTable.Monitor then return end
+    local name = box and box.GetName and box:GetName() or "?"
+    local focus = _G.GetCurrentKeyBoardFocus and _G.GetCurrentKeyBoardFocus()
+    local focusName = focus and (focus.GetName and focus:GetName() or "unnamed frame") or "none"
+    local text = "Chat input: " .. how .. " -> " .. tostring(mode) .. " in " .. tostring(name) .. ": "
+        .. (ok and "switched" or ("NOT switched (" .. tostring(why) .. ")"))
+        .. ", channel " .. tostring(TargetFor(mode)) .. ", keyboard focus " .. tostring(focusName)
+        .. ", addon window " .. ((addonTable.UI and addonTable.UI.MainFrame and addonTable.UI.MainFrame:IsShown()) and "open" or "closed")
+    if ok then addonTable.Monitor.Note(text) else addonTable.Monitor.Error(text) end
 end
 
 -- Kept for later while the player is typing in the input
@@ -338,7 +356,9 @@ local function SwitchFromText(box, needSpace)
     local cmd = needSpace and text:match("^/(%a+) $") or text:match("^/(%a+)%s*$")
     local mode = cmd and MODE_BY_CMD[cmd:lower()]
     if not mode then return end
-    if ApplyMode(box, mode) then box:SetText("") end
+    local ok, why = ApplyMode(box, mode)
+    if ok then box:SetText("") end
+    Trace("/" .. cmd .. (needSpace and " + space" or " + Tab"), box, mode, ok, why)
 end
 
 -- Sends a message to one of our chats from a command ("/jntrade text")
@@ -368,7 +388,12 @@ for mode, m in pairs(MODES) do
         -- After the game resets the input following the command
         -- Without text: that mode; with text: the input keeps its mode
         local nextMode = (msg == "") and mode or ((target and modeOf[target]) or "Ogolny")
-        C_Timer.After(0, function() Safe(ApplyMode, target, nextMode) end)
+        C_Timer.After(0, function()
+            Safe(function()
+                local ok, why = ApplyMode(target, nextMode)
+                if msg == "" then Trace("/" .. m.cmd .. " + Enter", target, nextMode, ok, why) end
+            end)
+        end)
     end
 end
 local function WatchSelection(def)
