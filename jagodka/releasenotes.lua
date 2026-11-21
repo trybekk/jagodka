@@ -21,6 +21,9 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.2.2", {
+        "The right column shows all five guilds, JN5 too, without scrolling. Officers online above it shows up to 4 names; its header still counts everyone.",
+    }, "all five guilds in view" },
     { "1.2.1", {
         "! Welcome, Jagódki Nadina V! The fifth guild joins the community: its tag in the chat is [JN5], and it shows in the guilds list and the side column.",
         "# Officers",

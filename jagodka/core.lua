@@ -3529,7 +3529,7 @@ end
 end
 end
 local RightPanel = CreateFrame("Frame", nil, MainFrame, "BackdropTemplate")
--- Fixed width, 6 rows high (SideGuilds.Layout), under the upcoming events; the guilds and classes below
+-- Fixed width, 4 rows high (6 before 1.2.2) (SideGuilds.Layout), under the upcoming events; the guilds and classes below
 RightPanel:SetWidth(330)
 RightPanel:SetPoint("TOPRIGHT", EventSync.Side.panel, "BOTTOMRIGHT", 0, -28)
 ApplyModernStyle(RightPanel)
@@ -3538,7 +3538,7 @@ ApplyModernStyle(RightPanel)
 -- ============================================================================
 -- Tag and name, online / all members, a bar with the online share, and "active" or when data last came.
 -- Guilds without anyone with the addon online are grayed out. (It replaced the Guilds tab.)
-local SideGuilds = { rows = {}, cells = {}, ROW_H = 40, HEADER_GAP = 28, CLASS_ROW_H = 22, SHOWN = 4, offset = 0, -- 4: all our guilds (JN, II, IIl, IV) without scrolling
+local SideGuilds = { rows = {}, cells = {}, ROW_H = 40, HEADER_GAP = 28, CLASS_ROW_H = 22, SHOWN = 5, offset = 0, -- 5: all our guilds (JN, II, IIl, IV, V) without scrolling (1.2.2, was 4)
 CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" } }
 -- The guilds and classes panels are as tall as their content; the officers list above takes the rest
 SideGuilds.panel = CreateFrame("Frame", nil, MainFrame, "BackdropTemplate")
@@ -3563,8 +3563,9 @@ local classH = math.ceil(#SideGuilds.CLASSES / 3) * SideGuilds.CLASS_ROW_H + 10
 SideGuilds.panel:SetHeight(guildsH)
 SideGuilds.classPanel:SetHeight(classH)
 -- The officers list is exactly OFFICERS_SHOWN rows high (5 px above and below the rows); 1.0.2: more
--- officers online are not shown (no slider), the header counts them all
-local OFFICERS_SHOWN = 6
+-- officers online are not shown (no slider), the header counts them all. 1.2.2: 4 rows (was 6), so the fifth
+-- guild (JN5) fits above without scrolling (user: "kosztem wysokości oficerów online"); the column is 12 px lower
+local OFFICERS_SHOWN = 4
 RightPanel:SetHeight(5 + OFFICERS_SHOWN * 26 + 5)
 end
 MainFrame:HookScript("OnSizeChanged", SideGuilds.Layout)
@@ -3727,7 +3728,7 @@ local function RenderScrollList()
 HeaderText:SetText("Officers online (" .. #onlineList .. ")")
 -- The counter in the window header = everyone online from all listed guilds (RightPanel.onlineTotal)
 OnlineText:SetText((MainFrame.perfText or "") .. "Online: |cff00ff00" .. (RightPanel.onlineTotal or 0) .. "|r")
--- 1.0.2: at most 6 rows (the panel's height), no slider: the header still counts everyone
+-- 1.0.2: at most 6 rows (the panel's height; 4 from 1.2.2), no slider: the header still counts everyone
 local visible = math.min(RightPanel.visibleRows or 6, 6)
 scrollFrame:Hide()
 local offset = 0
