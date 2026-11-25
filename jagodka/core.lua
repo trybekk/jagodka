@@ -323,7 +323,26 @@ for i, name in ipairs(tabNames) do
 end
 
 local menuButtons = {}
+-- 1.3.0: the addon's popups belong to the tab they were opened from (user: "jak są okienka otwarte, np. Create
+-- Event, i się przełączę głównym tabem, to zostaje otwarte"): another tab closes them all. Kept on MainFrame (no
+-- new local: core.lua's main chunk is near Lua's limit). The update and What's new windows are not the tabs' and stay.
+function MainFrame.ClosePopups()
+    for _, name in ipairs({ "JagodkiCreatorFrame", "JagodkiCalendarDay", "JagodkaGuildCleanup", "JagodkaAnnounceDialog" }) do
+        local f = _G[name]
+        if f and f:IsShown() then f:Hide() end
+    end
+    -- The Guild Kick question has a secure button: shown or hidden only out of combat (it hides itself in combat)
+    local kick = _G.JagodkaGuildKickConfirm
+    if kick and kick:IsShown() and not (_G.InCombatLockdown and _G.InCombatLockdown()) then kick:Hide() end
+    for _, which in ipairs({ "JAGODKA_MUTE_REASON", "JAGODKA_NEW_CHAT_KEY", "JAGODKA_NEW_OFFICERS_KEY", "JAGODKA_ANNOUNCEMENT_DELETE", "JAGODKA_COPY_DISCORD" }) do
+        _G.StaticPopup_Hide(which)
+    end
+    _G.CloseDropDownMenus()
+end
+
 local function ShowTab(tabIndex)
+    if MainFrame.currentTab and MainFrame.currentTab ~= tabIndex then MainFrame.ClosePopups() end
+    MainFrame.currentTab = tabIndex
     for i, panel in ipairs(Panels) do
         local btn = menuButtons[i]
         if i == tabIndex then 
@@ -551,6 +570,41 @@ spec.class = class
 EventSync.SPECS[spec.code] = spec
 EventSync.CLASS_ROLES[class][spec.role] = true
 end
+end
+-- 1.3.0: the mark of a weekly event (events.lua) in the list, details, tooltips and calendar
+-- Size 0 = the line's own text height, so it sits on the text line in every font size (user: "ikonki nie są z
+-- tekstem wyrównane"); the icon's dark border trimmed (64 px, 5..59)
+EventSync.WEEKLY_ICON = "|TInterface\\Icons\\INV_Misc_PocketWatch_01:0:0:0:0:64:64:5:59:5:59|t "
+-- 1.3.0 DROPDOWNS CLICKABLE ON THEIR TEXT (user: "jak nie kliknę w strzałkę, tylko w pole obok, to klika w to, co
+-- jest pod spodem okna"): only the arrow of the game's dropdown took the mouse; a click on its box went through
+-- to whatever was under it. Every dropdown of the addon (named "Jagodk...", all set up with
+-- UIDropDownMenu_SetWidth) now takes clicks on its whole box and opens like a click on the arrow (nothing when
+-- it is disabled). A hook after the game's function: the game's own dropdowns are not touched.
+if _G.hooksecurefunc and _G.UIDropDownMenu_SetWidth then
+_G.hooksecurefunc("UIDropDownMenu_SetWidth", function(dd)
+local name = dd and dd.GetName and dd:GetName()
+if not name or not name:find("^Jagodk") or dd.jagodkaClickable then return end
+dd.jagodkaClickable = true
+dd:EnableMouse(true)
+dd:SetScript("OnMouseDown", function(self, button)
+local arrow = self.Button or _G[name .. "Button"]
+if button == "LeftButton" and arrow and arrow:IsEnabled() then arrow:Click() end
+end)
+end)
+end
+-- Hover lines of a weekly event (user: "mouse over z informacją, że to recurring i do kiedy jest ustawione"):
+-- when it repeats, its later dates, and that sign-ups are for the nearest week. Nothing for other events.
+function EventSync.AddWeeklyLines(tip, ev)
+local E = addonTable.Events
+local text = E.RepeatText(ev)
+if not text then return end
+local later = E.NextDates(ev)
+local short = {}
+for _, d in ipairs(later) do table.insert(short, (d:gsub("%.%d%d%d%d$", ""))) end
+tip:AddLine(EventSync.WEEKLY_ICON .. "Weekly event", 0.42, 0.77, 0.9)
+tip:AddLine(text, 1, 1, 1)
+tip:AddLine((#later == 0) and "This is its last week." or ("Next: " .. table.concat(short, ", ")), 0.8, 0.8, 0.8, true)
+tip:AddLine("Sign-ups are for " .. tostring(ev.date):gsub("%.%d%d%d%d$", "") .. "; the next week starts with an empty list.", 0.6, 0.6, 0.6, true)
 end
 -- Event time (noon of that day) from "DD.MM.YYYY" or the old "DD.MM" (current year)
 function EventSync.DayTime(dateText)
@@ -1672,10 +1726,14 @@ DescHover:SetAllPoints(DDesc)
 DescHover:EnableMouse(true)
 DescHover:SetScript("OnEnter", function(self)
 local ev = selectedEventIndex and eventsList[selectedEventIndex]
-if not ev or not ev.desc or ev.desc == "" then return end
-_G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+local weekly = ev and addonTable.Events.IsWeekly(ev)
+if not ev or ((not ev.desc or ev.desc == "") and not weekly) then return end
+-- At the mouse: the text is 530 px wide, its right edge was far from what was hovered
+_G.GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
 _G.GameTooltip:AddLine(ev.title, 1, 0.82, 0)
-_G.GameTooltip:AddLine(ev.desc, 1, 1, 1, true)
+-- 1.3.0: a weekly event's repeat first (the hover covers its "Every ..." line too)
+if weekly then EventSync.AddWeeklyLines(_G.GameTooltip, ev) end
+if ev.desc and ev.desc ~= "" then _G.GameTooltip:AddLine(ev.desc, 1, 1, 1, true) end
 _G.GameTooltip:Show()
 end)
 DescHover:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
@@ -1872,6 +1930,8 @@ end
 if UpdateRosterList then UpdateRosterList() end
 end
 UpdateEventDetails = function()
+-- 1.3.0: the weekly cancel question belongs to its event: another event (or none) closes it
+if EventSync.weeklyCancel and EventSync.weeklyCancel:IsShown() and EventSync.weeklyCancel.ev ~= (selectedEventIndex and eventsList[selectedEventIndex]) then EventSync.weeklyCancel:Hide() end
 if not selectedEventIndex or not eventsList[selectedEventIndex] then
 DetailsContainer:Hide() return
 end
@@ -1879,7 +1939,12 @@ DetailsContainer:Show()
 local ev = eventsList[selectedEventIndex] DHeader:SetText(ev.title)
 local guildStr = ev.guild and (" |cffbf40ff(" .. ev.guild .. ")|r") or ""
 local dungeonStr = (ev.dungeon and ev.dungeon ~= "") and ("\n|cffffffffInstance:|r |cffffd100" .. ev.dungeon .. "|r") or ""
-DDesc:SetText("|cffffffffAuthor:|r " .. ev.creator .. guildStr .. "  |cffffffffTime:|r " .. ev.date .. " " .. ev.time .. dungeonStr .. "\n|cffdecda5Description:|r " .. (ev.desc or ""))
+-- 1.3.0: a weekly event says when it repeats, after the time
+local repeatStr = addonTable.Events.RepeatText(ev)
+-- As its own "Repeats:" line like Author and Instance, so it starts at the same left edge (user's event-edit.png:
+-- the clock pushed the text in and sat low); the clock after the label, 5 px down (user: "parę pikseli niżej, żeby wyrównane z tekstem", then "jeszcze 3 px niżej"). Other events: no line, as before.
+repeatStr = repeatStr and ("\n|cffffffffRepeats:|r |TInterface\\Icons\\INV_Misc_PocketWatch_01:0:0:0:-5:64:64:5:59:5:59|t |cff6cc4e6" .. repeatStr .. "|r") or ""
+DDesc:SetText("|cffffffffAuthor:|r " .. ev.creator .. guildStr .. "  |cffffffffTime:|r " .. ev.date .. " " .. ev.time .. repeatStr .. dungeonStr .. "\n|cffdecda5Description:|r " .. (ev.desc or ""))
 -- As tall as the text, up to 7 lines (the rest is cut and shown in the tooltip); the list takes what is left
 DDesc:SetHeight(0)
 DDesc:SetHeight(math.min(DDesc:GetStringHeight(), 115))
@@ -2043,6 +2108,18 @@ row[col.field] = text
 end
 end
 row:SetScript("OnClick", function(self) selectedEventIndex = self.dataIndex UpdateEventDetails() end)
+-- 1.3.0: hovering a weekly event (clock before its name) says when it repeats; other rows show nothing, as before
+row:SetScript("OnEnter", function(self)
+local ev = self.signBtn and self.signBtn.event
+if not ev or not addonTable.Events.IsWeekly(ev) then return end
+-- Right above the event's name (the clock), not at the far end of the row
+_G.GameTooltip:SetOwner(self, "ANCHOR_NONE")
+_G.GameTooltip:SetPoint("BOTTOMLEFT", self.titleText or self, "TOPLEFT", -6, 2)
+_G.GameTooltip:AddLine(ev.title, 1, 0.82, 0)
+EventSync.AddWeeklyLines(_G.GameTooltip, ev)
+_G.GameTooltip:Show()
+end)
+row:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 -- Sign-up button: "Sign up", or the current spec in green; a click opens the spec menu
 local signBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
 signBtn:SetHeight(EV_ROW_HEIGHT - 3)
@@ -2080,6 +2157,8 @@ return (t + h + d) .. " (" .. t .. "/" .. h .. "/" .. d .. ")"
 end
 -- The date without the year, so the table fits the window (the guild keeps its full name)
 if key == "date" then return ((ev.date or "-"):gsub("^(%d+%.%d+)%.%d+$", "%1")) end
+-- 1.3.0: a weekly event has a small clock before its name
+if key == "title" and addonTable.Events.IsWeekly(ev) then return EventSync.WEEKLY_ICON .. (ev.title or "-") end
 return ev[key] or "-"
 end
 -- Date and time of an event for sorting
@@ -2389,12 +2468,13 @@ if myRole then
 -- A sign-up from before 0.9.1 has only a role, until the player picks a spec
 local spec = EventSync.SPECS[ev.specs and ev.specs[myName] or ""]
 local label = spec and spec.name or ({ TANK = "Tank", HEAL = "Heal", DPS = "DPS" })[myRole] or myRole
-row.signBtn:SetText("|cff00ff00" .. label .. " v|r")
+-- 1.3.0: the spec in green is enough (user: "ten v w kolumnie You już niepotrzebny")
+row.signBtn:SetText("|cff00ff00" .. label .. "|r")
 else
 row.signBtn:SetText("Sign up")
 end
 -- Events I signed up for are green, as in the calendar
-if ev.roster and ev.roster[myName] then row.titleText:SetText("|cff00ff00" .. ev.title .. "|r") end
+if ev.roster and ev.roster[myName] then row.titleText:SetText("|cff00ff00" .. CellText(ev, "title") .. "|r") end
 if ev.guild then row.guildText:SetText("|cffbf40ff" .. ev.guild .. "|r") end
 row:Show()
 else row:Hide() end
@@ -2462,7 +2542,9 @@ SyncEventsBtn:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 addonTable.Help.Button(Panels[4], "events", nil, "Events"):SetPoint("RIGHT", SyncEventsBtn, "LEFT", -8, 0)
 end
 local CreatorFrame = CreateFrame("Frame", "JagodkiCreatorFrame", UIParent, "BackdropTemplate")
-CreatorFrame:SetSize(320, 450) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
+CreatorFrame:SetSize(320, 500) CreatorFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0) CreatorFrame:Hide()
+-- 1.3.0: clicks on the window stay in it (they went through to the addon window under it)
+CreatorFrame:EnableMouse(true)
 -- Above the event details window (DIALOG), below dropdown lists (FULLSCREEN_DIALOG)
 CreatorFrame:SetFrameStrata("FULLSCREEN")
 CreatorFrame:SetFrameLevel(MainFrame:GetFrameLevel() + 20)
@@ -2500,9 +2582,10 @@ local MinuteDD = NewDropDown("JagodkiEventMinuteDropDown", 222, -158, 40)
 _G.UIDropDownMenu_Initialize(DungeonDD, function(self, level, menuList)
 if level == 1 then
 local none = _G.UIDropDownMenu_CreateInfo()
+-- 1.3.0: a new event needs a choice here (activityPicked); "(none / other)" is one, made on purpose
 none.text = "(none / other)"
-none.checked = (EventPicker.dungeon == nil)
-none.func = function() EventPicker.dungeon = nil _G.UIDropDownMenu_SetText(DungeonDD, "(none / other)") end
+none.checked = (EventPicker.dungeon == nil and EventPicker.activityPicked)
+none.func = function() EventPicker.dungeon, EventPicker.activityPicked = nil, true _G.UIDropDownMenu_SetText(DungeonDD, "(none / other)") end
 _G.UIDropDownMenu_AddButton(none, level)
 for _, group in ipairs(addonTable.InstanceGroups()) do
 local sub = _G.UIDropDownMenu_CreateInfo()
@@ -2519,7 +2602,7 @@ local closed = inst.opensAt and eventDay < inst.opensAt
 info.text = inst.name .. " |cff808080(" .. inst.levels .. ")|r" .. (closed and (" |cff808080- from " .. date("%d.%m", inst.opensAt) .. "|r") or "")
 info.disabled = closed
 info.checked = (EventPicker.dungeon == inst.name)
-info.func = function() EventPicker.dungeon = inst.name _G.UIDropDownMenu_SetText(DungeonDD, inst.name) _G.CloseDropDownMenus() end
+info.func = function() EventPicker.dungeon, EventPicker.activityPicked = inst.name, true _G.UIDropDownMenu_SetText(DungeonDD, inst.name) _G.CloseDropDownMenus() end
 _G.UIDropDownMenu_AddButton(info, level)
 end
 end)
@@ -2532,8 +2615,66 @@ local value, label = date("%d.%m.%Y", t), DayLabel(t)
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text = label
 info.checked = (EventPicker.date == value)
-info.func = function() EventPicker.date = value _G.UIDropDownMenu_SetText(DateDD, label) end
+info.func = function() EventPicker.date = value _G.UIDropDownMenu_SetText(DateDD, label) EventPicker.RefreshRepeat() end
 _G.UIDropDownMenu_AddButton(info, level)
+end
+end)
+-- 1.3.0 REPEAT: once, or weekly 2-9 times (up to about 2 months; events.lua). Kept in EventPicker (no new local:
+-- core.lua's main chunk is near Lua's limit). The list shows the last date for the chosen date.
+NewLabel("Repeat:", 20, -195)
+EventPicker.repeatDD = NewDropDown("JagodkiEventRepeatDropDown", 2, -208, 255)
+function EventPicker.RepeatLabel(n)
+if n == 1 then return "Every week, last time" end
+return n and ("Every week, " .. n .. " times") or "Does not repeat"
+end
+-- The start of the picked date and time (local time), or nil
+function EventPicker.PickedStart()
+local day = EventSync.DayTime(EventPicker.date or "")
+return day and (day + ((EventPicker.hour or 12) - 12) * 3600 + (EventPicker.minute or 0) * 60)
+end
+-- The repeat's text after any change of the date, time or repeat (user: "w edit mode przy zmianie daty nie
+-- aktualizuje się dropdown repeat"): its last date for the picked date; fewer times when they no longer fit
+function EventPicker.RefreshRepeat()
+local n, start = EventPicker.repeats, EventPicker.PickedStart()
+if n and n >= 2 and start then
+local most = addonTable.Events.MaxRepeats(start)
+if most < 2 then n = nil elseif n > most then n = most end
+EventPicker.repeats = n
+end
+local text = EventPicker.RepeatLabel(n)
+if n and n >= 2 and start then
+text = text .. " |cff808080(last " .. date("%d.%m", time({ year = tonumber(date("%Y", start)), month = tonumber(date("%m", start)), day = tonumber(date("%d", start)) + (n - 1) * 7, hour = 12 })) .. ")|r"
+end
+_G.UIDropDownMenu_SetText(EventPicker.repeatDD, text)
+end
+_G.UIDropDownMenu_Initialize(EventPicker.repeatDD, function(self, level)
+local E = addonTable.Events
+local once = _G.UIDropDownMenu_CreateInfo()
+once.text = EventPicker.RepeatLabel(nil)
+once.checked = (EventPicker.repeats == nil)
+once.func = function() EventPicker.repeats = nil EventPicker.RefreshRepeat() end
+_G.UIDropDownMenu_AddButton(once, level)
+local first = EventSync.DayTime(EventPicker.date or "")
+local weeklyOk, why = E.CanCreate(true)
+-- Editing: the event itself is replaced, so its own place counts (events.lua Replace checks the author's limits)
+if EventPicker.editing then weeklyOk, why = true, nil end
+-- As many times as fit about 2 months from today (a later date leaves fewer)
+local most = first and E.MaxRepeats(first + ((EventPicker.hour or 12) - 12) * 3600 + (EventPicker.minute or 0) * 60) or E.RECUR_MAX
+if most < E.RECUR_MIN then weeklyOk, why = false, "This date is too far ahead for a weekly event." end
+for n = E.RECUR_MIN, math.max(E.RECUR_MIN, most) do
+local info = _G.UIDropDownMenu_CreateInfo()
+local lastDay = first and date("%d.%m", time({ year = tonumber(date("%Y", first)), month = tonumber(date("%m", first)), day = tonumber(date("%d", first)) + (n - 1) * 7, hour = 12 }))
+info.text = EventPicker.RepeatLabel(n) .. (lastDay and (" |cff808080(last " .. lastDay .. ")|r") or "")
+info.checked = (EventPicker.repeats == n)
+-- Over the weekly limit: grayed out, the reason on the last line
+info.disabled = not weeklyOk
+info.func = function() EventPicker.repeats = n EventPicker.RefreshRepeat() end
+_G.UIDropDownMenu_AddButton(info, level)
+end
+if not weeklyOk then
+local note = _G.UIDropDownMenu_CreateInfo()
+note.text = "|cffff5555" .. tostring(why) .. "|r" note.notCheckable = true note.disabled = true
+_G.UIDropDownMenu_AddButton(note, level)
 end
 end)
 _G.UIDropDownMenu_Initialize(HourDD, function(self, level)
@@ -2541,7 +2682,7 @@ for h = 0, 23 do
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text = string.format("%02d", h)
 info.checked = (EventPicker.hour == h)
-info.func = function() EventPicker.hour = h _G.UIDropDownMenu_SetText(HourDD, string.format("%02d", h)) end
+info.func = function() EventPicker.hour = h _G.UIDropDownMenu_SetText(HourDD, string.format("%02d", h)) EventPicker.RefreshRepeat() end
 _G.UIDropDownMenu_AddButton(info, level)
 end
 end)
@@ -2550,7 +2691,7 @@ for _, m in ipairs({0, 15, 30, 45}) do
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text = string.format("%02d", m)
 info.checked = (EventPicker.minute == m)
-info.func = function() EventPicker.minute = m _G.UIDropDownMenu_SetText(MinuteDD, string.format("%02d", m)) end
+info.func = function() EventPicker.minute = m _G.UIDropDownMenu_SetText(MinuteDD, string.format("%02d", m)) EventPicker.RefreshRepeat() end
 _G.UIDropDownMenu_AddButton(info, level)
 end
 end)
@@ -2560,20 +2701,31 @@ function EventPicker.Reset()
 local day = EventPicker.presetDay or time()
 EventPicker.presetDay = nil
 EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = date("%d.%m.%Y", day), 20, 0, nil
-_G.UIDropDownMenu_SetText(DungeonDD, "(none / other)")
+-- 1.3.0: nothing chosen yet; a new event needs a choice (user: "wymuszenie wybrania activity z dropdown")
+EventPicker.activityPicked = false
+_G.UIDropDownMenu_SetText(DungeonDD, "|cffff8080Pick an activity...|r")
 _G.UIDropDownMenu_SetText(DateDD, DayLabel(day))
 _G.UIDropDownMenu_SetText(HourDD, "20")
 _G.UIDropDownMenu_SetText(MinuteDD, "00")
+EventPicker.repeats, EventPicker.repeatsWas = nil, nil
+EventPicker.RefreshRepeat()
 end
 -- Fills the pickers with an existing event's values (editing)
 function EventPicker.LoadEvent(ev)
 local hour, minute = (ev.time or ""):match("^(%d+):(%d+)$")
 EventPicker.date, EventPicker.hour, EventPicker.minute, EventPicker.dungeon = ev.date, tonumber(hour) or 20, tonumber(minute) or 0, ev.dungeon
+-- Editing: an existing event (also one made before 1.3.0 without an instance) keeps what it has
+EventPicker.activityPicked = true
 _G.UIDropDownMenu_SetText(DungeonDD, ev.dungeon or "(none / other)")
 local day = EventSync.DayTime(ev.date)
 _G.UIDropDownMenu_SetText(DateDD, day and DayLabel(day) or ev.date)
 _G.UIDropDownMenu_SetText(HourDD, string.format("%02d", EventPicker.hour))
 _G.UIDropDownMenu_SetText(MinuteDD, string.format("%02d", EventPicker.minute))
+-- 1.3.0: a weekly event shows how many times are left (this week + the later ones); changing it, the date or the
+-- time makes it anew on saving (events.lua Replace). repeatsWas = what it was, to see a change.
+EventPicker.repeats = addonTable.Events.IsWeekly(ev) and (1 + #addonTable.Events.NextDates(ev)) or nil
+EventPicker.RefreshRepeat()
+EventPicker.repeatsWas = EventPicker.repeats
 end
 end
 -- X button and closing with Esc
@@ -2611,11 +2763,11 @@ end
 local DescInput = CreateFrame("EditBox", nil, CreatorFrame)
 do
 local DescLabel = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-DescLabel:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -195) DescLabel:SetText("Description:")
+DescLabel:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -245) DescLabel:SetText("Description:")
 local DescCounter = CreatorFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-DescCounter:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -20, -197)
+DescCounter:SetPoint("TOPRIGHT", CreatorFrame, "TOPRIGHT", -20, -247)
 local DescBox = CreateFrame("Frame", nil, CreatorFrame, "BackdropTemplate")
-DescBox:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -212)
+DescBox:SetPoint("TOPLEFT", CreatorFrame, "TOPLEFT", 20, -262)
 DescBox:SetPoint("BOTTOMRIGHT", CreatorFrame, "BOTTOMRIGHT", -20, 62)
 ApplyModernStyle(DescBox)
 local DescScroll = CreateFrame("ScrollFrame", "JagodkiEventDescScroll", DescBox, "UIPanelScrollFrameTemplate")
@@ -2639,10 +2791,10 @@ end
 TitleInput:SetMaxBytes(50)
 local SubmitBtn = CreateFrame("Button", nil, CreatorFrame, "GameMenuButtonTemplate")
 SubmitBtn:SetSize(120, 30) SubmitBtn:SetPoint("BOTTOM", CreatorFrame, "BOTTOM", 0, 20) SubmitBtn:SetText("Create and Send")
--- Any member of a listed guild (events.lua: a member 1 upcoming event, an officer 5)
+-- Any member of a listed guild (events.lua: a member 1 upcoming event, an officer 5; 1.3.0: and weekly ones on top)
 CreateEventBtn:SetScript("OnClick", function()
 if addonTable.Sync.Blocked() then return end
-local ok, why = addonTable.Events.CanCreate()
+local ok, why = addonTable.Events.CanCreateAny()
 if ok then CreatorFrame:Show() else ShowEventError(why) end
 end)
 -- Officer buttons are gray until the first sync after login ends, with the reason on hover
@@ -2689,21 +2841,40 @@ if title == "" and EventPicker.dungeon then title = EventPicker.dungeon end
 local where = EventPicker.dungeon and (EventPicker.dungeon .. " ") or ""
 local editing = EventPicker.editing
 if editing then
-local ok, why = addonTable.Events.Edit(editing, title, eDate, eTime, EventPicker.dungeon, desc)
+-- 1.3.0: a new repeat, or a weekly event's new date or time: made anew with empty sign-ups (events.lua
+-- Replace); otherwise an ordinary edit, as before (an ordinary event keeps its sign-ups on a new date)
+local E = addonTable.Events
+local anew = EventPicker.repeats ~= EventPicker.repeatsWas or (E.IsWeekly(editing) and (eDate ~= editing.date or eTime ~= editing.time))
+local ok, why
+if anew then ok, why = E.Replace(editing, title, eDate, eTime, EventPicker.dungeon, desc, EventPicker.repeats)
+else ok, why = E.Edit(editing, title, eDate, eTime, EventPicker.dungeon, desc) end
 if not ok then ShowEventError(why) return end
-Most.PublishTyped("Ogolny", "Event edited by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime, myName, myGuild)
+local shown = anew and why or editing
+-- A weekly event says so
+local editRepeat = E.RepeatText(shown)
+if not shown.localTest then Most.PublishTyped("Ogolny", (editRepeat and "Weekly event" or "Event") .. " edited by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime .. (editRepeat and (" - " .. editRepeat) or "") .. (anew and " (sign-ups start again)" or ""), myName, myGuild) end
 CreatorFrame:Hide()
+-- The new event stays selected
+if anew then
+selectedEventIndex = nil
+for idx, e in ipairs(eventsList) do if e == shown then selectedEventIndex = idx break end end
+end
 UpdateEventsList()
-if selectedEventIndex and eventsList[selectedEventIndex] == editing then UpdateEventDetails() end
+UpdateEventDetails()
 return
 end
-local ok, why = addonTable.Events.Create(title, eDate, eTime, EventPicker.dungeon, desc)
+-- 1.3.0: a new event needs an activity chosen (an instance, or "(none / other)" on purpose), so its type
+-- (PvE / PvP) is known; only here, in the creator: edits and events made before need nothing
+if not EventPicker.activityPicked then ShowEventError("Pick an activity first: an instance, or (none / other).") return end
+local ok, why = addonTable.Events.Create(title, eDate, eTime, EventPicker.dungeon, desc, EventPicker.repeats)
 if not ok then ShowEventError(why) return end
 UpdateEventsList()
 -- Announcement on the community chat channel as the creator's own message (straight from the click, which the
 -- game requires), so every guild sees it at once; through the relays only when the channel is not available:
 -- "Event created by Name -> Title : Instance 05.11 20:00"
-Most.PublishTyped("Ogolny", "Event created by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime, myName, myGuild)
+-- 1.3.0: "Weekly event created by Name -> Title : Instance 05.11 20:00 - Every Tuesday 20:00, last on 20.01"
+local repeatText = type(why) == "table" and addonTable.Events.RepeatText(why)
+Most.PublishTyped("Ogolny", (repeatText and "Weekly event" or "Event") .. " created by " .. myName .. " -> " .. title .. " : " .. where .. eDate .. " " .. eTime .. (repeatText and (" - " .. repeatText) or ""), myName, myGuild)
 TitleInput:SetText("") DescInput:SetText("") CreatorFrame:Hide()
 end)local function SetRosterFilter(filterType) currentRosterFilter = filterType UpdateFilterVisuals() end
 BtnAll:SetScript("OnClick", function() SetRosterFilter("ALL") end)
@@ -2741,17 +2912,74 @@ EditEventBtn:SetScript("OnClick", function()
 local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if ev and addonTable.Events.CanManage(ev) then EventPicker.OpenEdit(ev) end
 end)
+-- Cancels an event; onlyWeek (1.3.0, a weekly one): only its nearest week (Events.SkipWeek), else all of it.
+-- Announcement as when creating, on the chat channel straight from the click (a button or the question's button):
+-- "Event cancelled by Name -> Title : Instance 05.11 20:00", "Weekly event (all weeks) cancelled by ...",
+-- "Weekly event: only 26.11 cancelled by Name -> Title : 26.11.2026 21:00, next 03.12". A test event posts nothing.
+function EventSync.CancelEvent(ev, onlyWeek)
+if addonTable.Sync.Blocked() or not ev then return end
+local oldDate, weekly = ev.date, addonTable.Events.IsWeekly(ev)
+local ok, why, what
+if onlyWeek then ok, why, what = addonTable.Events.SkipWeek(ev) else ok, why = addonTable.Events.Cancel(ev) end
+if not ok then ShowEventError(why) return end
+local myName = Most.MyName()
+local where = (ev.dungeon and (ev.dungeon .. " ") or "") .. oldDate .. " " .. ev.time
+local text
+if what == "week" then
+text = "Weekly event: only " .. oldDate:gsub("%.%d%d%d%d$", "") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where .. ", next " .. ev.date:gsub("%.%d%d%d%d$", "")
+else
+text = (weekly and "Weekly event (all weeks)" or "Event") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where
+end
+if not ev.localTest then Most.PublishTyped("Ogolny", text, myName, (GetGuildInfo("player"))) end
+if what ~= "week" then selectedEventIndex = nil end
+UpdateEventDetails() UpdateEventsList()
+end
+-- 1.3.0: a weekly event asks first, as Outlook does for a meeting series: a small window right above the Cancel
+-- button (user: "brak przycisku anuluj akcję... popout nie pojawia się blisko"): Only this week / All weeks /
+-- Keep it. In the Events tab's details (another tab or event hides it), with the look's buttons. Kept in
+-- EventSync (no new local: core.lua's main chunk is near Lua's limit).
+EventSync.weeklyCancel = CreateFrame("Frame", "JagodkiWeeklyCancel", DetailsContainer, "BackdropTemplate")
+EventSync.weeklyCancel:SetSize(330, 92)
+EventSync.weeklyCancel:SetPoint("BOTTOMRIGHT", RemoveEventBtn, "TOPRIGHT", 0, 6)
+EventSync.weeklyCancel:SetFrameLevel(DetailsContainer:GetFrameLevel() + 30)
+EventSync.weeklyCancel:EnableMouse(true)
+ApplyModernStyle(EventSync.weeklyCancel)
+EventSync.weeklyCancel:SetBackdropColor(0.05, 0.05, 0.07, 0.98)
+EventSync.weeklyCancel.text = EventSync.weeklyCancel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+EventSync.weeklyCancel.text:SetPoint("TOP", EventSync.weeklyCancel, "TOP", 0, -12)
+EventSync.weeklyCancel.text:SetWidth(306)
+EventSync.weeklyCancel.buttons = {}
+-- In a function, so its loop's locals stay out of the main chunk's count
+EventSync.weeklyCancel.Build = function(w)
+for i, def in ipairs({ { "Only this week", true }, { "All weeks", false }, { "Keep it" } }) do
+local b = CreateFrame("Button", nil, w, "GameMenuButtonTemplate")
+b:SetSize(100, 24)
+b:SetPoint("BOTTOMLEFT", w, "BOTTOMLEFT", 10 + (i - 1) * 104, 10)
+b:SetText(def[1])
+b:SetScript("OnClick", function()
+local ev = w.ev
+w:Hide()
+if def[2] ~= nil and ev then EventSync.CancelEvent(ev, def[2]) end
+end)
+w.buttons[i] = b
+end
+w:Hide()
+end
+EventSync.weeklyCancel:Build()
 RemoveEventBtn:SetScript("OnClick", function()
 if addonTable.Sync.Blocked() then return end
 if not selectedEventIndex or not eventsList[selectedEventIndex] then return end
 local removedEv = eventsList[selectedEventIndex]
-local ok, why = addonTable.Events.Cancel(removedEv)
-if not ok then ShowEventError(why) return end
--- Announcement as when creating, on the chat channel straight from the click:
--- "Event cancelled by Name -> Title : Instance 05.11 20:00"
-local myName = Most.MyName()
-Most.PublishTyped("Ogolny", "Event cancelled by " .. myName .. " -> " .. removedEv.title .. " : " .. (removedEv.dungeon and (removedEv.dungeon .. " ") or "") .. removedEv.date .. " " .. removedEv.time, myName, (GetGuildInfo("player")))
-selectedEventIndex = nil UpdateEventDetails() UpdateEventsList()
+if addonTable.Events.IsWeekly(removedEv) and addonTable.Events.CanManage(removedEv) then
+local w = EventSync.weeklyCancel
+-- A second click on Cancel closes the question again
+if w:IsShown() and w.ev == removedEv then w:Hide() return end
+w.ev = removedEv
+w.text:SetText("Cancel |cffffd100" .. tostring(removedEv.title) .. "|r?\nOnly its nearest week (" .. removedEv.date:gsub("%.%d%d%d%d$", "") .. " " .. removedEv.time .. ") or every week?")
+w:Show()
+return
+end
+EventSync.CancelEvent(removedEv, false)
 end)
 -- ============================================================================
 -- 6B. TAB 6: MONITORING (officers only, monitor.lua)
@@ -2971,6 +3199,8 @@ for _, role in pairs(ev.roster or {}) do if role == "TANK" then t = t + 1 elseif
 _G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 _G.GameTooltip:AddLine(ev.title, 1, 0.82, 0)
 _G.GameTooltip:AddLine(ev.date .. " " .. ev.time, 1, 1, 1)
+EventSync.AddWeeklyLines(_G.GameTooltip, ev)
+if self.repeatDate then _G.GameTooltip:AddLine("A later week (" .. self.repeatDate .. "): sign-ups for it open once the " .. ev.date .. " one is over. The details below are for " .. ev.date .. ".", 0.6, 0.6, 0.6, true) end
 if ev.dungeon then _G.GameTooltip:AddLine("Instance: " .. ev.dungeon, 0.8, 0.8, 0.8) end
 _G.GameTooltip:AddLine("By: " .. ev.creator .. (ev.guild and (" (" .. ev.guild .. ")") or ""), 0.75, 0.25, 1)
 _G.GameTooltip:AddLine("Signed up: " .. (t + h + d) .. "  (T " .. t .. " / H " .. h .. " / D " .. d .. ")", 0, 1, 0)
@@ -3006,6 +3236,9 @@ return check
 end
 filter.mine = NewCheck("Signed up", Cal, 0)
 filter.other = NewCheck("Other", filter.mine.label, 14)
+-- 1.3.0: weekly events (and their later weeks) can be hidden (user: "obok checkbox Other dajmy checkbox dla
+-- powtarzających, może ktoś będzie chciał to odsiać")
+filter.weekly = NewCheck("Recurring", filter.other.label, 14)
 filter.search = CreateFrame("EditBox", "JagodkiCalendarSearchBox", Cal, "InputBoxTemplate")
 filter.search:SetSize(195, 24)
 filter.search:SetPoint("RIGHT", Cal, "TOPRIGHT", -4, FILTER_Y)
@@ -3020,7 +3253,7 @@ filter.search.Instructions:SetText("Event, instance, player...")
 filter.search:SetScript("OnTextChanged", function(self)
 local searching = self:GetText() ~= ""
 self.Instructions:SetShown(not searching)
-for _, check in ipairs({ filter.mine, filter.other }) do
+for _, check in ipairs({ filter.mine, filter.other, filter.weekly }) do
 check:SetEnabled(not searching)
 check.label:SetTextColor(searching and 0.5 or 1, searching and 0.5 or 0.82, searching and 0.5 or 0)
 end
@@ -3028,13 +3261,15 @@ UpdateCalendar()
 end)
 filter.search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 MainFrame:HookScript("OnShow", function()
-filter.mine:SetChecked(true) filter.other:SetChecked(true)
+filter.mine:SetChecked(true) filter.other:SetChecked(true) filter.weekly:SetChecked(true)
 filter.search:SetText("") filter.search:ClearFocus()
 end)
 -- Whether the calendar shows an event: the search when there is one, otherwise the boxes
 local function Shown(ev, myName)
 local text = filter.search:GetText():lower()
 if text ~= "" then return EventSync.MatchesSearch(ev, text) end
+-- Weekly unticked: weekly events hide, whether signed up or not
+if not filter.weekly:GetChecked() and addonTable.Events.IsWeekly(ev) then return false end
 if ev.roster and ev.roster[myName] then return filter.mine:GetChecked() end
 return filter.other:GetChecked()
 end
@@ -3099,10 +3334,11 @@ row:SetScript("OnEnter", ShowEventTooltip)
 row:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
 self.rows[i] = row
 end
-local signed = ev.roster and ev.roster[myName]
-row.event = ev
-row.text:SetText((signed and "|cff00ff00" or "|cffffffff") .. ev.time .. "  " .. ev.title .. "|r")
-row.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or 0.3)
+-- 1.3.0: a later week of a weekly event (UpdateCalendar) opens the event itself, dimmed
+local signed = not ev.repeatOf and ev.roster and ev.roster[myName]
+row.event, row.repeatDate = ev.repeatOf or ev, ev.repeatOf and ev.date or nil
+row.text:SetText((signed and "|cff00ff00" or (ev.repeatOf and "|cff9a9a9a" or "|cffffffff")) .. ev.time .. "  " .. (addonTable.Events.IsWeekly(ev) and EventSync.WEEKLY_ICON or "") .. ev.title .. "|r")
+row.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or (ev.repeatOf and 0.12 or 0.3))
 row:Show()
 end
 for i = #list + 1, #self.rows do self.rows[i]:Hide() end
@@ -3226,7 +3462,7 @@ if not menuCell then return end
 local info = _G.UIDropDownMenu_CreateInfo()
 info.text, info.isTitle, info.notCheckable = date("%A %d.%m.%Y", menuCell.dayTime), true, true
 _G.UIDropDownMenu_AddButton(info, level)
-local canCreate = addonTable.Events.CanCreate() and not menuCell.isPast
+local canCreate = addonTable.Events.CanCreateAny() and not menuCell.isPast
 info = _G.UIDropDownMenu_CreateInfo()
 info.text = canCreate and "Create event" or (menuCell.isPast and "Create event (past day)" or "Create event (limit of upcoming events reached)")
 info.disabled = not canCreate
@@ -3309,7 +3545,15 @@ local byDay = {}
 local me = Most.MyName()
 for _, ev in ipairs(eventsList) do
 local key = Shown(ev, me) and EventKey(ev)
-if key then byDay[key] = byDay[key] or {} table.insert(byDay[key], ev) end
+if key then
+byDay[key] = byDay[key] or {} table.insert(byDay[key], ev)
+-- 1.3.0: a weekly event also on its later weeks, as a dimmed copy that opens the event itself
+for _, later in ipairs(addonTable.Events.NextDates(ev)) do
+local copy = setmetatable({ date = later, repeatOf = ev }, { __index = ev })
+local laterKey = EventKey(copy)
+if laterKey then byDay[laterKey] = byDay[laterKey] or {} table.insert(byDay[laterKey], copy) end
+end
+end
 end
 for _, list in pairs(byDay) do table.sort(list, function(a, b) return (a.time or "") < (b.time or "") end) end
 -- Column of the 1st of the month (wday: 1 = Sunday -> 7, 2 = Monday -> 1)
@@ -3347,12 +3591,14 @@ b.dayList, b.dayKey, b.dayLabel = nil, nil, nil
 if hidden > 0 then
 b.dayList, b.dayKey, b.dayLabel = list, key, string.format("Events on %02d.%02d.%d", d, cm, cy)
 end
-local signed = ev.roster and ev.roster[myName]
-b.text:SetText(hidden > 0 and ("|cffffd100+" .. (hidden + 1) .. " more|r") or ((signed and "|cff00ff00" or "|cffffffff") .. ev.time .. " " .. ev.title .. "|r"))
-b.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or 0.3)
+-- 1.3.0: a later week of a weekly event: dimmed, opens the event itself
+b.event, b.repeatDate = ev.repeatOf or ev, ev.repeatOf and ev.date or nil
+local signed = not ev.repeatOf and ev.roster and ev.roster[myName]
+b.text:SetText(hidden > 0 and ("|cffffd100+" .. (hidden + 1) .. " more|r") or ((signed and "|cff00ff00" or (ev.repeatOf and "|cff9a9a9a" or "|cffffffff")) .. ev.time .. " " .. (addonTable.Events.IsWeekly(ev) and EventSync.WEEKLY_ICON or "") .. ev.title .. "|r"))
+b.bg:SetColorTexture(0.55, 0.25, 0.8, signed and 0.55 or (ev.repeatOf and 0.12 or 0.3))
 b:Show()
 else
-b.event, b.dayList = nil, nil b:Hide()
+b.event, b.dayList, b.repeatDate = nil, nil, nil b:Hide()
 end
 end
 end
@@ -3521,6 +3767,7 @@ tip:SetOwner(row, "ANCHOR_LEFT")
 tip:AddLine(ev.title or "?", 1, 1, 1)
 tip:AddLine(addonTable.InstanceType(ev.dungeon) .. (ev.dungeon and (" - " .. ev.dungeon) or ""), 1, 0.82, 0)
 tip:AddLine((ev.date or "") .. " " .. (ev.time or ""), 0.8, 0.8, 0.8)
+EventSync.AddWeeklyLines(tip, ev)
 tip:AddLine("Created by " .. tostring(ev.creator) .. (ev.guild and (" (" .. Most.GuildTag(ev.guild) .. ")") or ""), 0.8, 0.8, 0.8)
 local t, h, d = 0, 0, 0
 for _, role in pairs(ev.roster or {}) do

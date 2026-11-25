@@ -21,6 +21,23 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.3.0", {
+        "! New: weekly events. Pick the first date and time in Create Event, then Repeat: Every week, N times. The same day and time every week, up to about 2 months.",
+        "# Weekly events",
+        "A small clock marks them in Events and the Calendar; hover it for the next dates and the last one. The Calendar shows the later weeks dimmed, and its new Recurring box hides them.",
+        "You sign up for the nearest week. 5 hours after it starts, the event moves to the next week by itself, with an empty list. The reminder comes every week.",
+        "On top of your usual limit: one weekly event (officers: 5).",
+        "Edit: a new date, time or Repeat starts the sign-ups again. Cancel asks: only this week, all weeks, or keep it.",
+        "Players on older versions see only the nearest date: update so you see them all.",
+        "# For everyone",
+        "Your game channels come first again: /1 General, /2 Trade, /3 LocalDefense... The addon's own channels move behind them by themselves (nobody leaves a channel).",
+        "A new event needs its activity: an instance, or (none / other) on purpose.",
+        "Switching the tab closes the small windows opened from the previous one, e.g. Create Event.",
+        "Dropdowns open on a click anywhere on them, not only on the arrow; the event creator no longer lets clicks through to the window under it.",
+        "The You column shows just your spec in green.",
+        "# Fixes",
+        "Old officers and chat channels from an earlier key are left by themselves, so they never fill up your channels.",
+    }, "weekly events" },
     { "1.2.3", {
         "# For everyone",
         "The numbers on the chat tabs count the players with the addon in every guild, not only in yours: General shows everyone who gets the chat, Officers all officers with the addon.",

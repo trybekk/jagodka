@@ -22,6 +22,17 @@
 --    ANSWER_COOLDOWN seconds.
 --  * New packet types: versions before 0.14.0 (EV_*) and this one do not see each other's events.
 --  * A reminder REMIND_BEFORE seconds before the start of events I am signed up for (Coming / Maybe).
+--  * 1.3.0 WEEKLY EVENTS: the same event every week at the same time, up to about 2 months.
+--    - Marked in the id, which never changes: "w" .. occurrences N (2-9) .. the week K (0-7) of the first one
+--      after creating it .. the usual id (creation time in hex + 2 random hex digits). No new packet and no new
+--      field, so 1.2.3 and older show it as an ordinary event (only its nearest date: they drop it after it is
+--      over, as any event).
+--    - Each client moves it on by itself, the same moment everywhere, no packet: LIVE_AFTER_START after an
+--      occurrence started, its date goes 7 days on and its sign-ups and removals are cleared (a new week).
+--      No occurrence starts after creation + (K + N) weeks: after the last one it goes as any event.
+--    - K + N <= RECUR_SPAN weeks (9, about 2 months): the last occurrence is at most about 2 months ahead.
+--    - Limits on top of the usual ones: a member RECUR_MEMBER weekly event, an officer RECUR_OFFICER. Every
+--      receiver checks them (as the usual limits); clients before 1.3.0 count it as an ordinary event.
 -- ============================================================================
 local addonName, addonTable = ...
 
@@ -48,11 +59,19 @@ local REMIND_BEFORE = 15 * 60
 local DESC_MAX = 400                  -- description bytes
 local DESC_PART = 170                 -- encoded description bytes per packet
 local TITLE_MAX = 50
+local WEEK = 7 * 86400
+local RECUR_MEMBER, RECUR_OFFICER = 1, 5   -- weekly events on top of the usual limit (1.3.0)
+local RECUR_MIN, RECUR_MAX = 2, 9          -- occurrences of a weekly event
+local RECUR_SPAN = 9                       -- weeks from creating it to its last occurrence's week (about 2 months)
+local REMOVED_KEEP_WEEKLY = 80 * 86400     -- a cancelled weekly event is remembered longer than it can live
 
 local Events = {}
 addonTable.Events = Events
 Events.DESC_MAX, Events.TITLE_MAX = DESC_MAX, TITLE_MAX
 Events.MEMBER_ACTIVE, Events.OFFICER_ACTIVE = MEMBER_ACTIVE, OFFICER_ACTIVE
+Events.RECUR_MEMBER, Events.RECUR_OFFICER, Events.RECUR_MIN, Events.RECUR_MAX = RECUR_MEMBER, RECUR_OFFICER, RECUR_MIN, RECUR_MAX
+Events.RECUR_SPAN = RECUR_SPAN
+Events.LIVE_AFTER_START, Events.WEEK = LIVE_AFTER_START, WEEK
 
 -- Statuses of a sign-up; X = withdrawn
 local STATUSES = { Y = "Coming", M = "Maybe", N = "Not coming" }
@@ -82,6 +101,8 @@ function Events.Load()
     local saved = _G.JagodkiEventsDB
     if type(saved) ~= "table" or saved.v ~= 2 then saved = { v = 2, removed = {} } end
     saved.removed = saved.removed or {}
+    -- 1.3.0: test events from the pre-release test build (/jagodka weeklytest, removed) are dropped
+    for i = #saved, 1, -1 do if type(saved[i]) == "table" and saved[i].localTest then table.remove(saved, i) end end
     _G.JagodkiEventsDB = saved
     db = saved
     Events.Prune()
@@ -114,6 +135,101 @@ local function IsActive(ev)
     return start ~= nil and start > time()
 end
 
+-- 1.3.0 WEEKLY EVENTS (see the top): occurrences N, creation time and the week K of the first occurrence from
+-- the id, or nil for an ordinary event
+local function Series(id)
+    local n, k, hex = tostring(id or ""):match("^w(%d)(%d)(%x+)$")
+    n, k = tonumber(n), tonumber(k)
+    if not n or not k or n < RECUR_MIN or n > RECUR_MAX or k + n > RECUR_SPAN or #hex < 3 then return nil end
+    local created = tonumber(hex:sub(1, -3), 16)
+    if not created then return nil end
+    return n, created, k
+end
+function Events.IsWeekly(ev) return ev ~= nil and Series(ev.id) ~= nil end
+
+-- No occurrence of a weekly event starts after this
+local function SeriesEnd(id)
+    local n, created, k = Series(id)
+    return n and (created + (k + n) * WEEK) or nil
+end
+
+-- The week (0, 1, 2...) after `created` in which an event starting at `start` falls: (created + K weeks, + K+1]
+local function WeekIndex(created, start) return math.max(0, math.ceil((start - created) / WEEK) - 1) end
+
+-- How many times an event starting at `start` (local time) can repeat if created now: 0 = it cannot be weekly
+function Events.MaxRepeats(start)
+    if not start then return 0 end
+    local n = RECUR_SPAN - WeekIndex(GetServerTime(), start)
+    return (n >= RECUR_MIN) and math.min(n, RECUR_MAX) or 0
+end
+
+-- The same day of the next week ("DD.MM.YYYY")
+local function NextDate(eDate)
+    local d, m, y = (eDate or ""):match("^(%d%d?)%.(%d%d?)%.(%d%d%d%d)$")
+    if not d then return nil end
+    return date("%d.%m.%Y", time({ year = tonumber(y), month = tonumber(m), day = tonumber(d) + 7, hour = 12 }))
+end
+
+-- The date of the occurrence that is on now or next: the same date, a later one (weekly), or nil when it is over
+local function CurrentDate(id, eDate, eTime)
+    local probe = { date = eDate, time = eTime }
+    if not Events.Start(probe) then return nil end
+    local last = SeriesEnd(id)
+    for _ = 1, 60 do
+        if not IsOver(probe) then return probe.date end
+        if not last then return nil end
+        probe.date = NextDate(probe.date)
+        local start = probe.date and Events.Start(probe)
+        if not start or start > last then return nil end
+    end
+    return nil
+end
+
+-- Sign-ups and removals older than this belong to an earlier week of a weekly event (0: none can)
+local function WeekFloor(ev)
+    local n, created, k = Series(ev.id)
+    local start = n and Events.Start(ev)
+    -- The first occurrence (in week K) has no week before it
+    if not start or start <= created + (k + 1) * WEEK then return 0 end
+    return start - WEEK + LIVE_AFTER_START
+end
+
+-- Whether a weekly event's new date is whole weeks after its date, at the same time (a skipped week, see
+-- Events.SkipWeek): its sign-ups were for another week then
+local function WeeksMoved(ev, newDate, newTime)
+    if not Series(ev.id) or newTime ~= ev.time then return false end
+    local a = Events.Start({ date = ev.date, time = "12:00" })
+    local b = Events.Start({ date = newDate, time = "12:00" })
+    if not a or not b or b <= a then return false end
+    return math.floor((b - a) / 86400 + 0.5) % 7 == 0
+end
+
+-- The later occurrences of a weekly event after the current one, as dates ("DD.MM.YYYY"); the calendar shows them
+function Events.NextDates(ev)
+    local out, last = {}, SeriesEnd(ev and ev.id)
+    if not last then return out end
+    local probe = { date = ev.date, time = ev.time }
+    for _ = 1, RECUR_MAX do
+        probe.date = NextDate(probe.date)
+        local start = probe.date and Events.Start(probe)
+        if not start or start > last then break end
+        table.insert(out, probe.date)
+    end
+    return out
+end
+
+-- "Every Tuesday 20:00, last on 20.01" for a weekly event, or nil
+local DAY_NAMES = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+function Events.RepeatText(ev)
+    if not Events.IsWeekly(ev) then return nil end
+    local start = Events.Start(ev)
+    if not start then return nil end
+    local later = Events.NextDates(ev)
+    local lastDate = later[#later] or ev.date
+    return "Every " .. DAY_NAMES[tonumber(date("%w", start)) + 1] .. " " .. tostring(ev.time)
+        .. ", " .. ((#later == 0) and "last time" or ("last on " .. lastDate:gsub("%.%d%d%d%d$", "")))
+end
+
 local function IsOfficer(name)
     if not ctx then return false end
     if name == MyName() then return ctx.isMeOfficer() end
@@ -124,11 +240,21 @@ end
 local function ActiveCount(creator, except)
     local n = 0
     for _, ev in ipairs(db) do
-        if ev.creator == creator and ev.id ~= except and IsActive(ev) then n = n + 1 end
+        if ev.creator == creator and ev.id ~= except and not Series(ev.id) and IsActive(ev) then n = n + 1 end
     end
     return n
 end
 local function ActiveLimit(creator) return IsOfficer(creator) and OFFICER_ACTIVE or MEMBER_ACTIVE end
+
+-- 1.3.0: weekly events count apart (all of them, also the one going on now: the series goes on)
+local function WeeklyCount(creator, except)
+    local n = 0
+    for _, ev in ipairs(db) do
+        if ev.creator == creator and ev.id ~= except and Series(ev.id) and not ev.localTest then n = n + 1 end
+    end
+    return n
+end
+local function WeeklyLimit(creator) return IsOfficer(creator) and RECUR_OFFICER or RECUR_MEMBER end
 
 -- The views the windows use: roster (name -> role, Coming and Maybe), specs, leaders, status (name -> Y/M/N)
 local function Rebuild(ev)
@@ -154,17 +280,27 @@ local function Remove(id, ts, by)
     end
 end
 
--- Over events (start + LIVE_AFTER_START) and old cancellations go; checked every minute
+-- Over events (start + LIVE_AFTER_START) and old cancellations go; checked every minute.
+-- 1.3.0: a weekly event moves on to its next week instead (sign-ups and removals cleared), until its last one.
 function Events.Prune()
     for i = #db, 1, -1 do
-        if IsOver(db[i]) then
-            table.remove(db, i)
-            if ctx then ctx.onRemoved(i) end
+        local ev = db[i]
+        if IsOver(ev) then
+            local current = CurrentDate(ev.id, ev.date, ev.time)
+            if current then
+                ev.date, ev.signs, ev.kicks = current, {}, {}
+                Rebuild(ev)
+                Changed(ev)
+            else
+                table.remove(db, i)
+                if ctx then ctx.onRemoved(i) end
+            end
         end
     end
     local now = GetServerTime()
     for id, r in pairs(db.removed) do
-        if type(r) ~= "table" or now - (r.ts or 0) > REMOVED_KEEP then db.removed[id] = nil end
+        local keep = Series(id) and REMOVED_KEEP_WEEKLY or REMOVED_KEEP
+        if type(r) ~= "table" or now - (r.ts or 0) > keep then db.removed[id] = nil end
     end
 end
 
@@ -179,16 +315,30 @@ function Events.CanInvite(ev)
     return Events.CanManage(ev) or (ev ~= nil and ev.leaders and ev.leaders[MyName()] and true or false)
 end
 
--- Whether I can create one more event: ok, or false and the reason
-function Events.CanCreate()
+-- Whether I can create one more event: ok, or false and the reason. weekly (1.3.0): one more weekly event.
+function Events.CanCreate(weekly)
     if not InListedGuild() then return false, "Your guild is not on the Community list." end
     local me = MyName()
+    if weekly then
+        local wl = WeeklyLimit(me)
+        if WeeklyCount(me) >= wl then
+            return false, (wl == 1) and "You already have a weekly event (officers: up to 5)." or ("You already have " .. wl .. " weekly events.")
+        end
+        return true
+    end
     local limit = ActiveLimit(me)
     if ActiveCount(me) >= limit then
         return false, (limit == 1) and "You already have an upcoming event. A new one when it has started (officers: up to 5)."
             or ("You already have " .. limit .. " upcoming events.")
     end
     return true
+end
+
+-- The creator window opens when either kind can still be made (an ordinary or a weekly event)
+function Events.CanCreateAny()
+    local ok, why = Events.CanCreate()
+    if ok or Events.CanCreate(true) then return true end
+    return false, why
 end
 
 -- ============================================================================
@@ -205,6 +355,7 @@ local function Out(pType, payload, target, priority)
 end
 
 local function SendHeader(ev, target)
+    if ev.localTest then return end   -- a test event of the pre-release build: never sent
     local chunks = Most.EncodeChunks(ev.desc or "", DESC_PART, DESC_PART)
     if #chunks == 1 and chunks[1] == "" then chunks = {} end
     Out("EH", table.concat({ Enc(ev.id), tostring(ev.rev), Enc(ev.editor ~= ev.creator and ev.editor or ""), Enc(ev.creator), Enc(ev.guild),
@@ -213,12 +364,14 @@ local function SendHeader(ev, target)
 end
 
 local function SendSign(ev, name, target)
+    if ev.localTest then return end
     local s = ev.signs and ev.signs[name]
     if not s then return end
     Out("ES", table.concat({ Enc(ev.id), Enc(name), s.r or "-", s.s or "-", s.st, s.l and "1" or "0", tostring(s.t) }, ":"), target)
 end
 
 local function SendKick(ev, name, target)
+    if ev.localTest then return end
     local k = ev.kicks and ev.kicks[name]
     if k then Out("EK", table.concat({ Enc(ev.id), Enc(name), tostring(k.ts), Enc(k.by) }, ":"), target) end
 end
@@ -239,14 +392,28 @@ local function Valid(title, eDate, eTime)
     return true
 end
 
-function Events.Create(title, eDate, eTime, dungeon, desc)
-    local ok, why = Events.CanCreate()
+-- weeks (1.3.0): RECUR_MIN..RECUR_MAX = a weekly event with that many occurrences, nil = once
+function Events.Create(title, eDate, eTime, dungeon, desc, weeks)
+    weeks = tonumber(weeks)
+    local weekly = weeks ~= nil and weeks >= RECUR_MIN
+    if weekly then weeks = math.min(math.floor(weeks), RECUR_MAX) end
+    local ok, why = Events.CanCreate(weekly)
     if not ok then return false, why end
     ok, why = Valid(title, eDate, eTime)
     if not ok then return false, why end
     if not IsActive({ date = eDate, time = eTime }) then return false, "Pick a time in the future." end
+    local id = NewId()
+    if weekly then
+        -- The last time at most about 2 months ahead (RECUR_SPAN weeks from now)
+        local start = Events.Start({ date = eDate, time = eTime })
+        local most = Events.MaxRepeats(start)
+        if most < RECUR_MIN then return false, "This date is too far ahead for a weekly event." end
+        if weeks > most then return false, "From this date a weekly event can repeat at most " .. most .. " times (about 2 months ahead)." end
+        local created = GetServerTime()
+        id = string.format("w%d%d%x%02x", weeks, WeekIndex(created, start), created, math.random(0, 255))
+    end
     local me = MyName()
-    local ev = { id = NewId(), rev = GetServerTime(), title = title, date = eDate, time = eTime, dungeon = dungeon, desc = desc or "",
+    local ev = { id = id, rev = GetServerTime(), title = title, date = eDate, time = eTime, dungeon = dungeon, desc = desc or "",
         creator = me, editor = me, guild = Most.MyGuild(), signs = {}, kicks = {} }
     Rebuild(ev)
     table.insert(db, ev)
@@ -260,6 +427,13 @@ function Events.Edit(ev, title, eDate, eTime, dungeon, desc)
     if not Events.CanManage(ev) then return false, "Only the author and officers can edit this event." end
     local ok, why = Valid(title, eDate, eTime)
     if not ok then return false, why end
+    -- A weekly event moves within its series only: its end stays (it is in the id)
+    local last = SeriesEnd(ev.id)
+    if last and Events.Start({ date = eDate, time = eTime }) > last then
+        return false, "This weekly event can only move up to " .. date("%d.%m", last) .. " (its series ends then)."
+    end
+    -- Moved by whole weeks: its sign-ups were for another week (every 1.3.0+ client does the same, HandleHeader)
+    if WeeksMoved(ev, eDate, eTime) then ev.signs, ev.kicks = {}, {} Rebuild(ev) end
     ev.title, ev.date, ev.time, ev.dungeon, ev.desc = title, eDate, eTime, dungeon, desc or ""
     ev.rev, ev.editor = math.max(GetServerTime(), (ev.rev or 0) + 1), MyName()
     ev.descParts = nil
@@ -272,9 +446,78 @@ function Events.Cancel(ev)
     if not Find(ev.id) then return false, "This event no longer exists." end
     if not Events.CanManage(ev) then return false, "Only the author and officers can cancel this event." end
     local ts = GetServerTime()
+    if ev.localTest then
+        -- A test event: gone here only, nothing sent and no cancellation remembered
+        local _, idx = Find(ev.id)
+        if idx then table.remove(db, idx) if ctx then ctx.onRemoved(idx) end end
+        return true
+    end
     Out("EX", table.concat({ Enc(ev.id), tostring(ts), Enc(MyName()) }, ":"))
     Remove(ev.id, ts, MyName())
     return true
+end
+
+-- 1.3.0: an edit that changes a weekly event's date, time or repeat, or makes an event weekly or not weekly
+-- (user: "czemu to jest zablokowane", "jak jest edit ze zmianą daty, to zapisy powinny się wyczyścić"): the id
+-- holds the series, so it becomes a new event (same author, guild, title, instance, description; sign-ups start
+-- empty) and the old one is cancelled first. Every version gets that (a cancellation and a new event). The
+-- author's limits count without the old one. Returns ok, and the new event or the reason.
+function Events.Replace(ev, title, eDate, eTime, dungeon, desc, weeks)
+    if not Find(ev.id) then return false, "This event no longer exists." end
+    if not Events.CanManage(ev) then return false, "Only the author and officers can edit this event." end
+    weeks = tonumber(weeks)
+    local weekly = weeks ~= nil and weeks >= RECUR_MIN
+    if weekly then weeks = math.min(math.floor(weeks), RECUR_MAX) end
+    local ok, why = Valid(title, eDate, eTime)
+    if not ok then return false, why end
+    local start = Events.Start({ date = eDate, time = eTime })
+    if start <= time() then return false, "Pick a time in the future." end
+    local id = NewId()
+    if weekly then
+        local most = Events.MaxRepeats(start)
+        if most < RECUR_MIN then return false, "This date is too far ahead for a weekly event." end
+        if weeks > most then return false, "From this date a weekly event can repeat at most " .. most .. " times (about 2 months ahead)." end
+        if not ev.localTest and WeeklyCount(ev.creator, ev.id) >= WeeklyLimit(ev.creator) then
+            return false, "The author already has " .. WeeklyLimit(ev.creator) .. " weekly event(s)."
+        end
+        local created = GetServerTime()
+        id = string.format("w%d%d%x%02x", weeks, WeekIndex(created, start), created, math.random(0, 255))
+    elseif not ev.localTest and ActiveCount(ev.creator, ev.id) >= ActiveLimit(ev.creator) then
+        return false, "The author already has " .. ActiveLimit(ev.creator) .. " upcoming event(s)."
+    end
+    ok, why = Events.Cancel(ev)
+    if not ok then return false, why end
+    local new = { id = id, rev = GetServerTime(), title = title, date = eDate, time = eTime, dungeon = dungeon, desc = desc or "",
+        creator = ev.creator, editor = MyName(), guild = ev.guild, signs = {}, kicks = {}, localTest = ev.localTest }
+    Rebuild(new)
+    table.insert(db, new)
+    SendHeader(new)
+    Changed(new)
+    return true, new
+end
+
+-- 1.3.0: a weekly event without its nearest week (user: "zapytaj, czy tylko tego razu, czy całej sekwencji, jak
+-- w Outlooku"): an ordinary edit that moves it to its next week, so every version gets it (older ones as an
+-- edit). Every 1.3.0+ client clears the sign-ups when a weekly event moves by whole weeks (WeeksMoved). Its last
+-- week: the whole series is cancelled. Returns ok, why, and "week" or "series".
+function Events.SkipWeek(ev)
+    if not Find(ev.id) then return false, "This event no longer exists." end
+    if not Events.CanManage(ev) then return false, "Only the author and officers can cancel this event." end
+    if not Events.IsWeekly(ev) then return false, "This event does not repeat." end
+    local nextDate = NextDate(ev.date)
+    local last = SeriesEnd(ev.id)
+    local start = nextDate and Events.Start({ date = nextDate, time = ev.time })
+    if not start or start > last then
+        local ok, why = Events.Cancel(ev)
+        return ok, why, "series"
+    end
+    ev.date, ev.signs, ev.kicks = nextDate, {}, {}
+    Rebuild(ev)
+    ev.rev, ev.editor = math.max(GetServerTime(), (ev.rev or 0) + 1), MyName()
+    ev.descParts = nil
+    SendHeader(ev)
+    Changed(ev)
+    return true, nil, "week"
 end
 
 -- My sign-up: spec (nil = keep the current one), status Y/M/N/X (nil = keep, Coming when new), leader (nil = keep)
@@ -317,7 +560,7 @@ function Events.Sign(ev, spec, status, leader)
     Rebuild(ev)
     SendSign(ev, me)
     Changed(ev)
-    if (s.st == "Y" or s.st == "M") and cur.st ~= "Y" and cur.st ~= "M" then addonTable.Safe("events.lua:SignNotice", SignNotice, ev, s) end
+    if (s.st == "Y" or s.st == "M") and cur.st ~= "Y" and cur.st ~= "M" and not ev.localTest then addonTable.Safe("events.lua:SignNotice", SignNotice, ev, s) end
     return true
 end
 
@@ -340,7 +583,8 @@ end
 local function Newest()
     local n = 0
     for _, ev in ipairs(db) do
-        n = math.max(n, ev.rev or 0)
+        -- A test event's times are not the community's (pre-release test build)
+        if not ev.localTest then n = math.max(n, ev.rev or 0) end
         for _, s in pairs(ev.signs or {}) do n = math.max(n, s.t or 0) end
         for _, k in pairs(ev.kicks or {}) do n = math.max(n, k.ts or 0) end
     end
@@ -407,8 +651,10 @@ local function HandleHeader(payload, senderName, live)
     if not (id and rev and creator and title and eDate and eTime) or title == "" or #title > TITLE_MAX * 2 then return end
     if editor == "" then editor = creator end
     if db.removed[id] then return end
+    -- 1.3.0: a weekly event from someone who has not moved it on yet: its current week here
+    eDate = CurrentDate(id, eDate, eTime)
+    if not eDate then return end
     local probe = { date = eDate, time = eTime }
-    if not Events.Start(probe) or IsOver(probe) then return end
     if live and senderName ~= editor then return end
     if dungeon == "" then dungeon = nil end
     local ev = Find(id)
@@ -416,13 +662,22 @@ local function HandleHeader(payload, senderName, live)
         if rev <= (ev.rev or 0) then return end
         -- An edit: by the author or an officer
         if editor ~= ev.creator and not IsOfficer(editor) then return end
+        -- My copy of a weekly event is still on its past week (moved on within a minute): a new week starts empty
+        -- 1.3.0: moved by whole weeks (a skipped week): the same
+        if IsOver(ev) or WeeksMoved(ev, eDate, eTime) then ev.signs, ev.kicks = {}, {} Rebuild(ev) end
         ev.title, ev.date, ev.time, ev.dungeon, ev.rev, ev.editor = title, eDate, eTime, dungeon, rev, editor
     else
         -- A new event: its author must be a member of a listed guild and within their limit of active events
         if editor ~= creator and not IsOfficer(editor) then return end
         local author = (creator == MyName()) or Most.FindKnownPlayer(creator)
         if not author then return end
-        if Events.Start(probe) > time() and ActiveCount(creator, id) >= ActiveLimit(creator) then
+        if Series(id) then
+            -- 1.3.0: a weekly event counts against the weekly limit, not the usual one
+            if WeeklyCount(creator, id) >= WeeklyLimit(creator) then
+                if Monitor() then Monitor().Note("Events: ignored a new weekly event of " .. creator .. " (over their limit of weekly events)") end
+                return
+            end
+        elseif Events.Start(probe) > time() and ActiveCount(creator, id) >= ActiveLimit(creator) then
             if Monitor() then Monitor().Note("Events: ignored a new event of " .. creator .. " (over their limit of upcoming events)") end
             return
         end
@@ -455,6 +710,8 @@ local function HandleSign(payload, senderName, live)
     name, t = Dec(name), tonumber(t)
     if not ev or not name or not t or not (STATUSES[st] or st == "X") or IsOver(ev) then return end
     if live and senderName ~= name then return end
+    -- 1.3.0: a sign-up for an earlier week of a weekly event (a late sync answer) does not count
+    if t < WeekFloor(ev) then return end
     if r == "-" then r = nil end
     if s == "-" then s = nil end
     if (st == "Y" or st == "M") and not VALID_ROLES[r or ""] then return end
@@ -475,6 +732,7 @@ local function HandleKick(payload, senderName, live)
     if not ev or not name or not ts or not by then return end
     if live and senderName ~= by then return end
     if by ~= ev.creator and not IsOfficer(by) then return end
+    if ts < WeekFloor(ev) then return end
     ev.kicks = ev.kicks or {}
     if ev.kicks[name] and ev.kicks[name].ts >= ts then return end
     ev.kicks[name] = { ts = ts, by = by }
@@ -535,8 +793,10 @@ local function CheckReminders()
     for _, ev in ipairs(db) do
         local st = ev.status and ev.status[me]
         local start = Events.Start(ev)
-        if (st == "Y" or st == "M") and start and not reminded[ev.id] and start - now <= REMIND_BEFORE and start - now > -60 then
-            reminded[ev.id] = true
+        -- Per date: a weekly event reminds again the next week
+        local key = tostring(ev.id) .. "@" .. tostring(ev.date)
+        if (st == "Y" or st == "M") and start and not reminded[key] and start - now <= REMIND_BEFORE and start - now > -60 then
+            reminded[key] = true
             local mins = math.max(0, math.floor((start - now) / 60 + 0.5))
             local text = "|cffbf40ff[Jagodka]|r |cffffd100" .. tostring(ev.title) .. "|r starts in " .. mins .. " min (" .. tostring(ev.time) .. ")" .. (ev.dungeon and (" - " .. ev.dungeon) or "")
             if _G.DEFAULT_CHAT_FRAME then _G.DEFAULT_CHAT_FRAME:AddMessage(text) end

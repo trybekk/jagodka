@@ -288,6 +288,12 @@ local function Restore()
     SetChatType(s.box, s.chatType, s.stickyType, s.channelTarget)
 end
 
+-- 1.3.0: the channel numbers changed (channelorder.lua): the remembered channel keeps pointing at the same
+-- channel. remap(old number) = its new number.
+function Zakladka.RemapSaved(remap)
+    if saved and saved.chatType == "CHANNEL" and saved.channelTarget then saved.channelTarget = remap(saved.channelTarget) end
+end
+
 -- Called on tab changes, when the window shows or hides, and every few seconds (the channel number can
 -- change, e.g. after a new key). Nothing is changed while the player is typing. Keeps the chosen mode.
 local function UpdateInput()

@@ -112,11 +112,29 @@ function Officers.ChannelId()
     return (id and id > 0) and id or nil
 end
 
+-- 1.3.0: officers channels of older keys this character is still on (log of 25.11: after a /reload the addon
+-- did not know which one it had joined, so a new key left the old channel open; two were left, 10 channels in
+-- all, the game's limit, so the next key could not have been joined). Only names of our form for this faction
+-- ("Jgo" + faction + 6 letters/digits), never the current one. Their messages were ignored anyway.
+local function LeaveOld(name)
+    if not _G.LeaveChannelByName then return end
+    local values = { _G.GetChannelList() }
+    local prefix = name:sub(1, 4)
+    for i = 1, #values do
+        local v = values[i]
+        if type(v) == "string" and v ~= name and v:sub(1, 4) == prefix and v:match("^Jgo[ah]%w%w%w%w%w%w$") then
+            _G.LeaveChannelByName(v)
+            Note("left an old officers channel")
+        end
+    end
+end
+
 local function Join()
     if not current or not IsMeOfficer() then return end
     local name, password = Derive(current.k)
     if joinedName and joinedName ~= name and _G.LeaveChannelByName then _G.LeaveChannelByName(joinedName) end
     joinedName = name
+    LeaveOld(name)
     if not Officers.ChannelId() then _G.JoinChannelByName(name, password) end
     Most.HideFromChat(name)
 end
@@ -534,7 +552,9 @@ local function Check()
     end
     notOfficerChecks = 0
     if current then
-        if not Officers.ChannelId() then Join() end
+        if not Officers.ChannelId() then Join()
+        -- 1.3.0: already on it (after a /reload): remember it, so the next key leaves it, and leave older ones
+        elseif not joinedName then joinedName = Officers.ChannelName() LeaveOld(joinedName) end
         return
     end
     if keySeen or GetTime() - loginAt < KEY_WAIT + createJitter then return end

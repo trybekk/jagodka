@@ -135,6 +135,19 @@ function Key.Join()
         if Monitor() then Monitor().Channel("Left the old chat channel (key changed)") end
     end
     joinedName = name
+    -- 1.3.0: chat channels of older keys this character is still on (a key changed while it was offline, as
+    -- the officers channels in the log of 25.11): left, so they never fill the game's 10 channels. Only names of
+    -- our form for this faction ("Jgd" + faction + 6 letters/digits), never the current one.
+    if _G.LeaveChannelByName then
+        local values = { _G.GetChannelList() }
+        for i = 1, #values do
+            local v = values[i]
+            if type(v) == "string" and v ~= name and v:sub(1, 4) == name:sub(1, 4) and v:match("^Jgd[ah]%w%w%w%w%w%w$") then
+                _G.LeaveChannelByName(v)
+                if Monitor() then Monitor().Channel("Left an old chat channel (older key)") end
+            end
+        end
+    end
     if not Key.ChannelId() then
         _G.JoinChannelByName(name, password)
         if Monitor() then Monitor().Channel("Joining the chat channel (key by " .. tostring(current.by) .. ")") end
