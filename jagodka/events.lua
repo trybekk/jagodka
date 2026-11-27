@@ -54,6 +54,13 @@ local LIVE_AFTER_START = 5 * 3600     -- an event stays this long after its star
 local REMOVED_KEEP = 23 * 86400       -- cancelled ids kept this long (events can be up to 21 days ahead)
 local SYNC_MARGIN = 600               -- the sync asks for changes this many seconds before our newest one
 local ANSWER_COOLDOWN = 120           -- the same asker gets our answer at most this often (s)
+-- 1.3.1 (user: "ludzie nie widzą eventów i się kiepsko synchronizują", JN3)
+local HOLD_FOR, HOLD_MAX, HOLD_EXTRA = 600, 30, 60  -- an event whose author is not known yet waits up to HOLD_FOR s (at most HOLD_MAX events, HOLD_EXTRA packets each)
+local HOLD_RETRY = 10                 -- held events are tried again this often (s)
+local PULL_MIN_VERSION = "1.3.1"      -- only relays with this version or newer know the pull (EG)
+local PULL_COOLDOWN = 600             -- a new relay asks the other guilds at most this often (s)
+local PULL_ANSWER_COOLDOWN = 300      -- the same relay gets our pull answer at most this often (s)
+local PULL_WINDOW = 900               -- the answers to my pull are passed on to my guild this long (s)
 local REQUEST_COOLDOWN = 60           -- our own requests at most this often, unless forced (s)
 local REMIND_BEFORE = 15 * 60
 local DESC_MAX = 400                  -- description bytes
@@ -88,6 +95,12 @@ local pending = {}            -- asker -> true while we wait to answer
 local answeredAt = {}         -- asker -> when we last answered
 local lastRequest = -REQUEST_COOLDOWN
 local reminded = {}           -- event id -> true once reminded this session
+local unknownNoted = {}       -- event id -> true once its unknown author is in the log (1.3.1)
+local held, heldCount, retrying = {}, 0, false   -- 1.3.1: event id -> { creator, rev, payload, sender, live, at, extra = { packets } }
+local changes = 0             -- 1.3.1: counts every applied change (Changed, Remove), to see whether a packet changed anything
+local pullFrom = {}           -- 1.3.1: relay of another guild -> until when its answers to my pull go on to my guild
+local pullAnsweredAt = {}     -- 1.3.1: asking relay -> when we last answered its pull
+local lastPull, wasRelay = -PULL_COOLDOWN, false
 
 local function Monitor() return addonTable.Monitor end
 local function MyName() return Most.MyName() end
@@ -256,22 +269,46 @@ local function WeeklyCount(creator, except)
 end
 local function WeeklyLimit(creator) return IsOfficer(creator) and RECUR_OFFICER or RECUR_MEMBER end
 
--- The views the windows use: roster (name -> role, Coming and Maybe), specs, leaders, status (name -> Y/M/N)
+-- 1.3.1: a signed-up player who is in none of our guilds any more (user: "jak ktoś już nie jest w gildii, to go
+-- z automatu wywala z eventów"): on no roster of a listed guild and not online with the addon in one. Only once
+-- the rosters are here (mine lists me), so nobody drops out right after login.
+local function LeftCommunity(name)
+    if not name or name == MyName() or not addonTable.Roster then return false end
+    if not addonTable.Roster.FindMember(MyName()) then return false end
+    return Most.FindKnownPlayer(name) == nil
+end
+
+-- The views the windows use: roster (name -> role, Coming and Maybe), specs, leaders, status (name -> Y/M/N).
+-- 1.3.1: without players who left our guilds (LeftCommunity). Their sign-up stays in the data (and in sync
+-- answers), so a player back in a guild, or one a late roster brings, shows again.
 local function Rebuild(ev)
     ev.roster, ev.specs, ev.leaders, ev.status = {}, {}, {}, {}
     for name, s in pairs(ev.signs or {}) do
-        if s.st == "Y" or s.st == "M" then
-            ev.roster[name] = s.r
-            ev.specs[name] = s.s
-            if s.l then ev.leaders[name] = true end
+        if not LeftCommunity(name) then
+            if s.st == "Y" or s.st == "M" then
+                ev.roster[name] = s.r
+                ev.specs[name] = s.s
+                if s.l then ev.leaders[name] = true end
+            end
+            if s.st ~= "X" then ev.status[name] = s.st end
         end
-        if s.st ~= "X" then ev.status[name] = s.st end
     end
 end
 
-local function Changed(ev) if ctx then ctx.onChanged(ev) end end
+-- 1.3.1: once a minute (Prune): who left our guilds meanwhile drops out of the lists, who came back shows again
+local function RebuildIfLeft(ev)
+    local before = 0
+    for _ in pairs(ev.status or {}) do before = before + 1 end
+    Rebuild(ev)
+    local after = 0
+    for _ in pairs(ev.status) do after = after + 1 end
+    return before ~= after
+end
+
+local function Changed(ev) changes = changes + 1 if ctx then ctx.onChanged(ev) end end
 
 local function Remove(id, ts, by)
+    changes = changes + 1
     db.removed[id] = { ts = ts or GetServerTime(), by = by }
     local _, idx = Find(id)
     if idx then
@@ -295,6 +332,8 @@ function Events.Prune()
                 table.remove(db, i)
                 if ctx then ctx.onRemoved(i) end
             end
+        elseif RebuildIfLeft(ev) then
+            Changed(ev)
         end
     end
     local now = GetServerTime()
@@ -631,6 +670,32 @@ end
 -- ============================================================================
 -- RECEIVING (core.lua: packets from known players of listed guilds). live = not a sync whisper.
 -- ============================================================================
+-- 1.3.1: an event whose author is not on the guild rosters known here yet is held instead of dropped (a player
+-- logging in gets the events from a guildmate while another guild's roster is still arriving in parts), with its
+-- description, sign-ups and removals arriving meanwhile; RetryHeld takes it as soon as the author is known.
+local RetryHeld
+local function Hold(id, creator, rev, payload, senderName, live)
+    local h = held[id]
+    if h then
+        if rev > h.rev then h.rev, h.payload, h.sender, h.live = rev, payload, senderName, live end
+        return
+    end
+    if heldCount >= HOLD_MAX then return end
+    held[id] = { creator = creator, rev = rev, payload = payload, sender = senderName, live = live, at = GetTime(), extra = {} }
+    heldCount = heldCount + 1
+    if not retrying then
+        retrying = true
+        C_Timer.After(HOLD_RETRY, function() RetryHeld() end)
+    end
+end
+-- A description part, sign-up or removal for a held event waits with it. Returns true when held.
+local function HoldExtra(id, pType, payload, senderName, live)
+    local h = id and held[id]
+    if not h then return false end
+    if #h.extra < HOLD_EXTRA then table.insert(h.extra, { pType = pType, payload = payload, sender = senderName, live = live }) end
+    return true
+end
+
 local function ApplySign(ev, name, s)
     ev.signs = ev.signs or {}
     local cur = ev.signs[name]
@@ -670,7 +735,16 @@ local function HandleHeader(payload, senderName, live)
         -- A new event: its author must be a member of a listed guild and within their limit of active events
         if editor ~= creator and not IsOfficer(editor) then return end
         local author = (creator == MyName()) or Most.FindKnownPlayer(creator)
-        if not author then return end
+        if not author then
+            -- 1.3.1: in the log, once per event (user: "ludzie nie widzą eventów", JN3): its author is not on the
+            -- guild rosters known here yet (e.g. a roster still arriving after login); held, tried again (Hold)
+            if Monitor() and not unknownNoted[id] then
+                unknownNoted[id] = true
+                Monitor().Note("Events: held event " .. title .. " of " .. creator .. " (" .. tostring(guild) .. "), from " .. tostring(senderName) .. (live and "" or " (sync)") .. ": author not known here yet")
+            end
+            Hold(id, creator, rev, payload, senderName, live)
+            return
+        end
         if Series(id) then
             -- 1.3.0: a weekly event counts against the weekly limit, not the usual one
             if WeeklyCount(creator, id) >= WeeklyLimit(creator) then
@@ -695,6 +769,7 @@ end
 local function HandleDescPart(payload)
     local id, rev, idx, chunk = strsplit(":", payload, 4)
     local ev = Find(Dec(id))
+    if not ev and HoldExtra(Dec(id), "ED", payload) then return end
     rev, idx = tonumber(rev), tonumber(idx)
     if not ev or not ev.descParts or ev.descParts.rev ~= rev or not idx or idx < 1 or idx > ev.descParts.total then return end
     ev.descParts[idx] = Dec(chunk) or ""
@@ -707,6 +782,7 @@ end
 local function HandleSign(payload, senderName, live)
     local id, name, r, s, st, l, t = strsplit(":", payload, 7)
     local ev = Find(Dec(id))
+    if not ev and HoldExtra(Dec(id), "ES", payload, senderName, live) then return end
     name, t = Dec(name), tonumber(t)
     if not ev or not name or not t or not (STATUSES[st] or st == "X") or IsOver(ev) then return end
     if live and senderName ~= name then return end
@@ -728,6 +804,7 @@ end
 local function HandleKick(payload, senderName, live)
     local id, name, ts, by = strsplit(":", payload, 4)
     local ev = Find(Dec(id))
+    if not ev and HoldExtra(Dec(id), "EK", payload, senderName, live) then return end
     name, ts, by = Dec(name), tonumber(ts), Dec(by)
     if not ev or not name or not ts or not by then return end
     if live and senderName ~= by then return end
@@ -759,6 +836,121 @@ local function HandleCancel(payload, senderName, live)
         return
     end
     if not db.removed[id] then Remove(id, ts, by) end
+    if held[id] then held[id] = nil heldCount = heldCount - 1 end
+end
+
+-- 1.3.1: held events whose author is known now are taken, with what arrived for them meanwhile
+RetryHeld = function()
+    local now = GetTime()
+    for id, h in pairs(held) do
+        if h.creator == MyName() or Most.FindKnownPlayer(h.creator) then
+            held[id] = nil
+            heldCount = heldCount - 1
+            HandleHeader(h.payload, h.sender, h.live)
+            if Find(id) then
+                if Monitor() then Monitor().Note("Events: took the held event of " .. h.creator .. " after " .. math.floor(now - h.at) .. " s (author known now)") end
+                for _, x in ipairs(h.extra) do
+                    if x.pType == "ED" then HandleDescPart(x.payload)
+                    elseif x.pType == "ES" then HandleSign(x.payload, x.sender, x.live)
+                    elseif x.pType == "EK" then HandleKick(x.payload, x.sender, x.live) end
+                end
+            end
+        elseif now - h.at > HOLD_FOR then
+            held[id] = nil
+            heldCount = heldCount - 1
+            if Monitor() then Monitor().Note("Events: dropped the held event of " .. h.creator .. " (author still not known after " .. HOLD_FOR / 60 .. " min)") end
+        end
+    end
+    if heldCount > 0 then C_Timer.After(HOLD_RETRY, function() RetryHeld() end) else retrying = false end
+end
+
+-- ============================================================================
+-- 1.3.1: A NEW RELAY ASKS THE OTHER GUILDS FOR THEIR EVENTS (EG)
+-- ============================================================================
+-- Sync after login asks only the own guild (EQ), so an event that never reached a guild live (sent to its
+-- relay just as that relay logged out, or made while nobody of the guild was online) was missing there until
+-- its author changed it. Now whoever becomes the relay of their guild (also right after login) whispers EG to
+-- the relay of every other guild once (at most every PULL_COOLDOWN); each answers with ITS OWN guild's events,
+-- sign-ups and cancellations (low priority, as a sync answer). What was new to the asking relay goes on to its
+-- guild as a usual repost ("FW:person:packet" on GUILD, as relays do for live packets), so every version there
+-- takes it as the person's own change. Versions before 1.3.1 ignore EG; nothing else changes (live packets,
+-- relays, queues).
+--      EG since                                                       pull request (whisper to a relay)
+local function AnswerPull(asker, since)
+    pullAnsweredAt[asker] = GetTime()
+    local mine, sent = Most.MyGuild(), 0
+    -- Also the events of a guild with no relay online now (chat 27.11: "nie widzę tego eventu", an event of JN5,
+    -- where only a few have the addon): nobody of that guild could answer. The asker's own guild is left out.
+    local linked = Most.OtherGuildRelays and Most.OtherGuildRelays() or {}
+    local askerInfo = Most.FindKnownPlayer(asker)
+    local askerGuild = askerInfo and askerInfo.guild
+    for _, ev in ipairs(db) do
+        local fromHere = ev.guild == mine or (ev.guild and ev.guild ~= askerGuild and not linked[ev.guild])
+        if fromHere and not ev.localTest then
+            if (ev.rev or 0) > since then SendHeader(ev, asker) sent = sent + 1 end
+            for name, s in pairs(ev.signs or {}) do if (s.t or 0) > since then SendSign(ev, name, asker) sent = sent + 1 end end
+            for name, k in pairs(ev.kicks or {}) do if (k.ts or 0) > since then SendKick(ev, name, asker) sent = sent + 1 end end
+        end
+    end
+    for id, r in pairs(db.removed) do
+        local by = type(r) == "table" and r.by and r.by ~= "" and (r.by == MyName() and { guild = mine } or Most.FindKnownPlayer(r.by))
+        if by and by.guild == mine and (r.ts or 0) > since then
+            Out("EX", table.concat({ Enc(id), tostring(r.ts), Enc(r.by) }, ":"), asker)
+            sent = sent + 1
+        end
+    end
+    if Monitor() then Monitor().Note("Events: answered the pull of " .. asker .. " (relay of another guild) with " .. sent .. " changes") end
+end
+
+local function HandlePull(asker, since, channel)
+    if channel ~= "WHISPER" or asker == MyName() or not InListedGuild() then return end
+    local p = Most.FindKnownPlayer(asker)
+    if not p or p.guild == Most.MyGuild() then return end
+    if GetTime() - (pullAnsweredAt[asker] or -PULL_ANSWER_COOLDOWN) < PULL_ANSWER_COOLDOWN then return end
+    AnswerPull(asker, since)
+end
+
+-- Every minute: just became my guild's relay -> ask the other guilds' relays
+local function PullCheck()
+    local isRelay = Most.IsRelay() and true or false
+    if isRelay and not wasRelay and InListedGuild() and GetTime() - lastPull >= PULL_COOLDOWN and Most.OtherGuildRelays then
+        lastPull = GetTime()
+        local asked = {}
+        for _, relay in pairs(Most.OtherGuildRelays()) do
+            local p = relay and relay ~= MyName() and Most.FindKnownPlayer(relay)
+            if p and p.version and Most.AtLeast(p.version, PULL_MIN_VERSION) then
+                pullFrom[relay] = GetTime() + PULL_WINDOW
+                Most.Whisper(relay, "EG", "0", "high")
+                table.insert(asked, relay)
+            end
+        end
+        if Monitor() then Monitor().Note("Events: I am the relay now, asked " .. #asked .. " other guilds' relays for their events" .. (#asked > 0 and (" (" .. table.concat(asked, ", ") .. ")") or " (none with " .. PULL_MIN_VERSION .. "+)")) end
+    end
+    wasRelay = isRelay
+end
+
+-- A change from a pull answer that was new to me goes on to my guild as the person's own packet
+local function PassOn(pType, payload)
+    local origin
+    if pType == "EH" then
+        local _, _, editor, creator = strsplit(":", payload, 5)
+        editor, creator = Dec(editor), Dec(creator)
+        origin = (editor and editor ~= "") and editor or creator
+    elseif pType == "ED" then
+        local ev = Find(Dec((strsplit(":", payload, 2))))
+        origin = ev and (ev.editor or ev.creator)
+    elseif pType == "ES" then
+        local _, name = strsplit(":", payload, 3)
+        origin = Dec(name)
+    elseif pType == "EX" then
+        local _, _, by = strsplit(":", payload, 3)
+        origin = Dec(by)
+    end
+    if not origin or origin == "" or origin == MyName() then return end
+    local text = origin .. ":" .. pType .. ":" .. payload
+    if #text + #"FW:" > 255 then return end
+    Most.Send("FW", text, "low")
+    if Monitor() then Monitor().Note("Events: passed on to my guild a change of " .. origin .. " my guild did not have (" .. pType .. ")") end
 end
 
 -- Returns true when the packet is an events packet (handled or ignored)
@@ -771,17 +963,25 @@ function Events.HandlePacket(pType, payload, senderName, channel)
         local asker = Dec(payload)
         if senderName ~= MyName() and asker then Most.ClaimSeen(pending, asker, senderName) end
         return true
+    elseif pType == "EG" then
+        HandlePull(senderName, tonumber(payload) or 0, channel)
+        return true
     end
     if pType ~= "EH" and pType ~= "ED" and pType ~= "ES" and pType ~= "EK" and pType ~= "EX" then return false end
     Activity()
     -- Our own packets come back from GUILD: already applied when sent
     if senderName == MyName() then return true end
     local live = channel ~= "WHISPER"
+    local before = changes
     if pType == "EH" then HandleHeader(payload, senderName, live)
     elseif pType == "ED" then HandleDescPart(payload)
     elseif pType == "ES" then HandleSign(payload, senderName, live)
     elseif pType == "EK" then HandleKick(payload, senderName, live)
     elseif pType == "EX" then HandleCancel(payload, senderName, live) end
+    -- 1.3.1: the answer to my pull (another guild's relay, PullCheck): what was new here goes on to my guild
+    if not live and changes ~= before and pullFrom[senderName] and GetTime() < pullFrom[senderName] and Most.IsRelay() then
+        PassOn(pType, payload)
+    end
     return true
 end
 
@@ -813,4 +1013,5 @@ Ticker:RegisterEvent("PLAYER_LOGIN")
 addonTable.SafeScript(Ticker, "OnEvent", "events.lua:527", function()
     C_Timer.NewTicker(60, Events.Prune)
     C_Timer.NewTicker(30, CheckReminders)
+    C_Timer.NewTicker(60, PullCheck)   -- 1.3.1
 end)

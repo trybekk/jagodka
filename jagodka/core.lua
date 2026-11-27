@@ -2913,24 +2913,32 @@ local ev = selectedEventIndex and eventsList[selectedEventIndex]
 if ev and addonTable.Events.CanManage(ev) then EventPicker.OpenEdit(ev) end
 end)
 -- Cancels an event; onlyWeek (1.3.0, a weekly one): only its nearest week (Events.SkipWeek), else all of it.
--- Announcement as when creating, on the chat channel straight from the click (a button or the question's button):
+-- Announcement as when creating, on the chat channel straight from the click (a button or the question's button),
+-- sent before the cancel itself (1.3.1):
 -- "Event cancelled by Name -> Title : Instance 05.11 20:00", "Weekly event (all weeks) cancelled by ...",
 -- "Weekly event: only 26.11 cancelled by Name -> Title : 26.11.2026 21:00, next 03.12". A test event posts nothing.
 function EventSync.CancelEvent(ev, onlyWeek)
 if addonTable.Sync.Blocked() or not ev then return end
-local oldDate, weekly = ev.date, addonTable.Events.IsWeekly(ev)
-local ok, why, what
-if onlyWeek then ok, why, what = addonTable.Events.SkipWeek(ev) else ok, why = addonTable.Events.Cancel(ev) end
-if not ok then ShowEventError(why) return end
+local E = addonTable.Events
+if not E.Find(ev.id) then ShowEventError("This event no longer exists.") return end
+if not E.CanManage(ev) then ShowEventError("Only the author and officers can cancel this event.") return end
+local oldDate, weekly = ev.date, E.IsWeekly(ev)
+-- Only this week, not its last week: the next date (its last week cancels the whole series, as SkipWeek does)
+local nextDate = onlyWeek and weekly and E.NextDates(ev)[1]
 local myName = Most.MyName()
 local where = (ev.dungeon and (ev.dungeon .. " ") or "") .. oldDate .. " " .. ev.time
 local text
-if what == "week" then
-text = "Weekly event: only " .. oldDate:gsub("%.%d%d%d%d$", "") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where .. ", next " .. ev.date:gsub("%.%d%d%d%d$", "")
+if nextDate then
+text = "Weekly event: only " .. oldDate:gsub("%.%d%d%d%d$", "") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where .. ", next " .. nextDate:gsub("%.%d%d%d%d$", "")
 else
 text = (weekly and "Weekly event (all weeks)" or "Event") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where
 end
+-- The chat notice first, while the clicked window is still shown: sent after the event had left the list (its
+-- details hidden), the game blocked it (log 26.11, "All weeks": "blocked UNKNOWN()", it went through the guilds)
 if not ev.localTest then Most.PublishTyped("Ogolny", text, myName, (GetGuildInfo("player"))) end
+local ok, why, what
+if onlyWeek then ok, why, what = E.SkipWeek(ev) else ok, why = E.Cancel(ev) end
+if not ok then ShowEventError(why) return end
 if what ~= "week" then selectedEventIndex = nil end
 UpdateEventDetails() UpdateEventsList()
 end

@@ -723,18 +723,18 @@ C_AddOns.SetAddonVersionCheck	function	SecretArguments=AllowedWhenUntainted	AddO
 ADDON_LOADED	event	Jagodka	AddOnsDocumentation.lua	
     payload addOnName : cstring
     payload containsBindings : bool
-    used jagodka/bridge.lua:1589  Listener:RegisterEvent("ADDON_LOADED")
-    used jagodka/bridge.lua:1606  if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, (select(7, ...)), (select(9, ...))) then return end
-    used jagodka/bridge.lua:1692  if event == "ADDON_LOADED" then
-    used jagodka/core.lua:4088  NetworkListener:RegisterEvent("ADDON_LOADED")
-    used jagodka/core.lua:4280  if event == "ADDON_LOADED" and prefix == addonName then
-    used jagodka/core.lua:4547  MinimapLoader:RegisterEvent("ADDON_LOADED")
-    used jagodka/core.lua:4567  self:UnregisterEvent("ADDON_LOADED")
+    used jagodka/bridge.lua:1616  Listener:RegisterEvent("ADDON_LOADED")
+    used jagodka/bridge.lua:1633  if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, (select(7, ...)), (select(9, ...))) then return end
+    used jagodka/bridge.lua:1719  if event == "ADDON_LOADED" then
+    used jagodka/core.lua:4096  NetworkListener:RegisterEvent("ADDON_LOADED")
+    used jagodka/core.lua:4288  if event == "ADDON_LOADED" and prefix == addonName then
+    used jagodka/core.lua:4555  MinimapLoader:RegisterEvent("ADDON_LOADED")
+    used jagodka/core.lua:4575  self:UnregisterEvent("ADDON_LOADED")
     used jagodka/key.lua:380  Listener:RegisterEvent("ADDON_LOADED")
     used jagodka/key.lua:384  if event == "ADDON_LOADED" then
     used jagodka/key.lua:389  self:UnregisterEvent("ADDON_LOADED")
-    used jagodka/monitor.lua:658  SavedLogLoader:RegisterEvent("ADDON_LOADED")
-    used jagodka/monitor.lua:661  self:UnregisterEvent("ADDON_LOADED")
+    used jagodka/monitor.lua:685  SavedLogLoader:RegisterEvent("ADDON_LOADED")
+    used jagodka/monitor.lua:688  self:UnregisterEvent("ADDON_LOADED")
     used ... 23 uses in total
 ADDONS_UNLOADING	event		AddOnsDocumentation.lua	
     payload closingClient : bool
@@ -4342,7 +4342,7 @@ C_ChatInfo.RegisterAddonMessagePrefix	function	SecretArguments=AllowedWhenUntain
     arg prefix : cstring
     ret result : RegisterAddonMessagePrefixResult
     used jagodka/core.lua:38  local result = C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
-    used jagodka/core.lua:4288  C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
+    used jagodka/core.lua:4296  C_ChatInfo.RegisterAddonMessagePrefix("JagodkaComm")
 C_ChatInfo.ReplaceIconAndGroupExpressions	function	SecretArguments=AllowedWhenTainted	ChatInfoDocumentation.lua	
     arg input : string
     arg noIconReplacement? : bool  -- never secret
@@ -4357,8 +4357,8 @@ C_ChatInfo.SendAddonMessage	function	SecretArguments=NotAllowed Jagodka	ChatInfo
     arg chatType? : cstring  -- ChatType, defaults to SLASH_CMD_PARTY.
     arg target? : cstring  -- Only applies for targeted channels
     ret result : SendAddonMessageResult
-    used jagodka/bridge.lua:335  return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", Most.GameName(Most.PlayerKey(item.target))), "WHISPER"
-    used jagodka/bridge.lua:338  return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
+    used jagodka/bridge.lua:338  return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "WHISPER", Most.GameName(Most.PlayerKey(item.target))), "WHISPER"
+    used jagodka/bridge.lua:341  return C_ChatInfo.SendAddonMessage(PREFIX, item.msg, "GUILD"), "GUILD"
 C_ChatInfo.SendAddonMessageLogged	function	SecretArguments=NotAllowed	ChatInfoDocumentation.lua	Sends a text payload to other clients specified by chatChannel and target which are registered to listen for prefix. Intended for plain text payloads; logged and throttled.
     arg prefix : cstring
     arg message : cstring
@@ -4462,8 +4462,8 @@ CHAT_MSG_ADDON	event	Jagodka	ChatInfoDocumentation.lua
     payload localID : number
     payload name : cstring
     payload instanceID : number
-    used jagodka/core.lua:4086  NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
-    used jagodka/core.lua:4340  elseif event == "CHAT_MSG_ADDON" and not Most.IsSecret(prefix, text, sender) and prefix == "JagodkaComm" then
+    used jagodka/core.lua:4094  NetworkListener:RegisterEvent("CHAT_MSG_ADDON")
+    used jagodka/core.lua:4348  elseif event == "CHAT_MSG_ADDON" and not Most.IsSecret(prefix, text, sender) and prefix == "JagodkaComm" then
 CHAT_MSG_ADDON_LOGGED	event		ChatInfoDocumentation.lua	
     payload prefix : cstring
     payload text : cstring
@@ -4721,8 +4721,8 @@ CHAT_MSG_CHANNEL	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocumentati
     payload hideSenderInLetterbox : bool  -- never secret
     payload suppressRaidIcons : bool  -- never secret
     payload discordInfo : DiscordChatInfo
-    used jagodka/bridge.lua:1593  Listener:RegisterEvent("CHAT_MSG_CHANNEL")
-    used jagodka/bridge.lua:1613  if event == "CHAT_MSG_CHANNEL" then
+    used jagodka/bridge.lua:1620  Listener:RegisterEvent("CHAT_MSG_CHANNEL")
+    used jagodka/bridge.lua:1640  if event == "CHAT_MSG_CHANNEL" then
 CHAT_MSG_CHANNEL_JOIN	event	SecretInChatMessagingLockdown	ChatInfoDocumentation.lua	
     payload text : cstring
     payload playerName : cstring
@@ -4782,9 +4782,9 @@ CHAT_MSG_CHANNEL_LIST	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocume
     payload hideSenderInLetterbox : bool  -- never secret
     payload suppressRaidIcons : bool  -- never secret
     payload discordInfo : DiscordChatInfo
-    used jagodka/bridge.lua:1478  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
-    used jagodka/bridge.lua:1592  Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
-    used jagodka/bridge.lua:1627  if event == "CHAT_MSG_CHANNEL_LIST" then
+    used jagodka/bridge.lua:1505  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
+    used jagodka/bridge.lua:1619  Listener:RegisterEvent("CHAT_MSG_CHANNEL_LIST")
+    used jagodka/bridge.lua:1654  if event == "CHAT_MSG_CHANNEL_LIST" then
 CHAT_MSG_CHANNEL_NOTICE	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocumentation.lua	
     payload text : cstring
     payload playerName : cstring
@@ -4804,8 +4804,8 @@ CHAT_MSG_CHANNEL_NOTICE	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocu
     payload hideSenderInLetterbox : bool  -- never secret
     payload suppressRaidIcons : bool  -- never secret
     payload discordInfo : DiscordChatInfo
-    used jagodka/bridge.lua:1590  Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
-    used jagodka/bridge.lua:1655  if event == "CHAT_MSG_CHANNEL_NOTICE" then
+    used jagodka/bridge.lua:1617  Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
+    used jagodka/bridge.lua:1682  if event == "CHAT_MSG_CHANNEL_NOTICE" then
 CHAT_MSG_CHANNEL_NOTICE_USER	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocumentation.lua	
     payload text : cstring
     payload playerName : cstring
@@ -4825,8 +4825,8 @@ CHAT_MSG_CHANNEL_NOTICE_USER	event	SecretInChatMessagingLockdown Jagodka	ChatInf
     payload hideSenderInLetterbox : bool  -- never secret
     payload suppressRaidIcons : bool  -- never secret
     payload discordInfo : DiscordChatInfo
-    used jagodka/bridge.lua:1591  Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE_USER")
-    used jagodka/bridge.lua:1636  if event == "CHAT_MSG_CHANNEL_NOTICE_USER" then
+    used jagodka/bridge.lua:1618  Listener:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE_USER")
+    used jagodka/bridge.lua:1663  if event == "CHAT_MSG_CHANNEL_NOTICE_USER" then
 CHAT_MSG_COLLECTED_APPEARANCE	event		ChatInfoDocumentation.lua	
     payload text : cstring
     payload playerName : cstring
@@ -5606,9 +5606,9 @@ CHAT_MSG_SYSTEM	event	SecretInChatMessagingLockdown Jagodka	ChatInfoDocumentatio
     payload hideSenderInLetterbox : bool  -- never secret
     payload suppressRaidIcons : bool  -- never secret
     payload discordInfo : DiscordChatInfo
-    used jagodka/bridge.lua:1484  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
-    used jagodka/bridge.lua:1594  Listener:RegisterEvent("CHAT_MSG_SYSTEM")
-    used jagodka/bridge.lua:1607  if event == "CHAT_MSG_SYSTEM" then
+    used jagodka/bridge.lua:1511  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
+    used jagodka/bridge.lua:1621  Listener:RegisterEvent("CHAT_MSG_SYSTEM")
+    used jagodka/bridge.lua:1634  if event == "CHAT_MSG_SYSTEM" then
     used jagodka/roster.lua:995  Listener:RegisterEvent("CHAT_MSG_SYSTEM")
     used jagodka/roster.lua:999  if event == "CHAT_MSG_SYSTEM" then OnGuildmateStatusMessage(arg1) return end
 CHAT_MSG_TARGETICONS	event	SecretInChatMessagingLockdown	ChatInfoDocumentation.lua	
@@ -7960,15 +7960,15 @@ GetRealmID	function		ConnectionDocumentation.lua
     ret realmID : number
 GetRealmName	function	Jagodka	ConnectionDocumentation.lua	
     ret realmName : cstring
-    used jagodka/monitor.lua:627  return "World of Warcraft\\_classic_era_ (or _forever_)\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\...
+    used jagodka/monitor.lua:654  return "World of Warcraft\\_classic_era_ (or _forever_)\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\...
     used jagodka/roster.lua:564  return name ~= nil and name ~= Most.MyName() and MyCharacters()[name] == _G.GetRealmName()
     used jagodka/roster.lua:572  if name and name ~= "" then MyCharacters()[name] = _G.GetRealmName() end
 IsOnTournamentRealm	function		ConnectionDocumentation.lua	
     ret result : bool
 Logout	function	Jagodka	ConnectionDocumentation.lua	
-    used jagodka/help.lua:920  "- *Preserve logs* records the log into a file (up to 100 000 lines, with the box at the bottom every minute and the Network view every 5 minutes). The game wri...
-    used jagodka/monitor.lua:635  _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording stopped. The log is written on /reload, logout or exit, to: " .. SavedFilePath())
-    used jagodka/monitor.lua:784  _G.GameTooltip:SetText("Saves this log for this character.\nTurning it on starts a new log (the previous one is removed).\nThe game writes the file on /reload, ...
+    used jagodka/help.lua:924  "- *Preserve logs* records the log into a file (up to 150 000 lines, with the box at the bottom every minute and the Network view every 5 minutes). The game wri...
+    used jagodka/monitor.lua:662  _G.DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Jagodka:|r recording stopped. The log is written on /reload, logout or exit, to: " .. SavedFilePath())
+    used jagodka/monitor.lua:811  _G.GameTooltip:SetText("Saves this log for this character.\nTurning it on starts a new log (the previous one is removed).\nThe game writes the file on /reload, ...
 Quit	function		ConnectionDocumentation.lua	
 SelectedRealmName	function		ConnectionDocumentation.lua	
     ret selectedRealmName : cstring
@@ -14436,8 +14436,8 @@ GUILD_REWARDS_LIST_UPDATE	event		GuildInfoDocumentation.lua
 GUILD_ROSTER_UPDATE	event	Jagodka	GuildInfoDocumentation.lua	
     payload canRequestRosterUpdate : bool
     used jagodka/charcard.lua:175  for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE",
-    used jagodka/core.lua:4090  NetworkListener:RegisterEvent("GUILD_ROSTER_UPDATE")
-    used jagodka/core.lua:4331  elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+    used jagodka/core.lua:4098  NetworkListener:RegisterEvent("GUILD_ROSTER_UPDATE")
+    used jagodka/core.lua:4339  elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
     used jagodka/guildcleanup.lua:27  local ignoreEventsUntil = 0    -- our own "show offline" switch fires GUILD_ROSTER_UPDATE: it must not start another reading
     used jagodka/guildcleanup.lua:458  events:RegisterEvent("GUILD_ROSTER_UPDATE")
     used jagodka/notes.lua:234  Listener:RegisterEvent("GUILD_ROSTER_UPDATE")
@@ -14450,15 +14450,16 @@ OPEN_TABARD_FRAME	event		GuildInfoDocumentation.lua
 PLAYER_GUILD_UPDATE	event	Jagodka	GuildInfoDocumentation.lua	
     payload unitTarget : UnitTokenVariant
     used jagodka/charcard.lua:175  for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE",
-    used jagodka/core.lua:4089  NetworkListener:RegisterEvent("PLAYER_GUILD_UPDATE")
-    used jagodka/core.lua:4331  elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
-    used jagodka/core.lua:4332  if event == "PLAYER_GUILD_UPDATE" then Most.ResetGuild() end
+    used jagodka/core.lua:4097  NetworkListener:RegisterEvent("PLAYER_GUILD_UPDATE")
+    used jagodka/core.lua:4339  elseif event == "PLAYER_GUILD_UPDATE" or event == "GUILD_ROSTER_UPDATE" then
+    used jagodka/core.lua:4340  if event == "PLAYER_GUILD_UPDATE" then Most.ResetGuild() end
     used jagodka/key.lua:382  Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
     used jagodka/key.lua:406  elseif event == "PLAYER_GUILD_UPDATE" then
     used jagodka/notes.lua:235  Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
     used jagodka/notes.lua:242  elseif event == "PLAYER_GUILD_UPDATE" then
-    used jagodka/professions.lua:446  Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
-    used jagodka/professions.lua:458  elseif event == "PLAYER_GUILD_UPDATE" then
+    used jagodka/professions.lua:68  local lastGuild = nil  -- 1.3.1: the guild lastSent went to (PLAYER_GUILD_UPDATE fires often, not only on a new guild)
+    used jagodka/professions.lua:463  Listener:RegisterEvent("PLAYER_GUILD_UPDATE")
+    used jagodka/professions.lua:475  elseif event == "PLAYER_GUILD_UPDATE" then
     used jagodka/themes.lua:1126  guildWatch:RegisterEvent("PLAYER_GUILD_UPDATE")
 REQUESTED_GUILD_RENAME_RESULT	event		GuildInfoDocumentation.lua	
     payload newName : cstring
@@ -16215,7 +16216,7 @@ IsControlKeyDown	function	Jagodka	InputDocumentation.lua
     ret down : bool
     used jagodka/armory.lua:76  if key == "C" and _G.IsControlKeyDown() then
     used jagodka/core.lua:649  if _G.IsControlKeyDown() then
-    used jagodka/monitor.lua:1115  if _G.IsControlKeyDown() then
+    used jagodka/monitor.lua:1142  if _G.IsControlKeyDown() then
 IsCursorVisible	function		InputDocumentation.lua	
     ret visible : bool
 IsKeyDown	function	SecretArguments=AllowedWhenUntainted	InputDocumentation.lua	
@@ -16250,7 +16251,7 @@ IsShiftKeyDown	function	Jagodka	InputDocumentation.lua
     used jagodka/core.lua:651  elseif _G.IsShiftKeyDown() then
     used jagodka/core.lua:807  if chatInput:HasFocus() and not chatInput:IsMouseOver() and not sendButton:IsMouseOver() and not IsShiftKeyDown() then chatInput:ClearFocus() end
     used jagodka/core.lua:1360  elseif button == "LeftButton" and _G.IsShiftKeyDown() and m.online then
-    used jagodka/monitor.lua:1117  elseif _G.IsShiftKeyDown() then
+    used jagodka/monitor.lua:1144  elseif _G.IsShiftKeyDown() then
 IsUsingGamepad	function		InputDocumentation.lua	
     ret down : bool
 IsUsingMouse	function		InputDocumentation.lua	
@@ -16332,10 +16333,10 @@ GetRaidDifficultyID	function		InstanceDocumentation.lua
 IsInInstance	function	Jagodka	InstanceDocumentation.lua	
     ret isInInstance : bool
     ret instanceType : cstring
-    used jagodka/bridge.lua:676  local meInside = isMyGuild and _G.IsInInstance() and true or false
-    used jagodka/bridge.lua:1060  if _G.IsInInstance() then return false end
-    used jagodka/bridge.lua:1370  if _G.InCombatLockdown() or _G.IsInInstance() then return end
-    used jagodka/core.lua:4152  local inside = IsInInstance() and true or false
+    used jagodka/bridge.lua:693  local meInside = isMyGuild and _G.IsInInstance() and true or false
+    used jagodka/bridge.lua:1077  if _G.IsInInstance() then return false end
+    used jagodka/bridge.lua:1397  if _G.InCombatLockdown() or _G.IsInInstance() then return end
+    used jagodka/core.lua:4160  local inside = IsInInstance() and true or false
 IsLegacyDifficulty	function	SecretArguments=AllowedWhenUntainted	InstanceDocumentation.lua	
     arg difficultyID : number
     ret result? : bool
@@ -18690,7 +18691,7 @@ GetCurrentRegion	function		LocaleDocumentation.lua
     ret region : number
 GetLocale	function	Jagodka	LocaleDocumentation.lua	
     ret localeName : cstring
-    used jagodka/help.lua:1018  return (_G.GetLocale and _G.GetLocale() == "plPL") and "pl" or "en"
+    used jagodka/help.lua:1022  return (_G.GetLocale and _G.GetLocale() == "plPL") and "pl" or "en"
 GetOSLocale	function		LocaleDocumentation.lua	
     ret localeName : cstring
 LocaleInfo	struct		LocaleDocumentation.lua	
@@ -21046,7 +21047,7 @@ GROUP_LEFT	event		PartyInfoDocumentation.lua
     payload category : number
     payload partyGUID : WOWGUID
 GROUP_ROSTER_UPDATE	event	Jagodka	PartyInfoDocumentation.lua	
-    used jagodka/core.lua:3417  GroupWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+    used jagodka/core.lua:3425  GroupWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
 INSTANCE_ABANDON_VOTE_FINISHED	event		PartyInfoDocumentation.lua	
     payload votePassed : bool
 INSTANCE_ABANDON_VOTE_STARTED	event		PartyInfoDocumentation.lua	
@@ -21146,8 +21147,8 @@ GetAddOnCPUUsage	function	SecretArguments=AllowedWhenUntainted	PerformanceDocume
 GetAddOnMemoryUsage	function	SecretArguments=AllowedWhenUntainted Jagodka	PerformanceDocumentation.lua	
     arg name : uiAddon
     ret result : number
-    used jagodka/core.lua:4054  if _G.UpdateAddOnMemoryUsage and _G.GetAddOnMemoryUsage then
-    used jagodka/core.lua:4056  table.insert(parts, string.format("RAM %.1f MB", (_G.GetAddOnMemoryUsage(addonName) or 0) / 1024))
+    used jagodka/core.lua:4062  if _G.UpdateAddOnMemoryUsage and _G.GetAddOnMemoryUsage then
+    used jagodka/core.lua:4064  table.insert(parts, string.format("RAM %.1f MB", (_G.GetAddOnMemoryUsage(addonName) or 0) / 1024))
 GetEventCPUUsage	function		PerformanceDocumentation.lua	
     ret call_time : number
     ret call_count : number
@@ -21164,8 +21165,8 @@ GetScriptCPUUsage	function		PerformanceDocumentation.lua
 ResetCPUUsage	function		PerformanceDocumentation.lua	
 UpdateAddOnCPUUsage	function		PerformanceDocumentation.lua	
 UpdateAddOnMemoryUsage	function	Jagodka	PerformanceDocumentation.lua	
-    used jagodka/core.lua:4054  if _G.UpdateAddOnMemoryUsage and _G.GetAddOnMemoryUsage then
-    used jagodka/core.lua:4055  _G.UpdateAddOnMemoryUsage()
+    used jagodka/core.lua:4062  if _G.UpdateAddOnMemoryUsage and _G.GetAddOnMemoryUsage then
+    used jagodka/core.lua:4063  _G.UpdateAddOnMemoryUsage()
 C_PerksActivities.AddTrackedPerksActivity	function	SecretArguments=AllowedWhenUntainted	PerksActivitiesDocumentation.lua	
     arg perksActivityID : number
 C_PerksActivities.ClearPerksActivitiesPendingCompletion	function		PerksActivitiesDocumentation.lua	
@@ -22727,8 +22728,8 @@ GetMoney	function		PlayerScriptDocumentation.lua
     ret result : number
 GetNormalizedRealmName	function	Jagodka	PlayerScriptDocumentation.lua	
     ret result : cstring
-    used jagodka/bridge.lua:1505  local realm = _G.GetNormalizedRealmName and _G.GetNormalizedRealmName() or "?"
-    used jagodka/bridge.lua:1547  table.insert(lines, MyName() .. " (me, " .. tostring(_G.GetNormalizedRealmName and _G.GetNormalizedRealmName()) .. "): " .. tostring(myRefusal.reason) .. ", " ....
+    used jagodka/bridge.lua:1532  local realm = _G.GetNormalizedRealmName and _G.GetNormalizedRealmName() or "?"
+    used jagodka/bridge.lua:1574  table.insert(lines, MyName() .. " (me, " .. tostring(_G.GetNormalizedRealmName and _G.GetNormalizedRealmName()) .. "): " .. tostring(myRefusal.reason) .. ", " ....
 GetOffhandHitModifier	function	SecretWhenUnitStatsRestricted ForeverAPI-restrictions	PlayerScriptDocumentation.lua	
     ret result : number
 GetOverrideAPBySpellPower	function	SecretWhenUnitStatsRestricted ForeverAPI-restrictions	PlayerScriptDocumentation.lua	
@@ -22861,12 +22862,12 @@ HasIgnoreDualWieldWeapon	function		PlayerScriptDocumentation.lua
     ret result : bool
 HasKey	function	Jagodka	PlayerScriptDocumentation.lua	
     ret hasKey : bool
-    used jagodka/bridge.lua:882  if addonTable.Key and addonTable.Key.HasKey() then
-    used jagodka/bridge.lua:910  local which = (addonTable.Key and addonTable.Key.HasKey()) and "the chat channel (key)" or "the public channel"
-    used jagodka/bridge.lua:945  or ((addonTable.Key and addonTable.Key.HasKey()) and "not on the chat channel yet" or "no public channel")
+    used jagodka/bridge.lua:899  if addonTable.Key and addonTable.Key.HasKey() then
+    used jagodka/bridge.lua:927  local which = (addonTable.Key and addonTable.Key.HasKey()) and "the chat channel (key)" or "the public channel"
+    used jagodka/bridge.lua:962  or ((addonTable.Key and addonTable.Key.HasKey()) and "not on the chat channel yet" or "no public channel")
     used jagodka/chattab.lua:174  if addonTable.Key and addonTable.Key.HasKey() then return addonTable.Key.ChannelId() end
-    used jagodka/core.lua:4157  if not Most.GetChannelId() or (addonTable.Key.HasKey() and not addonTable.Key.ChannelId()) then Most.JoinChannel() end
-    used jagodka/core.lua:4306  local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
+    used jagodka/core.lua:4165  if not Most.GetChannelId() or (addonTable.Key.HasKey() and not addonTable.Key.ChannelId()) then Most.JoinChannel() end
+    used jagodka/core.lua:4314  local keyMissing = addonTable.Key.HasKey() and not addonTable.Key.ChannelId()
     used jagodka/key.lua:241  return { hasKey = current ~= nil, channelId = Key.ChannelId(), by = current and current.by,
     used jagodka/officers.lua:537  return { hasKey = current ~= nil, channelId = Officers.ChannelId(), by = current and current.by, messages = #log }
 HasNoReleaseAura	function		PlayerScriptDocumentation.lua	
@@ -22898,13 +22899,13 @@ IsInGuild	function	Jagodka	PlayerScriptDocumentation.lua
     used jagodka/bridge.lua:28  local IsInGuild = _G.IsInGuild
     used jagodka/bridge.lua:80  if not IsInGuild() then lastGuildName = nil return nil end
     used jagodka/bridge.lua:233  return not IsInGuild() or (guild ~= nil and not ctx.isGuildAllowed(guild))
-    used jagodka/bridge.lua:337  if IsInGuild() then
-    used jagodka/bridge.lua:701  if not ctx or GetTime() < relayReadyAt or not IsInGuild() then return false end
+    used jagodka/bridge.lua:340  if IsInGuild() then
+    used jagodka/bridge.lua:718  if not ctx or GetTime() < relayReadyAt or not IsInGuild() then return false end
     used jagodka/core.lua:32  local IsInGuild = _G.IsInGuild
     used jagodka/core.lua:523  if not IsInGuild() then return false end
     used jagodka/core.lua:791  elseif not guildName and IsInGuild() then
-    used jagodka/core.lua:4326  if not IsInGuild() then return end
-    used jagodka/core.lua:4335  if announced and g ~= announcedGuild and (g or not IsInGuild()) then announced = false end
+    used jagodka/core.lua:4334  if not IsInGuild() then return end
+    used jagodka/core.lua:4343  if announced and g ~= announcedGuild and (g or not IsInGuild()) then announced = false end
     used jagodka/guildcleanup.lua:465  if not _G.IsInGuild() then
     used jagodka/key.lua:125  if not _G.IsInGuild() or (guild and not Most.IsGuildAllowed(guild)) then
     used ... 19 uses in total
@@ -25456,11 +25457,11 @@ C_RestrictedActions.IsAddOnRestrictionActive	function	SecretArguments=AllowedWhe
 ADDON_ACTION_BLOCKED	event	Jagodka	RestrictedActionsDocumentation.lua	
     payload isTainted : cstring
     payload function : cstring
-    used jagodka/monitor.lua:1168  blocked:RegisterEvent("ADDON_ACTION_BLOCKED")
+    used jagodka/monitor.lua:1195  blocked:RegisterEvent("ADDON_ACTION_BLOCKED")
 ADDON_ACTION_FORBIDDEN	event	Jagodka	RestrictedActionsDocumentation.lua	
     payload isTainted : cstring
     payload function : cstring
-    used jagodka/monitor.lua:1169  blocked:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+    used jagodka/monitor.lua:1196  blocked:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 ADDON_RESTRICTION_STATE_CHANGED	event		RestrictedActionsDocumentation.lua	Fired when the state of an addon restriction type is changing. This event is sequenced such that it will always be fired before a restriction becomes active, or after it is deactivated.
     payload type : AddOnRestrictionType
     payload state : AddOnRestrictionState
@@ -30113,7 +30114,7 @@ GENERIC_ERROR	event		SystemDocumentation.lua
 GLOBAL_MOUSE_DOWN	event	Jagodka	SystemDocumentation.lua	
     payload button : cstring
     used jagodka/core.lua:805  pcall(blurWatcher.RegisterEvent, blurWatcher, "GLOBAL_MOUSE_DOWN")
-    used jagodka/core.lua:3303  pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
+    used jagodka/core.lua:3311  pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
 GLOBAL_MOUSE_UP	event		SystemDocumentation.lua	
     payload button : cstring
 GLOBAL_REGION_MOUSE_DOWN	event		SystemDocumentation.lua	
@@ -30132,19 +30133,19 @@ PLAYER_ENTERING_WORLD	event	Jagodka	SystemDocumentation.lua
     payload isReloadingUi : bool
     used jagodka/channelorder.lua:227  Listener:RegisterEvent("PLAYER_ENTERING_WORLD")
     used jagodka/charcard.lua:176  "SKILL_LINES_CHANGED", "UNIT_PORTRAIT_UPDATE", "PLAYER_ENTERING_WORLD" }) do
-    used jagodka/core.lua:4150  EventSync.instanceWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+    used jagodka/core.lua:4158  EventSync.instanceWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
     used jagodka/roster.lua:569  remember:RegisterEvent("PLAYER_ENTERING_WORLD")
 PLAYER_LEAVING_WORLD	event		SystemDocumentation.lua	
 PLAYER_LOGIN	event	Jagodka	SystemDocumentation.lua	
     used jagodka/announcements.lua:480  Ticker:RegisterEvent("PLAYER_LOGIN")
-    used jagodka/bridge.lua:1595  Listener:RegisterEvent("PLAYER_LOGIN")
-    used jagodka/bridge.lua:1597  if event == "PLAYER_LOGIN" then
+    used jagodka/bridge.lua:1622  Listener:RegisterEvent("PLAYER_LOGIN")
+    used jagodka/bridge.lua:1624  if event == "PLAYER_LOGIN" then
     used jagodka/chattab.lua:486  Listener:RegisterEvent("PLAYER_LOGIN")
     used jagodka/core.lua:135  MainFrame.fitWatcher:RegisterEvent("PLAYER_LOGIN")
-    used jagodka/core.lua:4087  NetworkListener:RegisterEvent("PLAYER_LOGIN")
-    used jagodka/core.lua:4287  if event == "PLAYER_LOGIN" then
+    used jagodka/core.lua:4095  NetworkListener:RegisterEvent("PLAYER_LOGIN")
+    used jagodka/core.lua:4295  if event == "PLAYER_LOGIN" then
     used jagodka/discord.lua:312  watch:RegisterEvent("PLAYER_LOGIN")
-    used jagodka/events.lua:812  Ticker:RegisterEvent("PLAYER_LOGIN")
+    used jagodka/events.lua:1012  Ticker:RegisterEvent("PLAYER_LOGIN")
     used jagodka/key.lua:381  Listener:RegisterEvent("PLAYER_LOGIN")
     used jagodka/key.lua:390  elseif event == "PLAYER_LOGIN" then
     used jagodka/lfg.lua:1312  loginWatch:RegisterEvent("PLAYER_LOGIN")
@@ -30193,10 +30194,10 @@ GetServerTime	function	Jagodka	SystemTimeDocumentation.lua
     used jagodka/announcements.lua:359  local now = GetServerTime()
     used jagodka/announcements.lua:499  local ago = GetServerTime() - ts
     used jagodka/bridge.lua:24  local GetServerTime = _G.GetServerTime
-    used jagodka/bridge.lua:499  return string.format("%s.%x.%x", MyName(), GetServerTime(), msgSeq)
-    used jagodka/bridge.lua:520  table.insert(chatLog, { id = "sys", ts = GetServerTime(), tab = "Ogolny", src = "S", text = text })
-    used jagodka/bridge.lua:820  ts = tonumber(ts) or GetServerTime()
-    used ... 82 uses in total
+    used jagodka/bridge.lua:516  return string.format("%s.%x.%x", MyName(), GetServerTime(), msgSeq)
+    used jagodka/bridge.lua:537  table.insert(chatLog, { id = "sys", ts = GetServerTime(), tab = "Ogolny", src = "S", text = text })
+    used jagodka/bridge.lua:837  ts = tonumber(ts) or GetServerTime()
+    used ... 86 uses in total
 GetSessionTime	function		SystemTimeDocumentation.lua	
     ret time : number
 GetTickTime	function		SystemTimeDocumentation.lua	
@@ -30211,11 +30212,11 @@ GetTime	function	Jagodka	SystemTimeDocumentation.lua
     used jagodka/announcements.lua:333  if GetTime() - (answeredAt[asker] or -ANSWER_COOLDOWN) < ANSWER_COOLDOWN then return end
     used jagodka/announcements.lua:464  if not live then lastAnswerAt = GetTime() end
     used jagodka/bridge.lua:25  local GetTime = _G.GetTime
-    used jagodka/bridge.lua:311  local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
-    used jagodka/bridge.lua:316  table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0, queued = GetTime() })
-    used jagodka/bridge.lua:334  whisperedAt[Most.PlayerKey(item.target)] = GetTime()
-    used jagodka/bridge.lua:353  if addonTable.Monitor then addonTable.Monitor.TX(item.msg, "WHISPER", item.target, false, R_OFFLINE, GetTime() - item.queued, item.tries) end
-    used ... 200 uses in total
+    used jagodka/bridge.lua:314  local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
+    used jagodka/bridge.lua:319  table.insert(priority == "high" and highQueue or lowQueue, { msg = pType .. ":" .. payload, target = target, tries = 0, queued = GetTime() })
+    used jagodka/bridge.lua:337  whisperedAt[Most.PlayerKey(item.target)] = GetTime()
+    used jagodka/bridge.lua:356  if addonTable.Monitor then addonTable.Monitor.TX(item.msg, "WHISPER", item.target, false, R_OFFLINE, GetTime() - item.queued, item.tries) end
+    used ... 210 uses in total
 IsUsingFixedTimeStep	function		SystemTimeDocumentation.lua	
     ret isUsingFixedTimeStep : bool
 Constants.TalentTierConstants	constants		TalentAndGlyphConstantsDocumentation.lua	
@@ -30236,8 +30237,8 @@ ClearFocus	function	Jagodka	TargetScriptDocumentation.lua
     used jagodka/core.lua:1218  SearchEditBox:ClearFocus()
     used jagodka/core.lua:2060  EventSearch:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     used jagodka/core.lua:2360  EventSearch:ClearFocus()
-    used jagodka/core.lua:3262  filter.search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    used jagodka/core.lua:3265  filter.search:SetText("") filter.search:ClearFocus()
+    used jagodka/core.lua:3270  filter.search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    used jagodka/core.lua:3273  filter.search:SetText("") filter.search:ClearFocus()
     used jagodka/lfg.lua:684  editor.note:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     used jagodka/lfg.lua:959  search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     used jagodka/lfg.lua:1105  search:ClearFocus()
@@ -33315,16 +33316,16 @@ C_Timer.After	function	SecretArguments=AllowedWhenUntainted Jagodka	UITimerDocum
     used jagodka/announcements.lua:308  C_Timer.After(OTHERS_AFTER, function()
     used jagodka/announcements.lua:563  C_Timer.After(REQUEST_COOLDOWN, function() self:Enable() end)
     used jagodka/armory.lua:77  C_Timer.After(0.1, function()
-    used jagodka/bridge.lua:805  C_Timer.After(PARTS_WAIT, function() FinishParts(id) end)
-    used jagodka/bridge.lua:897  C_Timer.After(ECHO_WAIT, function()
-    used jagodka/bridge.lua:932  C_Timer.After(ECHO_WAIT, function()
-    used jagodka/bridge.lua:992  C_Timer.After(delay, function()
-    used jagodka/bridge.lua:996  C_Timer.After(CLAIM_CONFIRM, function()
-    used jagodka/bridge.lua:1683  C_Timer.After(5, Most.JoinChannel)
+    used jagodka/bridge.lua:822  C_Timer.After(PARTS_WAIT, function() FinishParts(id) end)
+    used jagodka/bridge.lua:914  C_Timer.After(ECHO_WAIT, function()
+    used jagodka/bridge.lua:949  C_Timer.After(ECHO_WAIT, function()
+    used jagodka/bridge.lua:1009  C_Timer.After(delay, function()
+    used jagodka/bridge.lua:1013  C_Timer.After(CLAIM_CONFIRM, function()
+    used jagodka/bridge.lua:1710  C_Timer.After(5, Most.JoinChannel)
     used jagodka/channelorder.lua:123  C_Timer.After(delay, function() pending = false ChannelOrder.Check() end)
     used jagodka/channelorder.lua:134  C_Timer.After(STEP_WAIT, function()
     used jagodka/channelorder.lua:205  C_Timer.After(0, function()
-    used ... 74 uses in total
+    used ... 76 uses in total
 C_Timer.NewTicker	function	SecretArguments=AllowedWhenUntainted Jagodka	UITimerDocumentation.lua	
     arg seconds : number
     arg callback : TickerCallback
@@ -33332,17 +33333,17 @@ C_Timer.NewTicker	function	SecretArguments=AllowedWhenUntainted Jagodka	UITimerD
     ret cbObject : TickerCallback
     used jagodka/announcements.lua:482  C_Timer.NewTicker(300, function() Announcements.Prune() Announcements.UpdateBadge() if Announcements.Refresh then Announcements.Refresh() end end)
     used jagodka/announcements.lua:484  C_Timer.NewTicker(BEACON_EVERY, function()
-    used jagodka/bridge.lua:1709  C_Timer.NewTicker(0.2, PumpAddonQueue)
-    used jagodka/bridge.lua:1710  C_Timer.NewTicker(DISCOVER_INTERVAL, Most.Discover)
-    used jagodka/bridge.lua:1715  C_Timer.NewTicker(RELAY_CHECK_INTERVAL, function()
+    used jagodka/bridge.lua:1736  C_Timer.NewTicker(0.2, PumpAddonQueue)
+    used jagodka/bridge.lua:1737  C_Timer.NewTicker(DISCOVER_INTERVAL, Most.Discover)
+    used jagodka/bridge.lua:1742  C_Timer.NewTicker(RELAY_CHECK_INTERVAL, function()
     used jagodka/chattab.lua:438  C_Timer.NewTicker(CHECK_INTERVAL, UpdateInput)
     used jagodka/core.lua:908  C_Timer.NewTicker(30, function()
     used jagodka/core.lua:2818  C_Timer.NewTicker(1, EventSync.UpdateLockButtons, 120)
-    used jagodka/core.lua:3761  C_Timer.NewTicker(30, function() if S.tab == 3 then S.Render() end end)
-    used jagodka/core.lua:4065  perfTicker = C_Timer.NewTicker(5, RefreshPerf)
-    used jagodka/core.lua:4298  C_Timer.NewTicker(60, function()
-    used jagodka/core.lua:4325  C_Timer.NewTicker(20, function()
-    used ... 30 uses in total
+    used jagodka/core.lua:3769  C_Timer.NewTicker(30, function() if S.tab == 3 then S.Render() end end)
+    used jagodka/core.lua:4073  perfTicker = C_Timer.NewTicker(5, RefreshPerf)
+    used jagodka/core.lua:4306  C_Timer.NewTicker(60, function()
+    used jagodka/core.lua:4333  C_Timer.NewTicker(20, function()
+    used ... 31 uses in total
 C_Timer.NewTimedSignalMap	function	SecretArguments=AllowedWhenUntainted	UITimerDocumentation.lua	Creates a new timed signal map that invokes the supplied callback with each key as it becomes due.
     arg callback : TimedSignalMapCallback  -- Callback to execute when each entry becomes due.
     ret signalMap : TimedSignalMap  -- The newly created timed signal map.
@@ -35138,7 +35139,7 @@ UnitInParty	function	SecretArguments=AllowedWhenUntainted Jagodka	UnitDocumentat
     arg unit? : UnitToken
     arg partyIndex? : luaIndex
     ret result : bool
-    used jagodka/core.lua:3373  local function InGroup(name) local n = Most.GameName(name) return _G.UnitInParty(n) or _G.UnitInRaid(n) end
+    used jagodka/core.lua:3381  local function InGroup(name) local n = Most.GameName(name) return _G.UnitInParty(n) or _G.UnitInRaid(n) end
 UnitInPartyIsAI	function	SecretArguments=AllowedWhenUntainted	UnitDocumentation.lua	
     arg unit? : UnitToken
     ret result : bool
@@ -35149,7 +35150,7 @@ UnitInRaid	function	SecretWhenUnitIdentityRestricted SecretArguments=AllowedWhen
     arg unit? : UnitToken
     arg partyIndex? : luaIndex
     ret result? : luaIndex
-    used jagodka/core.lua:3373  local function InGroup(name) local n = Most.GameName(name) return _G.UnitInParty(n) or _G.UnitInRaid(n) end
+    used jagodka/core.lua:3381  local function InGroup(name) local n = Most.GameName(name) return _G.UnitInParty(n) or _G.UnitInRaid(n) end
 UnitInRange	function	SecretReturns SecretArguments=AllowedWhenUntainted ForeverAPI-restrictions	UnitDocumentation.lua	
     arg unit : UnitToken
     ret inRange : bool
@@ -35220,14 +35221,14 @@ UnitIsGhost	function	SecretArguments=AllowedWhenUntainted	UnitDocumentation.lua
 UnitIsGroupAssistant	function	SecretWhenUnitIdentityRestricted SecretArguments=AllowedWhenUntainted Jagodka	UnitDocumentation.lua	
     arg unit : UnitToken
     ret isAssistant : bool
-    used jagodka/core.lua:3374  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
+    used jagodka/core.lua:3382  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
 UnitIsGroupLeader	function	SecretWhenUnitIdentityRestricted SecretArguments=AllowedWhenUntainted Jagodka	UnitDocumentation.lua	
     arg unit : UnitToken
     arg partyCategory? : luaIndex
     ret isLeader : bool
-    used jagodka/core.lua:3374  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
-    used jagodka/core.lua:3406  if _G.IsInGroup() and _G.UnitIsGroupLeader("player") then MakeRaid() end
-    used jagodka/core.lua:3421  if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
+    used jagodka/core.lua:3382  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
+    used jagodka/core.lua:3414  if _G.IsInGroup() and _G.UnitIsGroupLeader("player") then MakeRaid() end
+    used jagodka/core.lua:3429  if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
 UnitIsHumanPlayer	function	SecretArguments=AllowedWhenUntainted	UnitDocumentation.lua	
     arg unit? : UnitToken
     arg partyIndex? : luaIndex
@@ -35337,7 +35338,7 @@ UnitName	function	SecretWhenUnitNameIdentityRestricted SecretArguments=AllowedWh
     used jagodka/guildcleanup.lua:69  if not m or m.name == nil or m.display == _G.UnitName("player") then return false end
     used jagodka/key.lua:28  local UnitName = _G.UnitName
     used jagodka/monitor.lua:24  local UnitName = _G.UnitName
-    used jagodka/monitor.lua:627  return "World of Warcraft\\_classic_era_ (or _forever_)\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\...
+    used jagodka/monitor.lua:654  return "World of Warcraft\\_classic_era_ (or _forever_)\\WTF\\Account\\<account>\\" .. tostring(_G.GetRealmName()) .. "\\" .. tostring(UnitName("player")) .. "\...
     used jagodka/mute.lua:25  local UnitName = _G.UnitName
     used jagodka/notes.lua:19  local UnitName = _G.UnitName
     used jagodka/professions.lua:21  local UnitName = _G.UnitName
@@ -37874,9 +37875,9 @@ ChatEdit_UpdateHeader	global	Jagodka	ForeverAPI	function
 ChatFrame_AddCommunitiesChannel	global		ForeverAPI	function
 ChatFrame_AddMessage	global		ForeverAPI	function
 ChatFrame_AddMessageEventFilter	global	Jagodka	ForeverAPI	function
-    used jagodka/bridge.lua:1477  if _G.ChatFrame_AddMessageEventFilter then
-    used jagodka/bridge.lua:1478  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
-    used jagodka/bridge.lua:1484  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
+    used jagodka/bridge.lua:1504  if _G.ChatFrame_AddMessageEventFilter then
+    used jagodka/bridge.lua:1505  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL_LIST", function(_, _, ...)
+    used jagodka/bridge.lua:1511  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, message)
     used jagodka/lfg.lua:1279  if _G.ChatFrame_AddMessageEventFilter then
     used jagodka/lfg.lua:1285  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER", EventLinks)
     used jagodka/lfg.lua:1286  _G.ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER_INFORM", EventLinks)
@@ -38770,9 +38771,9 @@ GetGuildInfo	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     used jagodka/core.lua:524  local _, rankName, rankIndex = GetGuildInfo("player")
     used jagodka/core.lua:622  local guildName, rankName, rankIndex = GetGuildInfo("player")
     used jagodka/core.lua:2838  local myName, myGuild = Most.MyName(), GetGuildInfo("player")
-    used jagodka/core.lua:2933  if not ev.localTest then Most.PublishTyped("Ogolny", text, myName, (GetGuildInfo("player"))) end
-    used jagodka/core.lua:4216  if not IsPlayerGuildAllowed(GetGuildInfo("player")) then return end
-    used ... 31 uses in total
+    used jagodka/core.lua:2938  if not ev.localTest then Most.PublishTyped("Ogolny", text, myName, (GetGuildInfo("player"))) end
+    used jagodka/core.lua:4224  if not IsPlayerGuildAllowed(GetGuildInfo("player")) then return end
+    used ... 33 uses in total
 GetGuildInfoText	global	ForeverAPI-restrictions	ForeverAPI	function; not called: blocked
 GetGuildLogoInfo	global		ForeverAPI	wiki signature (vscode-wow-api)
 GetGuildMemberRecipes	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -38809,7 +38810,7 @@ GetGuildRosterInfo	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     ret canSoR : boolean
     ret repStanding : number
     ret guid : string
-    used jagodka/core.lua:4231  local fullName, _, _, _, _, _, _, _, isOnline = _G.GetGuildRosterInfo(i)
+    used jagodka/core.lua:4239  local fullName, _, _, _, _, _, _, _, isOnline = _G.GetGuildRosterInfo(i)
     used jagodka/guildcleanup.lua:111  local fullName, rank, rIndex, level, _, _, note, officerNote, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
     used jagodka/notes.lua:63  local fullName, _, _, _, _, _, public, officer = _G.GetGuildRosterInfo(i)
     used jagodka/roster.lua:126  local fullName, _, rankIndex, level, _, zone, _, _, isOnline, _, classFile = _G.GetGuildRosterInfo(i)
@@ -39352,8 +39353,8 @@ GetNumGroupChannels	global		ForeverAPI	wiki signature (vscode-wow-api)
 GetNumGroupMembers	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg groupType? : number
     ret numMembers : number
-    used jagodka/core.lua:3397  local size = _G.IsInGroup() and _G.GetNumGroupMembers() or 1
-    used jagodka/core.lua:3427  if not InGroup(name) and _G.GetNumGroupMembers() + sent < 40 then InviteName(name) sent = sent + 1 end
+    used jagodka/core.lua:3405  local size = _G.IsInGroup() and _G.GetNumGroupMembers() or 1
+    used jagodka/core.lua:3435  if not InGroup(name) and _G.GetNumGroupMembers() + sent < 40 then InviteName(name) sent = sent + 1 end
 GetNumGuildBankMoneyTransactions	global		ForeverAPI	wiki signature (vscode-wow-api)
 GetNumGuildBankTabs	global		ForeverAPI	wiki signature (vscode-wow-api)
 GetNumGuildBankTransactions	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -39362,7 +39363,7 @@ GetNumGuildEvents	global		ForeverAPI	wiki signature (vscode-wow-api)
 GetNumGuildMembers	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     ret numTotal : number
     ret numOnline : number
-    used jagodka/core.lua:4227  local n = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
+    used jagodka/core.lua:4235  local n = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
     used jagodka/guildcleanup.lua:110  for i = 1, (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0 do
     used jagodka/notes.lua:61  local count = (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0
     used jagodka/roster.lua:125  for i = 1, (_G.GetNumGuildMembers and _G.GetNumGuildMembers()) or 0 do
@@ -39520,17 +39521,17 @@ GetProfessionInfo	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     ret specializationIndex : number
     ret specializationOffset : number
     ret skillLineName : string
-    used jagodka/professions.lua:109  elseif _G.GetProfessions and _G.GetProfessionInfo then
-    used jagodka/professions.lua:117  local name, _, rank, maxRank = _G.GetProfessionInfo(index)
+    used jagodka/professions.lua:111  elseif _G.GetProfessions and _G.GetProfessionInfo then
+    used jagodka/professions.lua:119  local name, _, rank, maxRank = _G.GetProfessionInfo(index)
 GetProfessions	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     ret prof1 : number
     ret prof2 : number
     ret archaeology : number
     ret fishing : number
     ret cooking : number
-    used jagodka/professions.lua:109  elseif _G.GetProfessions and _G.GetProfessionInfo then
-    used jagodka/professions.lua:113  local indexes = { _G.GetProfessions() }
-    used jagodka/professions.lua:114  for i = 1, _G.select("#", _G.GetProfessions()) do
+    used jagodka/professions.lua:111  elseif _G.GetProfessions and _G.GetProfessionInfo then
+    used jagodka/professions.lua:115  local indexes = { _G.GetProfessions() }
+    used jagodka/professions.lua:116  for i = 1, _G.select("#", _G.GetProfessions()) do
 GetProgressText	global		ForeverAPI	wiki signature (vscode-wow-api)
     ret progress : string
 GetPromotionRank	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -40060,14 +40061,14 @@ HearthAndResurrectFromArea	global		ForeverAPI	wiki signature (vscode-wow-api)
 HideRepairCursor	global		ForeverAPI	wiki signature (vscode-wow-api)
 InCombatLockdown	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     ret inLockdown : boolean
-    used jagodka/bridge.lua:1370  if _G.InCombatLockdown() or _G.IsInInstance() then return end
+    used jagodka/bridge.lua:1397  if _G.InCombatLockdown() or _G.IsInInstance() then return end
     used jagodka/channelorder.lua:152  if _G.InCombatLockdown and _G.InCombatLockdown() then Again(RETRY) return end
     used jagodka/core.lua:336  if kick and kick:IsShown() and not (_G.InCombatLockdown and _G.InCombatLockdown()) then kick:Hide() end
     used jagodka/guildcleanup.lua:245  if not InCombatLockdown() then confirm:Hide() end
     used jagodka/guildcleanup.lua:260  if not InCombatLockdown() then confirm:Hide() end
     used jagodka/guildcleanup.lua:274  cancel:SetScript("OnClick", function() if not InCombatLockdown() then confirm:Hide() end end)
     used jagodka/guildcleanup.lua:282  if InCombatLockdown() then
-    used jagodka/monitor.lua:1172  Monitor.Error("The game blocked " .. tostring(what) .. " (" .. event .. (_G.InCombatLockdown() and ", in combat" or "") .. ")")
+    used jagodka/monitor.lua:1199  Monitor.Error("The game blocked " .. tostring(what) .. " (" .. event .. (_G.InCombatLockdown() and ", in combat" or "") .. ")")
     used jagodka/update.lua:17  local InCombatLockdown = _G.InCombatLockdown
     used jagodka/update.lua:82  if InCombatLockdown() then
     used jagodka/update.lua:181  if InCombatLockdown() then
@@ -40129,10 +40130,10 @@ IsInGroup	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg groupType? : number
     ret inGroup : boolean
     used jagodka/core.lua:31  local IsInGroup = _G.IsInGroup
-    used jagodka/core.lua:3381  if _G.IsInGroup() and not IsLeader() then Report("|cffff5555Only the group leader (or a raid assistant) can invite.|r") return end
-    used jagodka/core.lua:3397  local size = _G.IsInGroup() and _G.GetNumGroupMembers() or 1
-    used jagodka/core.lua:3406  if _G.IsInGroup() and _G.UnitIsGroupLeader("player") then MakeRaid() end
-    used jagodka/core.lua:3421  if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
+    used jagodka/core.lua:3389  if _G.IsInGroup() and not IsLeader() then Report("|cffff5555Only the group leader (or a raid assistant) can invite.|r") return end
+    used jagodka/core.lua:3405  local size = _G.IsInGroup() and _G.GetNumGroupMembers() or 1
+    used jagodka/core.lua:3414  if _G.IsInGroup() and _G.UnitIsGroupLeader("player") then MakeRaid() end
+    used jagodka/core.lua:3429  if not _G.IsInGroup() or not _G.UnitIsGroupLeader("player") then return end
 IsInGuildGroup	global		ForeverAPI	wiki signature (vscode-wow-api)
     ret inGuildGroup : boolean
 IsInLFGDungeon	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -40141,10 +40142,10 @@ IsInRaid	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg groupType? : number
     ret isInRaid : boolean
     used jagodka/core.lua:30  local IsInRaid = _G.IsInRaid
-    used jagodka/core.lua:3374  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
-    used jagodka/core.lua:3398  local limit = _G.IsInRaid() and 40 or 5
-    used jagodka/core.lua:3403  if #rest > 0 and not _G.IsInRaid() then
-    used jagodka/core.lua:3422  if not _G.IsInRaid() then MakeRaid() return end
+    used jagodka/core.lua:3382  local function IsLeader() return _G.UnitIsGroupLeader("player") or (_G.IsInRaid() and _G.UnitIsGroupAssistant("player")) end
+    used jagodka/core.lua:3406  local limit = _G.IsInRaid() and 40 or 5
+    used jagodka/core.lua:3411  if #rest > 0 and not _G.IsInRaid() then
+    used jagodka/core.lua:3430  if not _G.IsInRaid() then MakeRaid() return end
 IsInScenarioGroup	global		ForeverAPI	wiki signature (vscode-wow-api)
 IsInventoryItemLocked	global		ForeverAPI	wiki signature (vscode-wow-api)
     arg slotId : number
@@ -40283,8 +40284,8 @@ LeaveSingleLFG	global		ForeverAPI	wiki signature (vscode-wow-api)
 Lerp	global		ForeverAPI	function; used in `Blizzard_AzeriteUI/AzeriteEmpoweredItemChannelMixin.lua`
 ListChannelByName	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg channel : number|string
-    used jagodka/bridge.lua:1369  if not _G.ListChannelByName or not name then return end
-    used jagodka/bridge.lua:1372  _G.ListChannelByName(name)
+    used jagodka/bridge.lua:1396  if not _G.ListChannelByName or not name then return end
+    used jagodka/bridge.lua:1399  _G.ListChannelByName(name)
 ListChannels	global		ForeverAPI	wiki signature (vscode-wow-api)
 LoadBindings	global		ForeverAPI	wiki signature (vscode-wow-api)
     arg bindingSet : number
@@ -40394,7 +40395,7 @@ PlaySound	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg runFinishCallback? : boolean
     ret willPlay : boolean
     ret soundHandle : number
-    used jagodka/events.lua:806  if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
+    used jagodka/events.lua:1006  if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
     used jagodka/officers.lua:471  if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
     used jagodka/officers.lua:516  if _G.PlaySound then _G.PlaySound((_G.SOUNDKIT and _G.SOUNDKIT.RAID_WARNING) or 8959, "Master") end
     used jagodka/update.lua:154  if _G.PlaySound then pcall(_G.PlaySound, (_G.SOUNDKIT and _G.SOUNDKIT.TELL_MESSAGE) or 3081, "Master") end
@@ -40505,9 +40506,9 @@ SaveBindings	global		ForeverAPI	wiki signature (vscode-wow-api)
 SaveRaidProfileCopy	global		ForeverAPI	wiki signature (vscode-wow-api)
 SaveView	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg viewIndex : number
-    used jagodka/monitor.lua:584  local function SaveView(kind, build)
-    used jagodka/monitor.lua:593  SaveView("state", BuildStats)
-    used jagodka/monitor.lua:596  SaveView("network", BuildNetwork)
+    used jagodka/monitor.lua:611  local function SaveView(kind, build)
+    used jagodka/monitor.lua:620  SaveView("state", BuildStats)
+    used jagodka/monitor.lua:623  SaveView("network", BuildNetwork)
 SearchLFGGetEncounterResults	global		ForeverAPI	wiki signature (vscode-wow-api)
 SearchLFGGetJoinedID	global		ForeverAPI	wiki signature (vscode-wow-api)
 SearchLFGGetNumResults	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -40734,9 +40735,9 @@ Sign	global	Jagodka	ForeverAPI	function; used in `Blizzard_SharedXML/SortUtil.lu
     used jagodka/core.lua:2893  EventChanged(addonTable.Events.Sign(ev, spec))
     used jagodka/core.lua:2898  EventChanged(addonTable.Events.Sign(ev, nil, status))
     used jagodka/core.lua:2903  EventChanged(addonTable.Events.Sign(ev, nil, nil, on and true or false))
-    used jagodka/core.lua:3124  UIErrorsFrame:AddMessage("Pick your spec to sign up", 1, 0.82, 0, 1, 3)
-    used jagodka/core.lua:3203  if self.repeatDate then _G.GameTooltip:AddLine("A later week (" .. self.repeatDate .. "): sign-ups for it open once the " .. ev.date .. " one is over. The detai...
-    used ... 51 uses in total
+    used jagodka/core.lua:3132  UIErrorsFrame:AddMessage("Pick your spec to sign up", 1, 0.82, 0, 1, 3)
+    used jagodka/core.lua:3211  if self.repeatDate then _G.GameTooltip:AddLine("A later week (" .. self.repeatDate .. "): sign-ups for it open once the " .. ev.date .. " one is over. The detai...
+    used ... 53 uses in total
 SignPetition	global		ForeverAPI	wiki signature (vscode-wow-api)
 SocketInventoryItem	global		ForeverAPI	wiki signature (vscode-wow-api)
 SocketItemToArtifact	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -40915,8 +40916,8 @@ date	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:27  local date = _G.date
     used jagodka/announcements.lua:497  local t = date("*t", ts)
     used jagodka/bridge.lua:30  local date = _G.date
-    used jagodka/bridge.lua:622  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
-    used jagodka/bridge.lua:634  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
+    used jagodka/bridge.lua:639  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
+    used jagodka/bridge.lua:651  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
     used jagodka/core.lua:613  return time({ year = tonumber(y) or tonumber(date("%Y")), month = tonumber(m), day = tonumber(d), hour = 12 })
     used jagodka/core.lua:1987  { name = "Date", key = "date", field = "dateText" },
     used jagodka/core.lua:2159  if key == "date" then return ((ev.date or "-"):gsub("^(%d+%.%d+)%.%d+$", "%1")) end
@@ -40942,13 +40943,13 @@ error	global	Jagodka	ForeverAPI	function
     used jagodka/chattab.lua:280  if ok then addonTable.Monitor.Note(text) else addonTable.Monitor.Error(text) end
     used jagodka/core.lua:546  local function ShowEventError(text) UIErrorsFrame:AddMessage("Error: " .. text, 1.0, 0.1, 0.1, 1.0, 2) end
     used jagodka/guildcleanup.lua:125  if not ok and addonTable.Monitor then addonTable.Monitor.Error("Guild cleanup: reading the guild roster failed: " .. tostring(err)) end
-    used jagodka/monitor.lua:108  Save(err and "error" or cat, text)
-    used jagodka/monitor.lua:586  Save(ok and kind or "error", ok and text or ("Could not read " .. kind .. ": " .. tostring(text)))
-    used jagodka/professions.lua:65  local lastError = nil  -- the last error reading own professions, logged once
-    used jagodka/professions.lua:150  if addonTable.Monitor and payload ~= lastError then addonTable.Monitor.Error("Reading own professions failed: " .. tostring(payload)) end
-    used jagodka/releasenotes.lua:246  "The addon keeps working after an unexpected error: every part of it is protected, so one error no longer stops the online signal, the chat channels or the list...
-    used jagodka/releasenotes.lua:251  "Every error is recorded in Monitoring with the file and line, so it can be fixed quickly.",
-    used jagodka/releasenotes.lua:369  "Fixed a rare error when signing up for an event.",
+    used jagodka/monitor.lua:112  Save(err and "error" or cat, text)
+    used jagodka/monitor.lua:613  Save(ok and kind or "error", ok and text or ("Could not read " .. kind .. ": " .. tostring(text)))
+    used jagodka/professions.lua:66  local lastError = nil  -- the last error reading own professions, logged once
+    used jagodka/professions.lua:152  if addonTable.Monitor and payload ~= lastError then addonTable.Monitor.Error("Reading own professions failed: " .. tostring(payload)) end
+    used jagodka/releasenotes.lua:258  "The addon keeps working after an unexpected error: every part of it is protected, so one error no longer stops the online signal, the chat channels or the list...
+    used jagodka/releasenotes.lua:263  "Every error is recorded in Monitoring with the file and line, so it can be fixed quickly.",
+    used jagodka/releasenotes.lua:381  "Fixed a rare error when signing up for an event.",
     used jagodka/roster.lua:136  if not ok and addonTable.Monitor then addonTable.Monitor.Error("Reading the guild roster failed: " .. tostring(err)) end
     used ... 17 uses in total
 exp	global		ForeverAPI	function
@@ -40958,11 +40959,11 @@ forceinsecure	global		ForeverAPI	wiki signature (vscode-wow-api)
 foreach	global		ForeverAPI	function
 foreachi	global		ForeverAPI	function
 format	global	Jagodka	ForeverAPI	function
-    used jagodka/bridge.lua:1131  if not e then Count(debug.rejected, "bad format") return true end
-    used jagodka/help.lua:988  local function Format(lines)
-    used jagodka/help.lua:1071  text:SetText(Format(topic[lang]))
-    used jagodka/help.lua:1093  measure:SetText(Format(before))
-    used jagodka/releasenotes.lua:439  "Cleaner chat format with guild tags, levels and class colors.",
+    used jagodka/bridge.lua:1148  if not e then Count(debug.rejected, "bad format") return true end
+    used jagodka/help.lua:992  local function Format(lines)
+    used jagodka/help.lua:1075  text:SetText(Format(topic[lang]))
+    used jagodka/help.lua:1097  measure:SetText(Format(before))
+    used jagodka/releasenotes.lua:451  "Cleaner chat format with guild tags, levels and class colors.",
     used jagodka/roster.lua:971  local function ToPattern(format)
     used jagodka/roster.lua:972  if not format then return nil end
     used jagodka/roster.lua:973  local marked = format:gsub("%%s", "\1")
@@ -40977,8 +40978,8 @@ getn	global		ForeverAPI	function
 gmatch	global	Jagodka	ForeverAPI	function
     used jagodka/armory.lua:32  for part in name:gmatch("[^%s%-]+") do parts[#parts + 1] = part end
     used jagodka/bridge.lua:190  for ch in tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-    used jagodka/bridge.lua:463  for word in text:sub(pos, plainEnd):gmatch("[^ ]* *") do
-    used jagodka/bridge.lua:1412  for raw in tostring(list or ""):gmatch("[^,]+") do
+    used jagodka/bridge.lua:480  for word in text:sub(pos, plainEnd):gmatch("[^ ]* *") do
+    used jagodka/bridge.lua:1439  for raw in tostring(list or ""):gmatch("[^,]+") do
     used jagodka/core.lua:75  for n in tostring(a):gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
     used jagodka/core.lua:76  for n in tostring(b):gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
     used jagodka/discord.lua:197  for item in payload:gmatch("[^;]+") do
@@ -41000,7 +41001,7 @@ gsub	global	Jagodka	ForeverAPI	function
     used jagodka/bridge.lua:156  return s and (s:gsub("|", ""))
     used jagodka/bridge.lua:168  return not inner:gsub("|A[^|]*|a", ""):find("|", 1, true)
     used jagodka/bridge.lua:178  table.insert(out, (text:sub(pos, s and (s - 1) or #text):gsub("|", "")))
-    used jagodka/bridge.lua:585  part = part:gsub("%[%[(%d+)%] ([^%[%]|]-) %((%d+)%)%]", function(level, name, id)
+    used jagodka/bridge.lua:602  part = part:gsub("%[%[(%d+)%] ([^%[%]|]-) %((%d+)%)%]", function(level, name, id)
     used ... 50 uses in total
 hooksecurefunc	global	Jagodka	ForeverAPI	wiki signature (vscode-wow-api)
     arg tbl : table
@@ -41033,7 +41034,7 @@ ipairs	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:345  for _, p in ipairs(db.posts) do
     used jagodka/announcements.lua:580  for _, chip in ipairs(chips) do
     used jagodka/announcements.lua:588  for _, t in ipairs(TAGS) do table.insert(chipDefs, t) end
-    used ... 398 uses in total
+    used ... 400 uses in total
 issecure	global		ForeverAPI	wiki signature (vscode-wow-api)
     ret secure : boolean
 issecurevalue	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -41048,28 +41049,28 @@ issecurevariable	global		ForeverAPI	wiki signature (vscode-wow-api)
 ldexp	global		ForeverAPI	function
 loadstring	global		ForeverAPI	function
 log	global	Jagodka	ForeverAPI	function
-    used jagodka/bridge.lua:1695  local saved = _G.JagodkiChatDB.log or {}
-    used jagodka/bridge.lua:1705  _G.JagodkiChatDB.log = chatLog
+    used jagodka/bridge.lua:1722  local saved = _G.JagodkiChatDB.log or {}
+    used jagodka/bridge.lua:1732  _G.JagodkiChatDB.log = chatLog
+    used jagodka/events.lua:98  local unknownNoted = {}       -- event id -> true once its unknown author is in the log (1.3.1)
     used jagodka/guildcleanup.lua:454  hint:SetText("Only the guild you are logged in on. For another guild, log in there.")
     used jagodka/help.lua:99  "- *Shift + click* an item in your bags, a quest in your quest log or tracker (or a link in any chat) to put its link in the message. Questie's quest text, like...
-    used jagodka/help.lua:635  "2. In the game type */reload* (or log in again).",
-    used jagodka/help.lua:735  "A player who passes the addon's data (events, lists, professions) between guilds, chosen by the addon itself, one per guild. You do not have to do anything; wh...
-    used jagodka/help.lua:899  "- Everything else (events, rosters, professions, mutes) goes inside each guild, and one player per guild, the *relay*, passes it on to the other guilds. The re...
-    used jagodka/help.lua:902  "# The log",
-    used jagodka/help.lua:913  "- The *Network* button opens it, a filter goes back to the log. Guilds and their relays, your direct traffic, your guild's players per addon version, other gui...
-    used jagodka/help.lua:920  "- *Preserve logs* records the log into a file (up to 100 000 lines, with the box at the bottom every minute and the Network view every 5 minutes). The game wri...
-    used jagodka/help.lua:921  "- Turning it on starts a new log (the previous one is removed at once). When something does not work: turn it on, play as usual, note the time of the problem, ...
-    used jagodka/help.lua:927  "- *Guild cleanup...* (Officer actions): a window with the members of the guild you are logged in on, the longest offline first (online at the end), a list like...
-    used ... 50 uses in total
+    used jagodka/help.lua:639  "2. In the game type */reload* (or log in again).",
+    used jagodka/help.lua:739  "A player who passes the addon's data (events, lists, professions) between guilds, chosen by the addon itself, one per guild. You do not have to do anything; wh...
+    used jagodka/help.lua:903  "- Everything else (events, rosters, professions, mutes) goes inside each guild, and one player per guild, the *relay*, passes it on to the other guilds. The re...
+    used jagodka/help.lua:906  "# The log",
+    used jagodka/help.lua:917  "- The *Network* button opens it, a filter goes back to the log. Guilds and their relays, your direct traffic, your guild's players per addon version, other gui...
+    used jagodka/help.lua:924  "- *Preserve logs* records the log into a file (up to 150 000 lines, with the box at the bottom every minute and the Network view every 5 minutes). The game wri...
+    used jagodka/help.lua:925  "- Turning it on starts a new log (the previous one is removed at once). When something does not work: turn it on, play as usual, note the time of the problem, ...
+    used ... 52 uses in total
 log10	global		ForeverAPI	function
 max	global	Jagodka	ForeverAPI	function
     used jagodka/core.lua:686  local max, offset = MaxRange(), chatDisplay:GetScrollOffset() or 0
     used jagodka/core.lua:688  bar:SetMinMaxValues(0, max)
     used jagodka/core.lua:689  bar:SetValue(max - offset)
     used jagodka/core.lua:691  up:SetEnabled(offset < max)
-    used jagodka/monitor.lua:367  local waitText = (#stats.waits > 0) and string.format("   |cffffd100Wait (5 min):|r avg %.1f s, max %.0f s", waitSum / #stats.waits, waitMax) or ""
-    used jagodka/professions.lua:63  local known = {}       -- name -> { p = { code = { rank, max } }, ts = time }; JagodkiChatDB.professions
-    used jagodka/professions.lua:416  table.insert(list, { name = DisplayName(def), icon = IconOf(def), rank = value[1], max = value[2], primary = def.primary })
+    used jagodka/monitor.lua:394  local waitText = (#stats.waits > 0) and string.format("   |cffffd100Wait (5 min):|r avg %.1f s, max %.0f s", waitSum / #stats.waits, waitMax) or ""
+    used jagodka/professions.lua:64  local known = {}       -- name -> { p = { code = { rank, max } }, ts = time }; JagodkiChatDB.professions
+    used jagodka/professions.lua:433  table.insert(list, { name = DisplayName(def), icon = IconOf(def), rank = value[1], max = value[2], primary = def.primary })
     used jagodka/safe.lua:66  for where, p in pairs(perf.places) do table.insert(list, { where = where, n = p.n, total = p.total, max = p.max }) end
     used jagodka/safe.lua:83  if not p then p = { n = 0, total = 0, max = 0 } perf.places[where] = p end
     used jagodka/sync.lua:34  channel = { max = 40 },
@@ -41079,30 +41080,30 @@ max	global	Jagodka	ForeverAPI	function
 min	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:501  elseif ago < 3600 then return text .. " (" .. math.floor(ago / 60) .. " min ago)"
     used jagodka/bridge.lua:304  local MAX_LOCKS = 600        -- a packet blocked this many times (about 30 min) is given up
-    used jagodka/bridge.lua:1013  local function AtLeast(version, min)
-    used jagodka/bridge.lua:1015  local b = { min:match("^(%d+)%.(%d+)%.(%d+)") }
-    used jagodka/bridge.lua:1056  if addonTable.Monitor then addonTable.Monitor.Note(quiet and "Quiet online signals on: only the first " .. QUIET_FAST .. " names of the guild signal every minut...
-    used jagodka/bridge.lua:1498  local REFUSAL_REPORT_EVERY = 1800   -- 0.15.5: every 30 min while it lasts (was 10; a refused player is still fine, the chat goes through the guilds)
-    used jagodka/bridge.lua:1547  table.insert(lines, MyName() .. " (me, " .. tostring(_G.GetNormalizedRealmName and _G.GetNormalizedRealmName()) .. "): " .. tostring(myRefusal.reason) .. ", " ....
-    used jagodka/bridge.lua:1551  else table.insert(lines, name .. " (" .. Most.GuildTag(r.guild) .. ", " .. r.realm .. "): " .. r.reason .. ", " .. r.tries .. " tries, reported " .. math.floor(...
+    used jagodka/bridge.lua:1030  local function AtLeast(version, min)
+    used jagodka/bridge.lua:1032  local b = { min:match("^(%d+)%.(%d+)%.(%d+)") }
+    used jagodka/bridge.lua:1073  if addonTable.Monitor then addonTable.Monitor.Note(quiet and "Quiet online signals on: only the first " .. QUIET_FAST .. " names of the guild signal every minut...
+    used jagodka/bridge.lua:1525  local REFUSAL_REPORT_EVERY = 1800   -- 0.15.5: every 30 min while it lasts (was 10; a refused player is still fine, the chat goes through the guilds)
+    used jagodka/bridge.lua:1574  table.insert(lines, MyName() .. " (me, " .. tostring(_G.GetNormalizedRealmName and _G.GetNormalizedRealmName()) .. "): " .. tostring(myRefusal.reason) .. ", " ....
+    used jagodka/bridge.lua:1578  else table.insert(lines, name .. " (" .. Most.GuildTag(r.guild) .. ", " .. r.realm .. "): " .. r.reason .. ", " .. r.tries .. " tries, reported " .. math.floor(...
     used jagodka/core.lua:903  if onChannel then tip:AddLine(onChannel .. " on the chat channel on your part of the server (" .. math.floor(age / 60) .. " min ago)", 0.6, 0.6, 0.6, true) end
     used jagodka/core.lua:1666  local agoText = not ago and "never synced" or (ago < 3600 and (math.floor(ago / 60) .. " min ago") or (ago < 86400 and (math.floor(ago / 3600) .. " h ago") or (...
-    used jagodka/core.lua:3943  row.status:SetText(not ago and "no data" or (ago < 3600 and (math.floor(ago / 60) .. " min ago") or (math.floor(ago / 3600) .. " h ago")))
-    used jagodka/events.lua:125  return time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = tonumber(h), min = tonumber(mi) })
-    used ... 33 uses in total
+    used jagodka/core.lua:3951  row.status:SetText(not ago and "no data" or (ago < 3600 and (math.floor(ago / 60) .. " min ago") or (math.floor(ago / 3600) .. " h ago")))
+    used jagodka/events.lua:138  return time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = tonumber(h), min = tonumber(mi) })
+    used ... 34 uses in total
 mod	global		ForeverAPI	function
 newproxy	global		ForeverAPI	function
 next	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:635  pager.next:SetText("Next >")
     used jagodka/bridge.lua:307  local nextToTarget = {}      -- player key -> earliest time of the next whisper to them
-    used jagodka/bridge.lua:1363  return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
+    used jagodka/bridge.lua:1390  return ctx ~= nil and _G.next(OtherGuildRelays()) ~= nil
     used jagodka/core.lua:606  tip:AddLine((#later == 0) and "This is its last week." or ("Next: " .. table.concat(short, ", ")), 0.8, 0.8, 0.8, true)
     used jagodka/core.lua:607  tip:AddLine("Sign-ups are for " .. tostring(ev.date):gsub("%.%d%d%d%d$", "") .. "; the next week starts with an empty list.", 0.6, 0.6, 0.6, true)
     used jagodka/core.lua:1152  membersView.filters[key] = next(set) and set or nil
     used jagodka/core.lua:1418  Fit("name", p.name, 25) -- room for the mute icon, plus 10 px so a long name does not touch the next column
     used jagodka/core.lua:2201  when = function() return { { text = "When" }, { value = "today", text = "Today" }, { value = "tomorrow", text = "Tomorrow" }, { value = "week", text = "Next 7 d...
     used jagodka/core.lua:2244  eventsView.filters.guild = next(set) and set or nil
-    used jagodka/core.lua:2929  text = "Weekly event: only " .. oldDate:gsub("%.%d%d%d%d$", "") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where .. ", next " .. ev.date:gs...
+    used jagodka/core.lua:2932  text = "Weekly event: only " .. oldDate:gsub("%.%d%d%d%d$", "") .. " cancelled by " .. myName .. " -> " .. ev.title .. " : " .. where .. ", next " .. nextDate:g...
     used jagodka/events.lua:45  local ipairs, pairs, tostring, tonumber, type, next = _G.ipairs, _G.pairs, _G.tostring, _G.tonumber, _G.type, _G.next
     used jagodka/help.lua:49  "- *Officers* also see the addon's own *CPU* (its share of the game's frame time) and *RAM* there, next to *Online*, refreshed every 5 seconds.",
     used ... 37 uses in total
@@ -41112,26 +41113,26 @@ pairs	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:288  for _, r in pairs(db.removed) do n = math.max(n, type(r) == "table" and r.ts or 0) end
     used jagodka/announcements.lua:322  for id, r in pairs(db.removed) do
     used jagodka/bridge.lua:32  local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber
-    used jagodka/bridge.lua:431  for _, bucket in pairs(buckets) do bucket.tokens = math.min(bucket.cap, bucket.tokens + bucket.rate * elapsed) end
-    used jagodka/bridge.lua:782  for i in pairs(p.got) do shownIncomplete[id][i] = true end
-    used jagodka/bridge.lua:1247  for _, relay in pairs(OtherGuildRelays()) do
-    used jagodka/bridge.lua:1259  for _, relay in pairs(OtherGuildRelays()) do
-    used jagodka/bridge.lua:1341  for k, s in pairs(recentReposts) do if now - s.at >= REPOST_SAME_WINDOW then recentReposts[k] = nil else recentRepostCount = recentRepostCount + 1 end end
-    used jagodka/bridge.lua:1446  for t, tag in pairs(TAB_TAGS) do
-    used jagodka/bridge.lua:1549  for name, r in pairs(refusals) do
-    used ... 147 uses in total
+    used jagodka/bridge.lua:448  for _, bucket in pairs(buckets) do bucket.tokens = math.min(bucket.cap, bucket.tokens + bucket.rate * elapsed) end
+    used jagodka/bridge.lua:799  for i in pairs(p.got) do shownIncomplete[id][i] = true end
+    used jagodka/bridge.lua:1264  for _, relay in pairs(OtherGuildRelays()) do
+    used jagodka/bridge.lua:1276  for _, relay in pairs(OtherGuildRelays()) do
+    used jagodka/bridge.lua:1304  for k, at in pairs(ownEcho) do if now - at > 120 then ownEcho[k] = nil else ownEchoCount = ownEchoCount + 1 end end
+    used jagodka/bridge.lua:1368  for k, s in pairs(recentReposts) do if now - s.at >= REPOST_SAME_WINDOW then recentReposts[k] = nil else recentRepostCount = recentRepostCount + 1 end end
+    used jagodka/bridge.lua:1473  for t, tag in pairs(TAB_TAGS) do
+    used ... 155 uses in total
 pcall	global	Jagodka	ForeverAPI	function
     used jagodka/channelorder.lua:175  local ok, err = pcall(swap, ours.id, other.id)
     used jagodka/chattab.lua:202  local ok, err = pcall(fn, ...)
     used jagodka/core.lua:805  pcall(blurWatcher.RegisterEvent, blurWatcher, "GLOBAL_MOUSE_DOWN")
-    used jagodka/core.lua:3303  pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
-    used jagodka/core.lua:4051  local ok, mine, app = pcall(function() return P.GetAddOnMetric(addonName, M.RecentAverageTime), P.GetApplicationMetric(M.RecentAverageTime) end)
+    used jagodka/core.lua:3311  pcall(watcher.RegisterEvent, watcher, "GLOBAL_MOUSE_DOWN")
+    used jagodka/core.lua:4059  local ok, mine, app = pcall(function() return P.GetAddOnMetric(addonName, M.RecentAverageTime), P.GetApplicationMetric(M.RecentAverageTime) end)
     used jagodka/guildcleanup.lua:109  local ok, err = pcall(function()
     used jagodka/monitor.lua:26  local pcall = _G.pcall
-    used jagodka/monitor.lua:197  local ok, detail = pcall(Detail, pType, payload)
-    used jagodka/monitor.lua:585  local ok, text = pcall(build)
+    used jagodka/monitor.lua:224  local ok, detail = pcall(Detail, pType, payload)
+    used jagodka/monitor.lua:612  local ok, text = pcall(build)
     used jagodka/professions.lua:23  local ipairs, pairs, tonumber, tostring, type, pcall, select = _G.ipairs, _G.pairs, _G.tonumber, _G.tostring, _G.type, _G.pcall, _G.select
-    used jagodka/professions.lua:148  local ok, payload = pcall(SaveOwn)
+    used jagodka/professions.lua:150  local ok, payload = pcall(SaveOwn)
     used jagodka/roster.lua:26  local pairs, ipairs, tostring, tonumber, pcall = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber, _G.pcall
     used ... 28 uses in total
 pcallwithenv	global		ForeverAPI	wiki signature (vscode-wow-api)
@@ -41162,22 +41163,22 @@ select	global	Jagodka	ForeverAPI	function
     used jagodka/bridge.lua:31  local select = _G.select
     used jagodka/bridge.lua:98  for i = 1, select("#", ...) do
     used jagodka/bridge.lua:99  if issecretvalue((select(i, ...))) then return true end
-    used jagodka/bridge.lua:1479  local name = select(9, ...)
-    used jagodka/bridge.lua:1606  if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, (select(7, ...)), (select(9, ...))) then return end
-    used jagodka/bridge.lua:1616  local name = select(7, ...)
-    used jagodka/bridge.lua:1618  HandleChannelMessage(arg1, arg2, select(9, ...), false)
-    used jagodka/bridge.lua:1620  HandleChannelMessage(arg1, arg2, select(9, ...), true)
-    used jagodka/bridge.lua:1623  addonTable.Officers.HandleMessage(arg1, arg2, select(9, ...))
-    used jagodka/bridge.lua:1628  local name = select(7, ...)
-    used jagodka/bridge.lua:1637  local base = select(7, ...)
-    used jagodka/bridge.lua:1642  local actor = select(3, ...)
+    used jagodka/bridge.lua:1506  local name = select(9, ...)
+    used jagodka/bridge.lua:1633  if event ~= "ADDON_LOADED" and Most.IsSecret(arg1, arg2, (select(7, ...)), (select(9, ...))) then return end
+    used jagodka/bridge.lua:1643  local name = select(7, ...)
+    used jagodka/bridge.lua:1645  HandleChannelMessage(arg1, arg2, select(9, ...), false)
+    used jagodka/bridge.lua:1647  HandleChannelMessage(arg1, arg2, select(9, ...), true)
+    used jagodka/bridge.lua:1650  addonTable.Officers.HandleMessage(arg1, arg2, select(9, ...))
+    used jagodka/bridge.lua:1655  local name = select(7, ...)
+    used jagodka/bridge.lua:1664  local base = select(7, ...)
+    used jagodka/bridge.lua:1669  local actor = select(3, ...)
     used ... 27 uses in total
 setfenv	global		ForeverAPI	function
 setmetatable	global	Jagodka	ForeverAPI	function
     used jagodka/chattab.lua:199  local modeOf = setmetatable({}, { __mode = "k" })   -- input -> mode key (missing = General)
     used jagodka/core.lua:1358  menuMember = setmetatable({ row = self }, { __index = m })
-    used jagodka/core.lua:3033  local unreadByArrival = setmetatable({}, { __mode = "k" })   -- entry -> tab: arrived while its tab was not shown
-    used jagodka/core.lua:3552  local copy = setmetatable({ date = later, repeatOf = ev }, { __index = ev })
+    used jagodka/core.lua:3041  local unreadByArrival = setmetatable({}, { __mode = "k" })   -- entry -> tab: arrived while its tab was not shown
+    used jagodka/core.lua:3560  local copy = setmetatable({ date = later, repeatOf = ev }, { __index = ev })
 setsecurehookforbidden	global		ForeverAPI	wiki signature (vscode-wow-api)
 sort	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:113  local function Sort()
@@ -41189,8 +41190,8 @@ sort	global	Jagodka	ForeverAPI	function
     used jagodka/guildcleanup.lua:359  Sort()
     used jagodka/help.lua:215  "- *Click a column header* to sort by it, again for the reverse order, a third time back to the default (online first, then guild and name).",
     used jagodka/help.lua:267  "- *Click a column header* to sort, *Reset* clears it all, 50 events per page.",
-    used jagodka/help.lua:393  "- *Search* by the player's name or the note; click a column to sort.",
-    used jagodka/help.lua:927  "- *Guild cleanup...* (Officer actions): a window with the members of the guild you are logged in on, the longest offline first (online at the end), a list like...
+    used jagodka/help.lua:397  "- *Search* by the player's name or the note; click a column to sort.",
+    used jagodka/help.lua:931  "- *Guild cleanup...* (Officer actions): a window with the members of the guild you are logged in on, the longest offline first (online at the end), a list like...
     used jagodka/lfg.lua:1120  { key = "name", title = "Player", sort = "name" }, { key = "level", title = "Lvl", sort = "level" }, { key = "guild", title = "Guild", sort = "guild" },
     used ... 13 uses in total
 sqrt	global		ForeverAPI	function
@@ -41212,14 +41213,14 @@ strsplit	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:395  local id, rev, idx, chunk = strsplit(":", payload, 4)
     used jagodka/announcements.lua:411  local id, ts, by = strsplit(":", payload, 3)
     used jagodka/bridge.lua:29  local strsplit = _G.strsplit
-    used jagodka/bridge.lua:748  local id, ts, guild, author, tab, src, text = strsplit(":", payload, 7)
-    used jagodka/bridge.lua:1202  return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"
-    used jagodka/bridge.lua:1280  local pType, rest = strsplit(":", text, 2)
-    used jagodka/bridge.lua:1298  local origin, inner = strsplit(":", rest or "", 2)
-    used jagodka/bridge.lua:1317  local innerType, innerGuild = strsplit(":", inner, 3)
-    used jagodka/bridge.lua:1528  local flag, reason, tries, realm = strsplit(":", payload, 4)
+    used jagodka/bridge.lua:765  local id, ts, guild, author, tab, src, text = strsplit(":", payload, 7)
+    used jagodka/bridge.lua:1219  return LIVE_PACKETS[(strsplit(":", text, 2))] and "high" or "low"
+    used jagodka/bridge.lua:1307  local pType, rest = strsplit(":", text, 2)
+    used jagodka/bridge.lua:1325  local origin, inner = strsplit(":", rest or "", 2)
+    used jagodka/bridge.lua:1344  local innerType, innerGuild = strsplit(":", inner, 3)
+    used jagodka/bridge.lua:1555  local flag, reason, tries, realm = strsplit(":", payload, 4)
     used jagodka/core.lua:14  local strsplit = _G.strsplit
-    used ... 46 uses in total
+    used ... 50 uses in total
 strsplittable	global		ForeverAPI	function
 strsub	global		ForeverAPI	function
 strtrim	global		ForeverAPI	function
@@ -41231,10 +41232,10 @@ tUnorderedRemove	global		ForeverAPI	function
 time	global	Jagodka	ForeverAPI	function
     used jagodka/bridge.lua:291  local whisperedAt = {}              -- name -> time of the last addon whisper (to recognize "player offline")
     used jagodka/bridge.lua:307  local nextToTarget = {}      -- player key -> earliest time of the next whisper to them
-    used jagodka/bridge.lua:622  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
-    used jagodka/bridge.lua:623  return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), note)
-    used jagodka/bridge.lua:634  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
-    used jagodka/bridge.lua:635  return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), text)
+    used jagodka/bridge.lua:639  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
+    used jagodka/bridge.lua:640  return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), note)
+    used jagodka/bridge.lua:651  local time = showTime and ("|cff808080" .. date("%H:%M", e.ts) .. "|r ") or ""
+    used jagodka/bridge.lua:652  return string.format("%s%s %s: %s", time, GuildLabel(e.guild), AuthorLabel(e.author), text)
     used jagodka/core.lua:613  return time({ year = tonumber(y) or tonumber(date("%Y")), month = tonumber(m), day = tonumber(d), hour = 12 })
     used jagodka/core.lua:1988  { name = "Time", key = "time", field = "timeText" },
     used jagodka/core.lua:2326  elseif key and key ~= "date" and key ~= "time" then
@@ -41254,9 +41255,9 @@ tonumber	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:443  HandleRequest(senderName, tonumber(payload) or 0, Most.FindKnownPlayer(senderName) and "1.1.1" or BEACON_MIN)
     used jagodka/announcements.lua:448  local newest = tonumber(payload) or 0
     used jagodka/bridge.lua:32  local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber
-    used jagodka/bridge.lua:528  if p.name == name then return p.class, tonumber(p.level) end
-    used jagodka/bridge.lua:663  return tonumber(a) * 1000000 + tonumber(b) * 1000 + tonumber(c)
-    used ... 98 uses in total
+    used jagodka/bridge.lua:545  if p.name == name then return p.class, tonumber(p.level) end
+    used jagodka/bridge.lua:680  return tonumber(a) * 1000000 + tonumber(b) * 1000 + tonumber(c)
+    used ... 100 uses in total
 tostring	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:25  local ipairs, pairs, tostring, tonumber, type = _G.ipairs, _G.pairs, _G.tostring, _G.tonumber, _G.type
     used jagodka/announcements.lua:208  Out("AH", table.concat({ Enc(p.id), tostring(p.rev), Enc((p.editor and p.editor ~= p.author) and p.editor or ""), Enc(p.author),
@@ -41270,7 +41271,7 @@ tostring	global	Jagodka	ForeverAPI	function
     used jagodka/bridge.lua:32  local pairs, ipairs, tostring, tonumber = _G.pairs, _G.ipairs, _G.tostring, _G.tonumber
     used jagodka/bridge.lua:108  return (tostring(s or ""):gsub("%%", "%%25"):gsub(":", "%%3A"):gsub("\n", "%%0A"))
     used jagodka/bridge.lua:190  for ch in tostring(text or ""):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-    used ... 183 uses in total
+    used ... 185 uses in total
 tremove	global		ForeverAPI	function
 type	global	Jagodka	ForeverAPI	function
     used jagodka/announcements.lua:25  local ipairs, pairs, tostring, tonumber, type = _G.ipairs, _G.pairs, _G.tostring, _G.tonumber, _G.type
@@ -41285,12 +41286,12 @@ type	global	Jagodka	ForeverAPI	function
     used jagodka/armory.lua:30  if type(name) ~= "string" then return nil end
     used jagodka/armory.lua:120  if type(name) ~= "string" or name == "" then return end
     used jagodka/bridge.lua:222  if cf and type(cf.RemoveChannel) == "function" then cf:RemoveChannel(name)
-    used ... 100 uses in total
+    used ... 103 uses in total
 unpack	global	Jagodka	ForeverAPI	function
     used jagodka/core.lua:16  local unpack = _G.unpack
     used jagodka/core.lua:1529  row.classIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[data.class])) row.classIcon:Show()
-    used jagodka/core.lua:3849  if CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class] then cell.icon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[class])) end
-    used jagodka/core.lua:4009  row.classIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[data.class])) row.classIcon:Show()
+    used jagodka/core.lua:3857  if CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class] then cell.icon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[class])) end
+    used jagodka/core.lua:4017  row.classIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[data.class])) row.classIcon:Show()
     used jagodka/safe.lua:94  return _G.unpack(result, 2)
     used jagodka/themes.lua:527  if on or hov then chip.text:SetTextColor(Color(TAB_GOLD)) else chip.text:SetTextColor(unpack(chip.fcolor)) end
 wipe	global	Jagodka	ForeverAPI	function
@@ -41298,12 +41299,12 @@ wipe	global	Jagodka	ForeverAPI	function
     used jagodka/core.lua:1221  wipe(membersView.filters)
     used jagodka/core.lua:1541  wipe(filteredPlayers)
     used jagodka/core.lua:2362  wipe(eventsView.filters)
-    used jagodka/core.lua:4229  wipe(myGuildRoster)
+    used jagodka/core.lua:4237  wipe(myGuildRoster)
     used jagodka/guildcleanup.lua:99  wipe(members)
     used jagodka/monitor.lua:29  local table, math, string, wipe = _G.table, _G.math, _G.string, _G.wipe
-    used jagodka/monitor.lua:638  wipe(savedLog.lines)
-    used jagodka/monitor.lua:651  wipe(savedLog.lines)
-    used jagodka/monitor.lua:828  clear:SetScript("OnClick", function() wipe(entries) Rebuild() end)
+    used jagodka/monitor.lua:665  wipe(savedLog.lines)
+    used jagodka/monitor.lua:678  wipe(savedLog.lines)
+    used jagodka/monitor.lua:855  clear:SetScript("OnClick", function() wipe(entries) Rebuild() end)
     used jagodka/notes.lua:23  local wipe = _G.wipe
     used jagodka/notes.lua:244  wipe(ownNotes)
     used ... 16 uses in total

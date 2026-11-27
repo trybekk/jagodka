@@ -29,7 +29,10 @@ local ipairs, pairs, tostring, tonumber = _G.ipairs, _G.pairs, _G.tostring, _G.t
 local table, math, string, wipe = _G.table, _G.math, _G.string, _G.wipe
 
 local LOG_SIZE = 1000
-local SAVED_LOG_SIZE = 100000      -- entries in the saved log; the oldest are overwritten
+-- entries in the saved log; the oldest are overwritten. 1.3.1: 150000 (user: "zwiększ liczbę logów do 150k"; the
+-- 27.11 log had 99478 of 100000 after about 24 h). A ring saved with the old size goes on as is: the new slots
+-- after the old end are filled first, and the order from nextIndex stays right.
+local SAVED_LOG_SIZE = 150000
 local SAVE_STATE_INTERVAL = 60    -- how often the saved log gets the statistics (s)
 local SAVE_NETWORK_INTERVAL = 300 -- how often it gets the Network view, which is long (s)
 local STATS_HEIGHT = 220
@@ -48,6 +51,7 @@ local TYPES = {
     EV_SIGN = { "events", "sign-up" }, EV_SPEC = { "events", "sign-up spec" }, EV_RL = { "events", "raid leader mark" }, EV_KICK = { "events", "removal from event" },
     EH = { "events", "event" }, ED = { "events", "event description" }, ES = { "events", "sign-up" }, EK = { "events", "taken off an event" },
     EX = { "events", "event cancelled" }, EQ = { "events", "events sync request" }, EC = { "events", "events sync taken" },
+    EG = { "events", "events request from a new relay of another guild" },
     AH = { "events", "announcement" }, AB = { "events", "announcement text" }, AX = { "events", "announcement deleted" },
     AQ = { "events", "announcements sync request" }, AC = { "events", "announcements sync taken" },
     AO = { "events", "announcements sync request to other guilds" },
@@ -146,10 +150,24 @@ local function Field(s)
     return s and Most.Plain(Most.DecodeField(s)) or "?"
 end
 
+-- 1.3.1: for event packets, how long ago the change was made (the author's server time in the packet), like
+-- "written N s ago" for chat, so a log shows how long an event takes between guilds; and the event's title
+-- when it is known here (sign-ups, removals and cancellations carry only its id)
+local function ChangedAgo(ts)
+    ts = tonumber(ts)
+    if not ts or not _G.GetServerTime then return "" end
+    return ", changed " .. math.max(0, _G.GetServerTime() - ts) .. " s ago"
+end
+local function EventTitle(id)
+    local Events, Most = addonTable.Events, addonTable.Most
+    local ev = Events and Events.Find and id and Events.Find(Most.DecodeField(id) or "")
+    return ev and ev.title and Most.Plain(ev.title) or nil
+end
+
 -- What the packet is about. Never the text of a message, description or note.
 local function Detail(pType, payload)
     if not payload or payload == "" then return nil end
-    local a, b, c, d, e, f = strsplit(":", payload, 7)
+    local a, b, c, d, e, f, g = strsplit(":", payload, 8)
     if pType == "GMSG" or pType == "HIST" then
         local text = Field(d) .. ", " .. Field(c) .. ", tab " .. Field(e)
         -- 1.1.5: how old a live message is when it goes out / arrives (the author's server time), so logs show
@@ -181,10 +199,19 @@ local function Detail(pType, payload)
     if pType == "NREQ" or pType == "NOTE" then return Field(a) end
     -- The key itself never goes to the log (saved logs are sent around for analysis)
     if pType == "KEY" or pType == "OKEY" then return "by " .. Field(c) end
-    if pType == "EH" then return Field(f) .. ", by " .. Field(d) end
-    if pType == "ES" then return Field(b) .. ", " .. Field(e) end
-    if pType == "EK" then return Field(b) .. ", by " .. Field(d) end
-    if pType == "EX" then return "by " .. Field(c) end
+    if pType == "EH" then return Field(f) .. ", by " .. Field(d) .. ChangedAgo(b) end
+    if pType == "ES" then
+        local title = EventTitle(a)
+        return Field(b) .. ", " .. Field(e) .. (title and (", " .. title) or "") .. ChangedAgo(g)
+    end
+    if pType == "EK" then
+        local title = EventTitle(a)
+        return Field(b) .. ", by " .. Field(d) .. (title and (", " .. title) or "") .. ChangedAgo(c)
+    end
+    if pType == "EX" then
+        local title = EventTitle(a)
+        return (title and (title .. ", ") or "") .. "by " .. Field(c) .. ChangedAgo(b)
+    end
     if pType == "EQ" then local since = tonumber(a) or 0 return since > 0 and ("newer than " .. date("%d.%m %H:%M", since)) or "everything" end
     if pType == "LF" then return Field(a) end
     if pType == "LX" or pType == "LC" then return Field(a) end

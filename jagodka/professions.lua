@@ -27,6 +27,7 @@ local Most = addonTable.Most
 
 local CHECK_INTERVAL = 60    -- how often we check our own skills (s)
 local SEND_INTERVAL = 600    -- a change of our own skills is sent at most this often (s)
+local RESEND_AFTER = 6 * 3600 -- 1.3.1: the same skills as last session are not sent again at login, unless this old (s)
 local FIRST_SEND_DELAY = 6   -- first send after login (s)
 local SYNC_REQUEST_DELAY = 10 -- after login we ask a guildmate for the professions we do not have yet (s)
 local SYNC_RETRY_AFTER = 25  -- no answer after this many seconds: we ask again
@@ -64,6 +65,7 @@ local known = {}       -- name -> { p = { code = { rank, max } }, ts = time }; J
 local lastSent = nil   -- the last payload sent over GUILD
 local lastError = nil  -- the last error reading own professions, logged once
 local lastSentAt = 0   -- when lastSent went out
+local lastGuild = nil  -- 1.3.1: the guild lastSent went to (PLAYER_GUILD_UPDATE fires often, not only on a new guild)
 
 -- Spell name and icon: GetSpellInfo on older clients, C_Spell.GetSpellInfo (a table) on newer ones (it may
 -- be missing on WoW Forever); without either, the English name and a question mark
@@ -160,7 +162,22 @@ local function SendOwnIfChanged()
     if payload ~= lastSent then
         if ctx.onChanged then ctx.onChanged() end
         if lastSent and GetTime() - lastSentAt < SEND_INTERVAL then return end
-        lastSent, lastSentAt = payload, GetTime()
+        -- 1.3.1 (user: "zmniejszmy te profesje na rzecz eventów"; log 27.11: PROF was about a quarter of all
+        -- packets, most of them passed on by the relays to every guild): the same skills as sent last session
+        -- to the same guild, not long ago, are not sent again at login (the guild and the other guilds have
+        -- them saved; a new player gets them from the sync after login)
+        -- (per character: JagodkiChatDB is shared by the account's characters)
+        local guild, me = GetGuildInfo("player"), Most.MyName()
+        local db = _G.JagodkiChatDB
+        if db and type(db.profSent) ~= "table" then db.profSent = {} end
+        local saved = db and db.profSent[me]
+        if not lastSent and type(saved) == "table" and saved.payload == payload and saved.guild == guild
+            and GetServerTime() - (saved.at or 0) < RESEND_AFTER then
+            lastSent, lastSentAt, lastGuild = payload, GetTime(), guild
+            return
+        end
+        lastSent, lastSentAt, lastGuild = payload, GetTime(), guild
+        if db then db.profSent[me] = { payload = payload, guild = guild, at = GetServerTime() } end
         Most.Send("PROF", payload, "low")
     end
 end
@@ -456,7 +473,9 @@ addonTable.SafeScript(Listener, "OnEvent", "professions.lua:431", function(self,
         -- Professions of players who were online before us (only what is newer than what we have)
         C_Timer.After(SYNC_REQUEST_DELAY, function() Request(0) end)
     elseif event == "PLAYER_GUILD_UPDATE" then
-        -- The new guild has not heard our professions yet
-        lastSent = nil
+        -- The new guild has not heard our professions yet. 1.3.1: only a real change of guild: the event fires
+        -- often (the 27.11 log: the same professions sent again every minute)
+        local guild = GetGuildInfo("player")
+        if guild and lastGuild and guild ~= lastGuild then lastSent = nil end
     end
 end)

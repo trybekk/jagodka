@@ -306,6 +306,9 @@ local MAX_TRIES = 30         -- refusals (server limit) before a packet is given
 local pausedUntil = 0
 local nextToTarget = {}      -- player key -> earliest time of the next whisper to them
 local lockNotedAt = -60      -- the last "blocked by the game" note in Monitoring (at most one a minute)
+-- 1.3.1: my own GUILD packets as they came back from the game (whole message -> when), see SendOne
+local ownEcho, ownEchoCount = {}, 0
+local echoSaved, echoNotedAt = 0, -60
 
 function Most.Send(pType, payload, priority)
     local item = { msg = pType .. ":" .. payload, tries = 0, queued = GetTime() }
@@ -381,6 +384,19 @@ local function SendOne(channel, now)
     if bucket.tokens < 1 then return end
     local queue, item, key = NextItem(channel, now)
     if not item then return end
+    -- 1.3.1: a GUILD packet the game answered with a limit but sent anyway: its echo came back after that try,
+    -- so it is not sent again (user: "to nie może zapychać"; log 27.11: right after login 135 players sent the
+    -- same professions packet 15-31 times, i.e. every retry went out). Whispers have no echo and stay as before.
+    if not item.target and item.firstTry and (ownEcho[item.msg] or -1) >= item.firstTry then
+        Remove(queue, item)
+        echoSaved = echoSaved + 1
+        if now - echoNotedAt > 60 and addonTable.Monitor then
+            echoNotedAt = now
+            addonTable.Monitor.Note("Send queue: a GUILD packet refused by the game had arrived anyway, not sent again (" .. echoSaved .. " so far)")
+        end
+        if addonTable.Monitor then addonTable.Monitor.TX(item.msg, "GUILD", nil, true, nil, now - item.queued, item.tries) end
+        return
+    end
     if item.target then nextToTarget[key] = now + TARGET_GAP end
     local result, kind = SendRaw(item)
     local ok = IsOk(result)
@@ -410,6 +426,7 @@ local function SendOne(channel, now)
     elseif IsThrottle(result) and item.tries < MAX_TRIES then
         -- A server limit: this channel waits and whispers slow down; the packet is retried, not lost
         if item.tries == 0 and addonTable.Monitor then addonTable.Monitor.Throttled(item.msg) end
+        item.firstTry = item.firstTry or now   -- 1.3.1: an echo after this means it went out anyway
         item.tries = item.tries + 1
         item.retryAt = now + ((result == 8) and 3 or 1.5)
         bucket.tokens = 0
@@ -1277,6 +1294,16 @@ local foreignRosterNoted = {} -- origin -> true: their foreign roster was noted 
 -- 1.1.5: packets whispered to me for a repost lately (whole "FW:origin:packet" -> when), see Most.Route
 local recentReposts, recentRepostCount, REPOST_SAME_WINDOW = {}, 0, 20
 function Most.Route(text, channel, senderName)
+    -- 1.3.1: my own GUILD packet came back: the send queue does not retry it (SendOne)
+    if channel == "GUILD" and senderName == MyName() and text then
+        local now = GetTime()
+        ownEcho[text] = now
+        ownEchoCount = ownEchoCount + 1
+        if ownEchoCount > 300 then
+            ownEchoCount = 0
+            for k, at in pairs(ownEcho) do if now - at > 120 then ownEcho[k] = nil else ownEchoCount = ownEchoCount + 1 end end
+        end
+    end
     local pType, rest = strsplit(":", text, 2)
     if pType ~= "FW" then
         -- Our own packets too: the game echoes them from GUILD, so there is one path for everyone.

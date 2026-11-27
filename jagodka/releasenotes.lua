@@ -21,6 +21,18 @@ addonTable.ReleaseNotes = ReleaseNotes
 
 -- Newest first: { version, lines, title }
 local LIST = {
+    { "1.3.1", {
+        "! Events now reach every guild: please update, so your guild can fetch the events it missed.",
+        "# Events",
+        "An event that did not reach your guild at once now shows up a bit later by itself: whenever a guild gets a new relay, it asks the other guilds for their events, also those of a guild with nobody online right now.",
+        "An event whose author your addon does not know yet (right after you log in) waits a few minutes instead of being lost.",
+        "A player who is no longer in any of our guilds drops out of the sign-ups by themselves. Back in a guild, they show again.",
+        "Cancel, All weeks on a weekly event no longer gets blocked by the game.",
+        "# Under the hood",
+        "Much less traffic: your professions are sent only when they change, not at every login, and a message the game says it could not send but that went out anyway is no longer sent again (some players sent the same one up to 30 times right after logging in). More room for events and chat between guilds.",
+        "# Officers",
+        "Monitoring: Preserve logs keeps 150 000 lines; event lines show how long ago the change was made and the event's title, so a log shows how fast events travel.",
+    }, "events reach every guild" },
     { "1.3.0", {
         "! New: weekly events. Pick the first date and time in Create Event, then Repeat: Every week, N times. The same day and time every week, up to about 2 months.",
         "# Weekly events",
